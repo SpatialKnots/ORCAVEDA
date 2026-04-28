@@ -1,0 +1,50 @@
+Filename,mode,frequency_cm-1,functional_group_assignment,assignment_confidence,assignment_confidence_score,top1_coord,top1_percent,warnings
+Acetone_freq.hess,24,3027.657387725822,C-H stretch,low,36.8,methyl_CH_stretch(C3-H9),21.758,near_degenerate_within_10_cm-1; diffuse_internal_coordinate_contributions; mode_level_warning_present
+Acetone_freq.hess,25,3033.7139538931365,C-H stretch,low,36.7,methyl_CH_stretch(C2-H7),21.448,near_degenerate_within_10_cm-1; diffuse_internal_coordinate_contributions; mode_level_warning_present
+Acetone_freq.hess,26,3104.4598597762165,C-H stretch,medium,53.5,methyl_CH_stretch(C3-H10),27.818,near_degenerate_within_10_cm-1; mode_level_warning_present
+Acetone_freq.hess,27,3111.1595344946563,C-H stretch,medium,53.5,methyl_CH_stretch(C2-H8),27.814,near_degenerate_within_10_cm-1; mode_level_warning_present
+Acetone_freq.hess,28,3152.415455216976,C-H stretch,low,35.9,methyl_CH_stretch(C3-H4),44.867,near_degenerate_within_10_cm-1; imbalanced_XH2_pair_contributions; mode_level_warning_present
+Acetone_freq.hess,29,3153.175576574548,C-H stretch,low,35.6,methyl_CH_stretch(C2-H6),44.284,near_degenerate_within_10_cm-1; imbalanced_XH2_pair_contributions; mode_level_warning_present
+CH3CN_freq.hess,15,3047.6421325051165,C-H stretch,medium,65.0,methyl_CH_stretch(C1-H5),33.302,
+CH3CN_freq.hess,16,3143.921862755699,C-H stretch,medium,65.5,methyl_CH_stretch(C1-H4),66.669,near_degenerate_within_10_cm-1; imbalanced_XH2_pair_contributions; mode_level_warning_present
+CH3CN_freq.hess,17,3144.201158650852,C-H stretch,medium,63.6,methyl_CH_stretch(C1-H6),50.075,near_degenerate_within_10_cm-1; mode_level_warning_present
+DMF_freq.hess,29,2960.0816267052546,C-H stretch,high,100.0,methine_CH_stretch(C1-H11),99.273,
+DMF_freq.hess,30,3023.9645450175967,C-H stretch,medium,52.8,methyl_CH_stretch(C5-H9),26.075,near_degenerate_within_10_cm-1; mode_level_warning_present
+DMF_freq.hess,31,3030.81243078864,C-H stretch,medium,52.9,methyl_CH_stretch(C4-H12),26.338,near_degenerate_within_10_cm-1; mode_level_warning_present
+DMF_freq.hess,32,3092.9149566302303,C-H stretch,medium,63.5,methyl_CH_stretch(C5-H10),49.877,near_degenerate_within_10_cm-1; mode_level_warning_present
+DMF_freq.hess,33,3099.1006011966047,C-H stretch,medium,63.4,methyl_CH_stretch(C4-H7),49.723,near_degenerate_within_10_cm-1; mode_level_warning_present
+DMF_freq.hess,34,3155.6650167856305,C-H stretch,low,47.1,methyl_CH_stretch(C4-H6),58.61,near_degenerate_within_10_cm-1; imbalanced_XH2_pair_contributions; mode_level_warning_present
+DMF_freq.hess,35,3164.20958278148,C-H stretch,low,46.9,methyl_CH_stretch(C5-H8),58.582,near_degenerate_within_10_cm-1; imbalanced_XH2_pair_contributions; mode_level_warning_present
+DMSO_freq.hess,24,3037.975563567288,C-H stretch,medium,58.3,methyl_CH_stretch(C1-H6),35.633,near_degenerate_within_10_cm-1; mode_level_warning_present
+DMSO_freq.hess,25,3039.135140591874,C-H stretch,medium,58.3,methyl_CH_stretch(C3-H10),35.467,near_degenerate_within_10_cm-1; mode_level_warning_present
+DMSO_freq.hess,26,3161.09413686514,C-H stretch,medium,69.2,methyl_CH_stretch(C1-H6),50.946,near_degenerate_within_10_cm-1; mode_level_warning_present
+DMSO_freq.hess,27,3163.0207216679487,C-H stretch,medium,72.7,methyl_CH_stretch(C3-H10),52.316,near_degenerate_within_10_cm-1; mode_level_warning_present
+DMSO_freq.hess,28,3166.189344109495,C-H stretch,medium,64.0,methyl_CH_stretch(C1-H5),42.232,near_degenerate_within_10_cm-1; mode_level_warning_present
+DMSO_freq.hess,29,3167.557318448959,C-H stretch,medium,55.6,methyl_CH_stretch(C3-H8),32.101,near_degenerate_within_10_cm-1; mode_level_warning_present
+EtOH_freq.hess,21,2966.677702414109,CH2 symmetric stretch,medium,72.9,methylene_CH_stretch(C1-H7),50.369,
+EtOH_freq.hess,22,2997.44542315068,CH2 asymmetric stretch,medium,72.8,methylene_CH_stretch(C1-H6),50.035,
+EtOH_freq.hess,23,3025.9682342737933,C-H stretch,medium,66.6,methyl_CH_stretch(C2-H3),36.9,
+EtOH_freq.hess,24,3107.4793227589976,C-H stretch,medium,72.9,methyl_CH_stretch(C2-H3),50.143,
+EtOH_freq.hess,25,3118.3906206219094,C-H stretch,medium,69.7,methyl_CH_stretch(C2-H4),73.205,imbalanced_XH2_pair_contributions
+EtOH_freq.hess,26,3798.850921455498,O-H stretch,high,100.0,alcohol_OH_stretch(O8-H9),99.977,
+MeOH_freq.hess,14,2972.281994831384,C-H stretch,medium,70.9,methyl_CH_stretch(C1-H5),45.998,
+MeOH_freq.hess,15,3026.536553399688,C-H stretch,medium,72.8,methyl_CH_stretch(C1-H6),50.359,
+MeOH_freq.hess,16,3097.7650242608643,C-H stretch,high,83.9,methyl_CH_stretch(C1-H4),90.119,imbalanced_XH2_pair_contributions
+MeOH_freq.hess,17,3793.037740885773,O-H stretch,high,100.0,alcohol_OH_stretch(O2-H3),99.952,
+NMP_freq.hess,39,2997.8456284748563,CH2 symmetric stretch,high,83.7,methylene_CH_stretch(C3-H13),90.773,imbalanced_XH2_pair_contributions
+NMP_freq.hess,40,3011.7272980814923,C-H stretch,high,82.1,methyl_CH_stretch(C7-H16),56.642,
+NMP_freq.hess,41,3042.084289291939,CH2 symmetric stretch,high,80.8,methylene_CH_stretch(C2-H8),88.028,imbalanced_XH2_pair_contributions
+NMP_freq.hess,42,3060.6392376189424,CH2 symmetric stretch,medium,74.7,methylene_CH_stretch(C1-H10),67.358,imbalanced_XH2_pair_contributions
+NMP_freq.hess,43,3075.036311291737,CH2 asymmetric stretch,medium,58.3,methylene_CH_stretch(C3-H12),67.826,near_degenerate_within_10_cm-1; imbalanced_XH2_pair_contributions; mode_level_warning_present
+NMP_freq.hess,44,3080.5668364254548,C-H stretch,medium,67.9,methyl_CH_stretch(C7-H14),50.898,near_degenerate_within_10_cm-1; mode_level_warning_present
+NMP_freq.hess,45,3116.0019129196853,CH2 asymmetric stretch,medium,63.8,methylene_CH_stretch(C2-H9),76.946,near_degenerate_within_10_cm-1; imbalanced_XH2_pair_contributions; mode_level_warning_present
+NMP_freq.hess,46,3125.413749288991,CH2 asymmetric stretch,high,79.4,methylene_CH_stretch(C1-H11),63.194,near_degenerate_within_10_cm-1; mode_level_warning_present
+NMP_freq.hess,47,3150.414722022682,C-H stretch,high,80.0,methyl_CH_stretch(C7-H15),86.158,imbalanced_XH2_pair_contributions
+iPrOH_freq.hess,28,2960.70050988432,C-H stretch,high,100.0,methine_CH_stretch(C2-H8),99.044,
+iPrOH_freq.hess,29,3016.9589986897267,C-H stretch,medium,57.4,methyl_CH_stretch(C9-H10),35.323,near_degenerate_within_10_cm-1; mode_level_warning_present
+iPrOH_freq.hess,30,3026.5725544130646,C-H stretch,medium,63.9,methyl_CH_stretch(C1-H7),42.841,near_degenerate_within_10_cm-1; mode_level_warning_present
+iPrOH_freq.hess,31,3098.737178061999,C-H stretch,medium,74.7,methyl_CH_stretch(C9-H10),59.948,near_degenerate_within_10_cm-1; mode_level_warning_present
+iPrOH_freq.hess,32,3107.203308387393,C-H stretch,medium,61.1,methyl_CH_stretch(C1-H7),37.893,near_degenerate_within_10_cm-1; mode_level_warning_present
+iPrOH_freq.hess,33,3110.477210905011,C-H stretch,medium,66.4,methyl_CH_stretch(C9-H12),44.467,near_degenerate_within_10_cm-1; mode_level_warning_present
+iPrOH_freq.hess,34,3122.721320737332,C-H stretch,high,91.1,methyl_CH_stretch(C1-H5),68.016,
+iPrOH_freq.hess,35,3787.851608616405,O-H stretch,high,100.0,alcohol_OH_stretch(O3-H4),99.978,

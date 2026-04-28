@@ -1,0 +1,9 @@
+Filename,formula,natoms,rank_B_independent,expected_rank_3N_minus_6,rank_pass,negative_freq_count_after_first_6,functional_groups,high_frequency_unassigned_count
+Acetone_freq.hess,C3H6O,10,24,24,True,0,carbonyl_C=O;ketone;methyl,0
+CH3CN_freq.hess,C2H3N,6,12,12,True,0,methyl;nitrile_C≡N,0
+DMF_freq.hess,C3H7NO,12,30,30,True,2,amide;carbonyl_C=O;methine;methyl,0
+DMSO_freq.hess,C2H6OS,10,24,24,True,0,methyl;sulfoxide;sulfoxide_S=O,0
+EtOH_freq.hess,C2H6O,9,21,21,True,0,alcohol;methyl;methylene,0
+MeOH_freq.hess,CH4O,6,12,12,True,0,alcohol;methyl,0
+NMP_freq.hess,C5H9NO,16,42,42,True,0,carbonyl_C=O;lactam_amide;methyl;methylene;ring,0
+iPrOH_freq.hess,C3H8O,12,30,30,True,0,alcohol;methine;methyl,0

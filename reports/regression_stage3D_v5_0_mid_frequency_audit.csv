@@ -1,0 +1,9 @@
+Filename,target,status,mode,frequency_cm-1,assignment,top1_coord,top1_percent,confidence,score
+CH3CN_freq.hess,C≡N stretch,PASS,14,2375.581469926962,C≡N stretch mixed with bond stretch,nitrile_CN_stretch(C2≡N3),70.247,high,83.8
+DMSO_freq.hess,S=O stretch,PASS,17,1048.8888310957743,S=O stretch mixed with angle bend,sulfoxide_SO_stretch(S2=O4),74.863,high,89.2
+Acetone_freq.hess,C=O stretch,PASS,23,1798.5537286508404,C=O stretch,carbonyl_CO_stretch(C1=O5),81.212,high,100.0
+DMF_freq.hess,C=O stretch,PASS,28,1760.2855066237566,C=O stretch mixed with angle bend,carbonyl_CO_stretch(C1=O2),70.718,high,85.7
+NMP_freq.hess,C=O stretch,PASS,38,1768.3073629316689,C=O stretch mixed with bond stretch,carbonyl_CO_stretch(C4=O6),78.192,high,93.5
+MeOH_freq.hess,C-O stretch,PASS,8,1091.8086756523585,C-O stretch mixed with angle bend,alcohol_CO_stretch(C1-O2),62.848,medium,74.5
+EtOH_freq.hess,C-O stretch,PASS,12,1113.672977503852,C-O stretch mixed with angle bend,alcohol_CO_stretch(C1-O8),54.907,medium,69.6
+iPrOH_freq.hess,C-O stretch,PASS,15,971.1528163747686,C-O stretch mixed with angle bend,alcohol_CO_stretch(C2-O3),33.427,medium,53.8

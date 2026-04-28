@@ -1,0 +1,132 @@
+{
+  "version": "Stage 3D v5.0",
+  "scope": "Formalized regression expectations for ORCAVEDA Stage 3D v5.0 test harness",
+  "global_checks": {
+    "parser_must_complete": true,
+    "rank_B_independent_equals_expected_rank_3N_minus_6": true,
+    "high_frequency_unassigned_count_must_be": 0,
+    "forbid_CH2_labels_without_methylene_group": true,
+    "sanity_check_monoethanolamine_benchmark_must_skip": true
+  },
+  "molecules": {
+    "CH3CN_freq.hess": {
+      "must_detect_functional_groups": [
+        "nitrile_C≡N",
+        "methyl"
+      ],
+      "must_assign_mid_frequency": [
+        "C≡N stretch"
+      ],
+      "forbidden_assignments": [
+        "CH2 symmetric stretch",
+        "CH2 asymmetric stretch"
+      ]
+    },
+    "DMSO_freq.hess": {
+      "must_detect_functional_groups": [
+        "sulfoxide",
+        "sulfoxide_S=O",
+        "methyl"
+      ],
+      "must_assign_mid_frequency": [
+        "S=O stretch"
+      ],
+      "forbidden_assignments": [
+        "CH2 symmetric stretch",
+        "CH2 asymmetric stretch"
+      ]
+    },
+    "Acetone_freq.hess": {
+      "must_detect_functional_groups": [
+        "carbonyl_C=O",
+        "ketone",
+        "methyl"
+      ],
+      "must_assign_mid_frequency": [
+        "C=O stretch"
+      ],
+      "forbidden_assignments": [
+        "CH2 symmetric stretch",
+        "CH2 asymmetric stretch"
+      ]
+    },
+    "DMF_freq.hess": {
+      "must_detect_functional_groups": [
+        "carbonyl_C=O",
+        "amide",
+        "methyl",
+        "methine"
+      ],
+      "must_assign_mid_frequency": [
+        "C=O stretch"
+      ],
+      "expected_warning": [
+        "negative_vibrational_frequency_after_first_6"
+      ],
+      "forbidden_assignments": [
+        "CH2 symmetric stretch",
+        "CH2 asymmetric stretch"
+      ],
+      "expected_warning_flags": [
+        "negative_vibrational_frequency_after_first_6"
+      ]
+    },
+    "NMP_freq.hess": {
+      "must_detect_functional_groups": [
+        "carbonyl_C=O",
+        "lactam_amide",
+        "methylene",
+        "methyl",
+        "ring"
+      ],
+      "must_assign_mid_frequency": [
+        "C=O stretch"
+      ]
+    },
+    "MeOH_freq.hess": {
+      "must_detect_functional_groups": [
+        "alcohol",
+        "methyl"
+      ],
+      "must_assign_mid_frequency": [
+        "C-O stretch"
+      ],
+      "forbidden_assignments": [
+        "CH2 symmetric stretch",
+        "CH2 asymmetric stretch"
+      ]
+    },
+    "EtOH_freq.hess": {
+      "must_detect_functional_groups": [
+        "alcohol",
+        "methylene",
+        "methyl"
+      ],
+      "must_assign_mid_frequency": [
+        "C-O stretch"
+      ]
+    },
+    "iPrOH_freq.hess": {
+      "must_detect_functional_groups": [
+        "alcohol",
+        "methyl",
+        "methine"
+      ],
+      "must_assign_mid_frequency": [
+        "C-O stretch"
+      ],
+      "forbidden_assignments": [
+        "CH2 symmetric stretch",
+        "CH2 asymmetric stretch"
+      ]
+    }
+  },
+  "cleanup_expectations": {
+    "protected_xh_unused_norm_power_blank": true,
+    "assignment_columns_must_match_v4_8": true
+  },
+  "notes": [
+    "v5.0 formalizes regression testing as project structure; chemistry assignment logic is inherited from v4.9.",
+    "DMF negative frequencies after first six modes are tracked as input-quality warning, not assignment failure."
+  ]
+}
