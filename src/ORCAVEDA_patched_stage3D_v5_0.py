@@ -22,7 +22,6 @@ This module is conservative: unsupported chemistry is reported explicitly rather
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Sequence, Tuple, Optional
 import math
@@ -32,146 +31,64 @@ import json
 import numpy as np
 import pandas as pd
 
+from chemistry import (
+    SUPPORTED_ELEMENTS,
+    adjacency,
+    annotate_chemical_system as chemistry_annotate_chemical_system,
+    atom_environment_table as chemistry_atom_environment_table,
+    build_connectivity as chemistry_build_connectivity,
+    classify_system as chemistry_classify_system,
+    detect_functional_groups as chemistry_detect_functional_groups,
+    detect_interfragment_hbonds as chemistry_detect_interfragment_hbonds,
+    expected_vibrational_rank as chemistry_expected_vibrational_rank,
+    formula_string as chemistry_formula_string,
+    get_supported_elements as chemistry_get_supported_elements,
+    split_fragments as chemistry_split_fragments,
+)
+from b_matrix import (
+    finite_difference_B as bmatrix_finite_difference_B,
+    select_independent_coordinates as bmatrix_select_independent_coordinates,
+    svd_rank_condition as bmatrix_svd_rank_condition,
+)
+from internal_coordinates import (
+    angle_deg_from_vectors as internal_angle_deg_from_vectors,
+    angle_fn as internal_angle_fn,
+    build_internal_coordinates as internal_build_internal_coordinates,
+    dihedral_rad as internal_dihedral_rad,
+    distance_fn as internal_distance_fn,
+    torsion_fn as internal_torsion_fn,
+)
+from mode_tracking import (
+    mode_tracking_outputs_for_hess_files as tracking_mode_tracking_outputs_for_hess_files,
+)
+from mode_assignment import (
+    build_stage3d_assignment_audit as mode_assignment_build_stage3d_assignment_audit,
+)
+from orca_parser import (
+    parse_atoms as parser_parse_atoms,
+    parse_block_matrix as parser_parse_block_matrix,
+    parse_frequencies as parser_parse_frequencies,
+    parse_ir_spectrum as parser_parse_ir_spectrum,
+    parse_scalar_section as parser_parse_scalar_section,
+    read_orca_hess as parser_read_orca_hess,
+    split_orca_hess_sections as parser_split_orca_hess_sections,
+)
+from reports import (
+    normalize_sheet_name as reports_normalize_sheet_name,
+    output_prefix_for_hess_paths as reports_output_prefix_for_hess_paths,
+    safe_output_stem as reports_safe_output_stem,
+    write_xlsx_report as reports_write_xlsx_report,
+)
+from orcaveda_cli import (
+    cli_main as external_cli_main,
+    colab_upload_and_run as external_colab_upload_and_run,
+    is_google_colab as external_is_google_colab,
+)
+from orcaveda_models import ChemicalSystemAnnotation, FunctionalGroup, HessData, InternalCoordinate
+
 
 BOHR_TO_ANGSTROM = 0.529177210903
-COVALENT_RADII_A = {
-    "H": 0.31, "C": 0.76, "N": 0.71, "O": 0.66, "S": 1.05,
-    "F": 0.57, "Cl": 1.02, "Br": 1.20, "I": 1.39, "P": 1.07,
-}
-SUPPORTED_ELEMENTS = set(COVALENT_RADII_A)
 EPS_FD_A = 1.0e-4
-
-
-@dataclass
-class HessData:
-    filename: str
-    atoms: List[str]
-    masses: np.ndarray
-    coords_A: np.ndarray
-    frequencies_cm1: np.ndarray
-    ir_intensities: np.ndarray
-    normal_modes: np.ndarray
-    temperature_K: Optional[float] = None
-    frequency_scale_factor: Optional[float] = None
-
-
-@dataclass
-class InternalCoordinate:
-    name: str
-    kind: str
-    atoms0: Tuple[int, ...]
-    priority: int
-    fn: Callable[[np.ndarray], float]
-    source: str = "primitive"
-
-
-@dataclass
-class FunctionalGroup:
-    group: str
-    atoms0: Tuple[int, ...]
-    description: str
-    confidence: str
-    evidence: str
-
-
-def split_orca_hess_sections(text: str) -> Dict[str, List[str]]:
-    lines = text.splitlines()
-    starts = [(line.strip(), i) for i, line in enumerate(lines) if line.strip().startswith("$")]
-    return {
-        name: lines[i + 1 : (starts[k + 1][1] if k + 1 < len(starts) else len(lines))]
-        for k, (name, i) in enumerate(starts)
-    }
-
-
-def parse_atoms(lines: List[str]) -> Tuple[List[str], np.ndarray, np.ndarray]:
-    natoms = int(lines[0].strip())
-    atoms, masses, coords = [], [], []
-    for line in lines[1 : 1 + natoms]:
-        parts = line.split()
-        atoms.append(parts[0])
-        masses.append(float(parts[1]))
-        coords.append([float(x) * BOHR_TO_ANGSTROM for x in parts[2:5]])
-    return atoms, np.array(masses), np.array(coords)
-
-
-def parse_frequencies(lines: List[str]) -> np.ndarray:
-    n = int(lines[0].strip())
-    values = np.zeros(n)
-    for line in lines[1:]:
-        if line.strip():
-            i, v = line.split()[:2]
-            values[int(i)] = float(v)
-    return values
-
-
-def parse_scalar_section(lines: List[str]) -> Optional[float]:
-    for line in lines:
-        parts = line.split()
-        for p in parts:
-            try:
-                return float(p.replace("D", "E"))
-            except ValueError:
-                continue
-    return None
-
-
-def parse_ir_spectrum(lines: List[str]) -> Tuple[np.ndarray, np.ndarray]:
-    n = int(lines[0].strip())
-    freqs, intensities = [], []
-    for line in lines[1 : 1 + n]:
-        parts = line.split()
-        if len(parts) >= 3:
-            freqs.append(float(parts[0]))
-            intensities.append(float(parts[2]))
-    return np.array(freqs), np.array(intensities)
-
-
-def parse_block_matrix(lines: List[str]) -> np.ndarray:
-    dims = list(map(int, lines[0].split()[:2]))
-    nrow, ncol = dims
-    matrix = np.zeros((nrow, ncol))
-    current_cols: List[int] = []
-    for line in lines[1:]:
-        if not line.strip():
-            continue
-        parts = line.split()
-        # ORCA block-matrix column headers may contain one or more column indices.
-        # The previous len(parts) > 1 guard silently skipped single-column headers,
-        # which can zero out the final normal-mode column when 3N is not aligned
-        # with the printed block width.
-        if len(parts) >= 1 and all(re.fullmatch(r"\d+", x) for x in parts):
-            current_cols = list(map(int, parts))
-            continue
-        if current_cols and re.fullmatch(r"\d+", parts[0]):
-            row = int(parts[0])
-            values = [float(x.replace("D", "E")) for x in parts[1:]]
-            for col, value in zip(current_cols, values):
-                matrix[row, col] = value
-    return matrix
-
-
-def read_orca_hess(path: str | Path) -> HessData:
-    path = Path(path)
-    sections = split_orca_hess_sections(path.read_text(errors="ignore"))
-    required = ["$atoms", "$vibrational_frequencies", "$normal_modes", "$ir_spectrum"]
-    missing = [s for s in required if s not in sections]
-    if missing:
-        raise ValueError(f"Missing required .hess sections in {path.name}: {missing}")
-
-    atoms, masses, coords_A = parse_atoms(sections["$atoms"])
-    frequencies = parse_frequencies(sections["$vibrational_frequencies"])
-    _, intensities = parse_ir_spectrum(sections["$ir_spectrum"])
-    normal_modes = parse_block_matrix(sections["$normal_modes"])
-    temp = parse_scalar_section(sections.get("$actual_temperature", []))
-    scale = parse_scalar_section(sections.get("$frequency_scale_factor", []))
-
-    n3 = 3 * len(atoms)
-    if normal_modes.shape != (n3, n3):
-        raise ValueError(f"normal_modes shape mismatch: {normal_modes.shape}, expected {(n3, n3)}")
-    if len(frequencies) != n3 or len(intensities) != n3:
-        raise ValueError("frequency/intensity length mismatch with 3N")
-
-    return HessData(path.name, atoms, masses, coords_A, frequencies, intensities, normal_modes, temp, scale)
 
 
 def parse_orca_out_metadata(path: str | Path) -> Dict[str, object]:
@@ -471,6 +388,39 @@ def detect_functional_groups(atoms, coords_A, bonds) -> List[FunctionalGroup]:
         add("ring", r, f"{len(r)}-membered ring candidate", "medium", "simple cycle detected in covalent graph")
 
     return groups
+
+
+# Extracted parser and chemistry entry points are rebound here so the rest of the
+# Stage 3D engine uses the new modules without changing downstream call sites.
+split_orca_hess_sections = parser_split_orca_hess_sections
+parse_atoms = parser_parse_atoms
+parse_frequencies = parser_parse_frequencies
+parse_scalar_section = parser_parse_scalar_section
+parse_ir_spectrum = parser_parse_ir_spectrum
+parse_block_matrix = parser_parse_block_matrix
+read_orca_hess = parser_read_orca_hess
+build_connectivity = chemistry_build_connectivity
+split_fragments = chemistry_split_fragments
+formula_string = chemistry_formula_string
+classify_system = chemistry_classify_system
+expected_vibrational_rank = chemistry_expected_vibrational_rank
+detect_interfragment_hbonds = chemistry_detect_interfragment_hbonds
+atom_environment_table = chemistry_atom_environment_table
+detect_functional_groups = chemistry_detect_functional_groups
+annotate_chemical_system = chemistry_annotate_chemical_system
+distance_fn = internal_distance_fn
+angle_fn = internal_angle_fn
+dihedral_rad = internal_dihedral_rad
+torsion_fn = internal_torsion_fn
+build_internal_coordinates = internal_build_internal_coordinates
+finite_difference_B = bmatrix_finite_difference_B
+svd_rank_condition = bmatrix_svd_rank_condition
+select_independent_coordinates = bmatrix_select_independent_coordinates
+safe_output_stem = reports_safe_output_stem
+output_prefix_for_hess_paths = reports_output_prefix_for_hess_paths
+normalize_sheet_name = reports_normalize_sheet_name
+write_xlsx_report = reports_write_xlsx_report
+mode_tracking_outputs_for_hess_files = tracking_mode_tracking_outputs_for_hess_files
 
 
 def distance_fn(i: int, j: int) -> Callable[[np.ndarray], float]:
@@ -1688,12 +1638,13 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
 
         natoms = len(hess.atoms)
         n3 = 3 * natoms
-        bonds = build_connectivity(hess.atoms, hess.coords_A)
-        fragments = split_fragments(natoms, bonds)
-        system_type = classify_system(fragments)
+        chemical_annotation: ChemicalSystemAnnotation = annotate_chemical_system(hess.atoms, hess.coords_A)
+        bonds = list(chemical_annotation.bonds)
+        fragments = [list(fragment) for fragment in chemical_annotation.fragments]
+        system_type = chemical_annotation.system_type
         expected_rank = expected_vibrational_rank(natoms, linear=False)
-        hbonds = detect_interfragment_hbonds(hess.atoms, hess.coords_A, bonds, fragments)
-        groups = detect_functional_groups(hess.atoms, hess.coords_A, bonds)
+        hbonds = list(chemical_annotation.interfragment_hbonds)
+        groups = list(chemical_annotation.functional_groups)
 
         internals = build_internal_coordinates(hess.atoms, hess.coords_A, bonds, fragments, hbonds, groups)
         B = finite_difference_B(hess.coords_A, internals)
@@ -1724,7 +1675,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
         if not sanity_df.empty:
             sanity_rows.extend(sanity_df.to_dict("records"))
 
-        unsupported = sorted(set(hess.atoms) - SUPPORTED_ELEMENTS)
+        unsupported = sorted(set(hess.atoms) - chemistry_get_supported_elements())
         flags = []
         if unsupported:
             flags.append("unsupported_elements:" + ",".join(unsupported))
@@ -1751,7 +1702,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             "File_type": "DATASET/HESSIAN",
             "Completeness": "complete_required_sections" if True else "not_checked",
             "natoms": natoms,
-            "formula": formula_string(hess.atoms),
+            "formula": chemical_annotation.formula,
             "system_type": system_type,
             "route_line_out": out_meta.get("route_line", ""),
             "cpcm_epsilon_out": out_meta.get("cpcm_epsilon", ""),
@@ -1762,14 +1713,14 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
         summary_rows.append({
             "Source": f"[{source_index}]",
             "Filename": hess.filename,
-            "formula": formula_string(hess.atoms),
+            "formula": chemical_annotation.formula,
             "natoms": natoms,
             "3N": n3,
             "system_type": system_type,
             "fragments": len(fragments),
-            "fragment_sizes": ";".join(str(len(x)) for x in fragments),
+            "fragment_sizes": ";".join(str(size) for size in chemical_annotation.fragment_sizes),
             "bonds_detected": len(bonds),
-            "functional_groups_detected": "; ".join(sorted(set(g.group for g in groups))),
+            "functional_groups_detected": "; ".join(chemical_annotation.functional_group_labels),
             "functional_group_count": len(groups),
             "interfragment_hbond_count": len(hbonds),
             "internal_coordinates_redundant": len(internals),
@@ -2315,6 +2266,23 @@ def mode_tracking_outputs_for_hess_files(
         df.to_csv(outdir / f"{output_prefix}__{name}.csv", index=False)
     return tables
 
+
+# Rebind extracted modules after legacy in-file definitions so downstream code
+# and external imports use the dedicated modules without changing call sites.
+distance_fn = internal_distance_fn
+angle_fn = internal_angle_fn
+dihedral_rad = internal_dihedral_rad
+torsion_fn = internal_torsion_fn
+build_internal_coordinates = internal_build_internal_coordinates
+finite_difference_B = bmatrix_finite_difference_B
+svd_rank_condition = bmatrix_svd_rank_condition
+select_independent_coordinates = bmatrix_select_independent_coordinates
+safe_output_stem = reports_safe_output_stem
+output_prefix_for_hess_paths = reports_output_prefix_for_hess_paths
+normalize_sheet_name = reports_normalize_sheet_name
+write_xlsx_report = reports_write_xlsx_report
+mode_tracking_outputs_for_hess_files = tracking_mode_tracking_outputs_for_hess_files
+
 def general_outputs_for_hess_files(paths: Sequence[str | Path], outdir: str | Path, out_paths: Optional[Sequence[str | Path]] = None) -> Dict[str, pd.DataFrame]:
     """
     Pipeline hook for the main PED workflow.
@@ -2379,77 +2347,15 @@ run_orca_ped_like_with_general_engine = analyze_orca_ped_like
 
 
 def cli_main():
-    """
-    Terminal-safe launcher.
-    Example:
-        python ORCAVEDA.py file1.hess file2.hess --outdir results
-    """
-    import argparse
-
-    parser = argparse.ArgumentParser(description="ORCAVEDA: ORCA-native vibrational/PED-like analyzer")
-    parser.add_argument("hess", nargs="*", help="Input ORCA .hess files")
-    parser.add_argument("--outdir", default="orca_ped_results", help="Output directory")
-
-    args, unknown = parser.parse_known_args()
-
-    hess_paths = [
-        str(Path(x))
-        for x in args.hess
-        if str(x).lower().endswith(".hess")
-    ]
-
-    if not hess_paths:
-        print("No .hess files provided via command line.")
-        print('Terminal example: python ORCAVEDA.py file1.hess file2.hess --outdir results')
-        print('Colab example: run_orca_ped_like(["/content/file1.hess"], "orca_ped_results")')
-        return
-
-    run_orca_ped_like(hess_paths, args.outdir)
+    external_cli_main(run_orca_ped_like)
 
 
 def colab_upload_and_run():
-    """
-    Google Colab-friendly launcher:
-    upload .hess files interactively
-    and run full PED workflow.
-    """
-    from google.colab import files
-    from pathlib import Path
-
-    print("Upload one or more ORCA .hess files")
-
-    uploaded = files.upload()
-
-    hess_paths = []
-
-    for filename in uploaded.keys():
-        if filename.lower().endswith(".hess"):
-            hess_paths.append(str(Path(filename).resolve()))
-
-    if not hess_paths:
-        print("No .hess files uploaded.")
-        return
-
-    print("\nDetected .hess files:")
-    for p in hess_paths:
-        print(" -", p)
-
-    outdir = "orca_ped_results"
-
-    run_orca_ped_like(
-    hess_paths,
-    outdir
-    )
-
-    print(f"\nDone. Results saved to: {outdir}")
+    external_colab_upload_and_run(run_orca_ped_like)
 
 
 def is_google_colab():
-    try:
-        import google.colab
-        return True
-    except ModuleNotFoundError:
-        return False
+    return external_is_google_colab()
 
 
 
@@ -2891,11 +2797,16 @@ def build_stage3d_assignment_audit(
     return df
 
 
+# Final assignment-layer rebind: use the extracted module implementation,
+# which preserves the same v4.3/v4.4/v4.6 wrapper chain out of the monolith.
+build_stage3d_assignment_audit = mode_assignment_build_stage3d_assignment_audit
+
+
 
 if __name__ == "__main__":
     if is_google_colab():
-        print("Google Colab detected → starting upload mode")
+        print("Google Colab detected -> starting upload mode")
         colab_upload_and_run()
     else:
-        print("Terminal mode detected → using CLI")
+        print("Terminal mode detected -> using CLI")
         cli_main()
