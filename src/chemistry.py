@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Protocol, Sequence, Tuple
 
@@ -19,6 +20,7 @@ COVALENT_RADII_A = {
     "F": 0.57, "Cl": 1.02, "Br": 1.20, "I": 1.39, "P": 1.07,
 }
 SUPPORTED_ELEMENTS = set(COVALENT_RADII_A)
+CHEMISTRY_BACKEND_ENV_VAR = "ORCAVEDA_CHEM_BACKEND"
 
 
 def build_connectivity(atoms: Sequence[str], coords_A: np.ndarray, scale: float = 1.25, extra_A: float = 0.15):
@@ -407,14 +409,24 @@ _BACKENDS: Dict[str, ChemistryBackend] = {
 _ACTIVE_BACKEND_NAME = "legacy"
 
 
+def _normalize_backend_name(name: str) -> str:
+    return str(name).strip().lower()
+
+
 def register_backend(backend: ChemistryBackend) -> None:
-    _BACKENDS[str(backend.name)] = backend
+    _BACKENDS[_normalize_backend_name(backend.name)] = backend
 
 
 def get_backend(name: str) -> ChemistryBackend:
-    if name not in _BACKENDS:
-        raise KeyError(f"Unknown chemistry backend: {name}")
-    return _BACKENDS[name]
+    normalized_name = _normalize_backend_name(name)
+    if normalized_name not in _BACKENDS:
+        available = ", ".join(list_backends())
+        raise KeyError(f"Unknown chemistry backend: {name}. Available backends: {available}")
+    return _BACKENDS[normalized_name]
+
+
+def list_backends() -> Tuple[str, ...]:
+    return tuple(sorted(_BACKENDS))
 
 
 def get_active_backend() -> ChemistryBackend:
@@ -428,12 +440,19 @@ def get_active_backend_name() -> str:
 def set_active_backend(name: str) -> ChemistryBackend:
     global _ACTIVE_BACKEND_NAME
     backend = get_backend(name)
-    _ACTIVE_BACKEND_NAME = str(backend.name)
+    _ACTIVE_BACKEND_NAME = _normalize_backend_name(backend.name)
     return backend
 
 
 def get_supported_elements() -> set[str]:
     return set(get_active_backend().supported_elements)
+
+
+def set_active_backend_from_env(env_var: str = CHEMISTRY_BACKEND_ENV_VAR) -> Optional[ChemistryBackend]:
+    backend_name = os.environ.get(env_var, "").strip()
+    if not backend_name:
+        return None
+    return set_active_backend(backend_name)
 
 
 def build_connectivity(atoms: Sequence[str], coords_A: np.ndarray, scale: float = 1.25, extra_A: float = 0.15):
@@ -462,3 +481,16 @@ def detect_functional_groups(atoms, coords_A, bonds) -> List[FunctionalGroup]:
 
 def annotate_chemical_system(atoms, coords_A) -> ChemicalSystemAnnotation:
     return get_active_backend().annotate_chemical_system(atoms, coords_A)
+
+
+try:
+    from chemistry_rdkit_backend import RDKitChemistryBackend
+except ModuleNotFoundError:
+    RDKitChemistryBackend = None  # type: ignore[assignment]
+except Exception:
+    RDKitChemistryBackend = None  # type: ignore[assignment]
+else:
+    try:
+        register_backend(RDKitChemistryBackend())
+    except Exception:
+        pass

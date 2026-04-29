@@ -52,6 +52,35 @@ def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
     kind = ic.kind.lower()
     name = ic.name.lower()
 
+    if "phenol_oh_stretch" in name or "phenolic_oh_stretch" in kind or "phenolic_oh_stretch" in name:
+        return "phenolic O-H stretch"
+    if "phenol_co_stretch" in name or "phenolic_co_stretch" in kind or "phenolic_co_stretch" in name:
+        return "phenolic C-O stretch"
+    if "phenol_coh_bend" in name or "phenolic_coh_bend" in kind or "phenolic_coh_bend" in name:
+        return "phenolic O-H bend"
+    if "secondary_aryl_amine_nh_stretch" in name or "secondary_aryl_amine_nh_stretch" in kind:
+        return "secondary aryl amine N-H stretch"
+    if "secondary_aryl_amine_cn_stretch" in name or "secondary_aryl_amine_cn_stretch" in kind:
+        return "aryl C-N stretch"
+    if "aniline_nh_stretch" in name or "aryl_amine_nh_stretch" in kind or "aryl_amine_nh_stretch" in name:
+        return "aryl amine N-H stretch"
+    if "aniline_cn_stretch" in name or "aryl_amine_cn_stretch" in kind or "aryl_amine_cn_stretch" in name:
+        return "aryl C-N stretch"
+    if "aryl_amide_cn_stretch" in name or "aryl_amide_cn_stretch" in kind:
+        return "aryl amide C-N stretch"
+    if "heteroaromatic_cn_stretch" in name or "heteroaromatic_cn_stretch" in kind:
+        return "heteroaromatic C-N stretch"
+    if "aryl_ether_co_stretch" in name or "aryl_ether_co_stretch" in kind:
+        return "aryl ether C-O stretch"
+    if "aryl_ether_oc_stretch" in name or "aryl_ether_oc_stretch" in kind:
+        return "aryl ether O-C stretch"
+    if "aromatic_ch_stretch" in kind or "aromatic_ch_stretch" in name:
+        return "aromatic C-H stretch"
+    if "aromatic_ch_bend" in kind or "aromatic_ch_bend" in name:
+        return "aromatic C-H bend"
+    if "aromatic_ring_stretch" in kind or "aromatic_ring_stretch" in name:
+        return "aromatic ring stretch"
+
     if "hbond" in kind or "hbond" in name:
         return "H-bond / intermolecular"
     if "interfragment" in kind or "interfrag" in name:
@@ -168,6 +197,39 @@ def _stage3d_xh_center_h_count(
     return len(hs)
 
 
+def _stage3d_contextual_xh_label(
+    elem: str,
+    coord_names: Sequence[str],
+    *,
+    same_sign: Optional[bool] = None,
+    c_h_count: Optional[int] = None,
+) -> str:
+    names = [str(name).lower() for name in coord_names]
+    if elem == "O":
+        if any("phenol_oh_stretch" in name or "phenolic_oh_stretch" in name for name in names):
+            return "phenolic O-H stretch"
+        return "O-H stretch"
+    if elem == "N":
+        if any("secondary_aryl_amine_nh_stretch" in name for name in names):
+            return "secondary aryl amine N-H stretch"
+        if any("aniline_nh_stretch" in name or "aryl_amine_nh_stretch" in name for name in names):
+            if same_sign is None:
+                return "aryl amine N-H stretch"
+            return "aryl amine NH2 symmetric stretch" if same_sign else "aryl amine NH2 asymmetric stretch"
+        if same_sign is None:
+            return "N-H stretch"
+        return "NH2 symmetric stretch" if same_sign else "NH2 asymmetric stretch"
+    if elem == "C":
+        if any("aromatic_ch_stretch" in name for name in names):
+            return "aromatic C-H stretch"
+        if same_sign is None:
+            return "C-H stretch"
+        if c_h_count == 2:
+            return "CH2 symmetric stretch" if same_sign else "CH2 asymmetric stretch"
+        return "C-H stretch"
+    return "X-H stretch"
+
+
 def _stage3d_local_xh2_symmetry_result(
     internals: Sequence[InternalCoordinate],
     atoms: Sequence[str],
@@ -230,14 +292,12 @@ def _stage3d_local_xh2_symmetry_result(
 
     label = None
     if elem == "N":
-        label = "NH2 symmetric stretch" if same_sign else "NH2 asymmetric stretch"
+        label = _stage3d_contextual_xh_label(elem, [vals2[0][4], vals2[1][4]], same_sign=same_sign)
     elif elem == "C":
         c_h_count = _stage3d_xh_center_h_count(internals, atoms, heavy, elem)
-        label = (
-            "CH2 symmetric stretch" if same_sign else "CH2 asymmetric stretch"
-        ) if c_h_count == 2 else "C-H stretch"
+        label = _stage3d_contextual_xh_label(elem, [vals2[0][4], vals2[1][4]], same_sign=same_sign, c_h_count=c_h_count)
     elif elem == "O":
-        label = "O-H stretch"
+        label = _stage3d_contextual_xh_label(elem, [vals2[0][4], vals2[1][4]], same_sign=same_sign)
 
     diag = {
         "xh2_center_atom": heavy + 1,
@@ -368,17 +428,18 @@ def _stage3d_protected_xh_stretch_audit(
         heavy, elem, vals = best_center
         center_atom = heavy + 1
         center_element = elem
+        coord_names = [str(v["coord"]) for v in vals]
         if elem == "O":
-            assignment = "O-H stretch"
+            assignment = _stage3d_contextual_xh_label(elem, coord_names)
         elif elem == "N" and len(vals) >= 2:
             same_sign = (
                 float(vals[0]["projection"]) == 0.0
                 or float(vals[1]["projection"]) == 0.0
                 or float(vals[0]["projection"]) * float(vals[1]["projection"]) > 0.0
             )
-            assignment = "NH2 symmetric stretch" if same_sign else "NH2 asymmetric stretch"
+            assignment = _stage3d_contextual_xh_label(elem, coord_names, same_sign=same_sign)
         elif elem == "N":
-            assignment = "N-H stretch"
+            assignment = _stage3d_contextual_xh_label(elem, coord_names)
         elif elem == "C" and len(vals) >= 2:
             same_sign = (
                 float(vals[0]["projection"]) == 0.0
@@ -386,11 +447,9 @@ def _stage3d_protected_xh_stretch_audit(
                 or float(vals[0]["projection"]) * float(vals[1]["projection"]) > 0.0
             )
             c_h_count = _stage3d_xh_center_h_count(internals, atoms, heavy, elem)
-            assignment = (
-                "CH2 symmetric stretch" if same_sign else "CH2 asymmetric stretch"
-            ) if c_h_count == 2 else "C-H stretch"
+            assignment = _stage3d_contextual_xh_label(elem, coord_names, same_sign=same_sign, c_h_count=c_h_count)
         elif elem == "C":
-            assignment = "C-H stretch"
+            assignment = _stage3d_contextual_xh_label(elem, coord_names)
 
         if len(vals) >= 2:
             p1 = float(vals[0]["percent"])
@@ -514,7 +573,16 @@ def _stage3d_assignment_from_weighted_terms(
     # Conservative high-frequency override: do not call a 3000+ cm-1 mode a bend
     # when any chemically diagnostic X-H stretch survives the weighted audit.
     if freq >= 2800.0:
-        xh = [(fam, val) for fam, val in ordered if fam in ("O-H stretch", "N-H stretch", "C-H stretch")]
+        xh_families = {
+            "O-H stretch",
+            "N-H stretch",
+            "C-H stretch",
+            "phenolic O-H stretch",
+            "aryl amine N-H stretch",
+            "secondary aryl amine N-H stretch",
+            "aromatic C-H stretch",
+        }
+        xh = [(fam, val) for fam, val in ordered if fam in xh_families]
         if xh and totals.get("stretch", 0.0) >= 8.0:
             xh = sorted(xh, key=lambda x: x[1], reverse=True)
             primary, primary_pct = xh[0]
@@ -904,11 +972,7 @@ def _stage3d_direct_xh_stretch_fallback(hess: HessData, internals: Sequence[Inte
     top1 = top[0]
     top_terms = "; ".join(f"{c['coord']}={float(c['percent']):.1f}%" for c in top[:8])
 
-    assignment = {
-        "O": "O-H stretch",
-        "N": "N-H stretch",
-        "C": "C-H stretch",
-    }.get(str(top1["element"]), "X-H stretch")
+    assignment = _stage3d_contextual_xh_label(str(top1["element"]), [str(top1["coord"])])
 
     # XH2 symmetry label when the two strongest X-H coordinates share the same C/N center.
     pair_coords = ""
@@ -923,11 +987,18 @@ def _stage3d_direct_xh_stretch_fallback(hess: HessData, internals: Sequence[Inte
             product = float(top[0]["signed"]) * float(top[1]["signed"])
             if str(top[0]["element"]) == "C":
                 c_h_count = _stage3d_xh_center_h_count(internals, hess.atoms, int(top[0]["heavy"]), "C")
-                assignment = (
-                    "CH2 symmetric stretch" if product > 0 else "CH2 asymmetric stretch"
-                ) if c_h_count == 2 else "C-H stretch"
+                assignment = _stage3d_contextual_xh_label(
+                    "C",
+                    [str(top[0]["coord"]), str(top[1]["coord"])],
+                    same_sign=(product > 0),
+                    c_h_count=c_h_count,
+                )
             elif str(top[0]["element"]) == "N":
-                assignment = "NH2 symmetric stretch" if product > 0 else "NH2 asymmetric stretch"
+                assignment = _stage3d_contextual_xh_label(
+                    "N",
+                    [str(top[0]["coord"]), str(top[1]["coord"])],
+                    same_sign=(product > 0),
+                )
     else:
         pair_coords = str(top1["coord"])
 
@@ -1095,11 +1166,7 @@ def _stage3d_topology_direct_xh_fallback(hess: HessData, mode: int) -> Dict[str,
         r["percent"] = 100.0 * float(r["power"]) / total
 
     top1 = rows[0]
-    assignment = {
-        "O": "O-H stretch",
-        "N": "N-H stretch",
-        "C": "C-H stretch",
-    }.get(str(top1["center_element"]), "X-H stretch")
+    assignment = _stage3d_contextual_xh_label(str(top1["center_element"]), [str(top1["coord"])])
 
     # Pair diagnostics for C/N XH2 centers.
     same_center = [r for r in rows if r["center_atom"] == top1["center_atom"]]
@@ -1124,7 +1191,11 @@ def _stage3d_topology_direct_xh_fallback(hess: HessData, mode: int) -> Dict[str,
             unit = unit / float(np.linalg.norm(unit))
             signs.append(float(np.dot(disp[H] - disp[X], unit)))
         symmetry = "symmetric" if signs[0] * signs[1] >= 0.0 else "asymmetric"
-        assignment = f"{'CH2' if top1['center_element'] == 'C' else 'NH2'} {symmetry} stretch"
+        if str(top1["center_element"]) == "C":
+            c_h_count = _stage3d_xh_center_h_count(internals=[], atoms=hess.atoms, heavy=int(top1["center_atom"]) - 1, elem="C")
+            assignment = _stage3d_contextual_xh_label("C", [str(same_center[0]["coord"]), str(same_center[1]["coord"])], same_sign=(symmetry == "symmetric"), c_h_count=c_h_count)
+        else:
+            assignment = _stage3d_contextual_xh_label("N", [str(same_center[0]["coord"]), str(same_center[1]["coord"])], same_sign=(symmetry == "symmetric"))
 
     return {
         "assignment": assignment,

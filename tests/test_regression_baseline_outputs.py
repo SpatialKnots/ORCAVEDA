@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -86,8 +87,11 @@ EXPECTED_SUMMARY = {
 }
 
 
-def test_regression_baseline_outputs(tmp_path: Path):
-    outdir = tmp_path / "regression_outputs"
+def test_regression_baseline_outputs():
+    outdir = ROOT / "outputs" / "pytest_regression_outputs"
+    if outdir.exists():
+        shutil.rmtree(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
     hess_paths = [ROOT / "data" / "hess" / name for name in REGRESSION_HESS]
 
     tables = analyze_orca_ped_like(hess_paths, outdir)

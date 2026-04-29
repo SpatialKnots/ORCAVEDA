@@ -80,7 +80,9 @@ def write_xlsx_report(report_tables: Dict[str, pd.DataFrame], xlsx_path: str | P
 
             for col_idx, col_name in enumerate(df.columns):
                 series = df[col_name].astype(str) if len(df) else pd.Series([str(col_name)])
-                width = min(max(len(str(col_name)), int(series.str.len().quantile(0.90)) if len(series) else 10) + 2, 60)
+                width_quantile = series.str.len().quantile(0.90) if len(series) else 10
+                width_basis = int(width_quantile) if pd.notna(width_quantile) else len(str(col_name))
+                width = min(max(len(str(col_name)), width_basis) + 2, 60)
                 ws.set_column(col_idx, col_idx, width)
 
             for col_idx, col_name in enumerate(df.columns):

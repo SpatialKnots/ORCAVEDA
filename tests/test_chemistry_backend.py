@@ -8,13 +8,16 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from chemistry import annotate_chemical_system, get_active_backend_name, set_active_backend  # noqa: E402
+from chemistry import annotate_chemical_system, get_active_backend_name, list_backends, set_active_backend  # noqa: E402
 from orca_parser import read_orca_hess  # noqa: E402
 
 
 def test_default_chemistry_backend_is_legacy():
+    assert "legacy" in list_backends()
     assert get_active_backend_name() == "legacy"
     set_active_backend("legacy")
+    assert get_active_backend_name() == "legacy"
+    set_active_backend("LeGaCy")
     assert get_active_backend_name() == "legacy"
 
 
@@ -26,3 +29,12 @@ def test_legacy_backend_annotation_matches_current_regression_case():
     assert annotation.formula == "C2H3N"
     assert annotation.system_type == "monomer"
     assert set(annotation.functional_group_labels) == {"methyl", "nitrile_C≡N"}
+
+
+def test_rdkit_backend_is_registered_when_available():
+    try:
+        import rdkit  # noqa: F401
+    except ModuleNotFoundError:
+        return
+
+    assert "rdkit" in list_backends()

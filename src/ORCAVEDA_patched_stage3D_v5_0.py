@@ -42,6 +42,10 @@ from chemistry import (
     detect_interfragment_hbonds as chemistry_detect_interfragment_hbonds,
     expected_vibrational_rank as chemistry_expected_vibrational_rank,
     formula_string as chemistry_formula_string,
+    get_active_backend_name as chemistry_get_active_backend_name,
+    list_backends as chemistry_list_backends,
+    set_active_backend as chemistry_set_active_backend,
+    set_active_backend_from_env as chemistry_set_active_backend_from_env,
     get_supported_elements as chemistry_get_supported_elements,
     split_fragments as chemistry_split_fragments,
 )
@@ -1795,6 +1799,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
         json.dumps({
             "status": "Stage 3A general organic engine + Stage 3D assignment audit completed; output filenames are prefixed by input .hess stem",
             "tables": list(tables),
+            "chemistry_backend": chemistry_get_active_backend_name(),
             "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
         }, indent=2),
         encoding="utf-8"
@@ -2332,6 +2337,7 @@ def analyze_orca_ped_like(paths: Sequence[str | Path], outdir: str | Path, out_p
         "integration_status": "Stage 3A general organic engine + Stage 3C mode tracking + Stage 3D assignment audit integrated into ORCAVEDA",
         "xlsx_report": str(xlsx_path),
         "tables": list(tables.keys()),
+        "chemistry_backend": chemistry_get_active_backend_name(),
         "functional_group_templates": "automatic in build_internal_coordinates(..., groups=detect_functional_groups(...))",
         "mode_tracking": "automatic when len(hess_paths) >= 2; same-size and fragment-projected tracking attempted",
         "stage3d_assignment_audit": "prefixed assignment_audit table generated; filenames use current .hess stem",
@@ -2347,7 +2353,13 @@ run_orca_ped_like_with_general_engine = analyze_orca_ped_like
 
 
 def cli_main():
-    external_cli_main(run_orca_ped_like)
+    chemistry_set_active_backend_from_env()
+    external_cli_main(
+        run_orca_ped_like,
+        set_chem_backend=chemistry_set_active_backend,
+        list_chem_backends=chemistry_list_backends,
+        default_chem_backend=chemistry_get_active_backend_name,
+    )
 
 
 def colab_upload_and_run():
