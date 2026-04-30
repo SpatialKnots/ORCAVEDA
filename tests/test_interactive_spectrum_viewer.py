@@ -110,13 +110,28 @@ def test_interactive_spectrum_viewer_with_nist_reference():
     )
 
     payload = attach_nist_reference_set(payload, manifest_path)
+    ref_payload = payload["nist_reference_sets"]["acetophenone"]["reference_spectra"][0]["scale_engine_payload"]
+    assert "engine_table" in ref_payload
+    assert "engine_fits" in ref_payload
+    assert "global_ls" in ref_payload["engine_fits"]
+
     html_path = outdir / "viewer.html"
     json_path = outdir / "viewer.json"
     write_interactive_spectrum_viewer(payload, html_path, json_path=json_path)
 
     html_text = html_path.read_text(encoding="utf-8")
     assert "NIST Reference" in html_text
+    assert "Scale Engine" in html_text
+    assert "scaleEngine" in html_text
+    assert "engineTableBody" in html_text
+    assert "Mean %Δ" in html_text
+    assert "RMS %Δ" in html_text
+    assert "Max %Δ" in html_text
     assert "nistReference" in html_text
     assert "Auto-fit scale" in html_text
     assert "fitSummary" in html_text
-    assert "reference_spectra" in json_path.read_text(encoding="utf-8")
+    json_text = json_path.read_text(encoding="utf-8")
+    assert "reference_spectra" in json_text
+    assert "scale_engine_payload" in json_text
+    assert "global_weighted_ls" in json_text
+    assert "mean_percent_deviation" in json_text

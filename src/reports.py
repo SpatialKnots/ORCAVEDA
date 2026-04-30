@@ -91,7 +91,29 @@ def attach_nist_reference_set(
     if not target_title:
         raise ValueError("file_title is required when payload has multiple files")
 
-    refs[str(target_title)] = load_nist_reference_set(manifest_path)
+    ref_set = load_nist_reference_set(manifest_path)
+    target_file = next(
+        (item for item in updated.get("files", []) if str(item.get("title", "")) == str(target_title)),
+        None,
+    )
+    if target_file is not None:
+        from nist_ir.compare import (
+            assignment_modes_to_dataframe,
+            build_scale_engine_payload,
+            reference_points_to_peaks,
+        )
+
+        assignment_audit = assignment_modes_to_dataframe(target_file.get("modes", []), scale_factor=1.0)
+        if not assignment_audit.empty:
+            for spectrum in ref_set.get("reference_spectra", []):
+                reference_peaks = reference_points_to_peaks(
+                    spectrum.get("points", []),
+                    top_n=16,
+                    min_separation_cm1=18.0,
+                )
+                spectrum["scale_engine_payload"] = build_scale_engine_payload(reference_peaks, assignment_audit)
+
+    refs[str(target_title)] = ref_set
     updated["nist_reference_sets"] = refs
     return updated
 
@@ -509,12 +531,59 @@ def write_interactive_spectrum_viewer(
           align-items: center;
           flex-wrap: wrap;
         }}
-        .fit-summary {{
-          color: var(--muted);
-          font-size: 11px;
-          line-height: 1.3;
-          margin-bottom: 2px;
-        }}
+    .fit-summary {{
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.3;
+      margin-bottom: 2px;
+    }}
+    .engine-table-wrap {{
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.78);
+      overflow: hidden;
+      margin-bottom: 4px;
+    }}
+    .engine-table-scroll {{
+      max-height: 160px;
+      overflow: auto;
+    }}
+    .engine-table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      line-height: 1.25;
+    }}
+    .engine-table thead th {{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #f8f4eb;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 10px;
+      text-align: left;
+      padding: 7px 8px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }}
+    .engine-table tbody td {{
+      padding: 6px 8px;
+      border-bottom: 1px solid #efe8da;
+      vertical-align: top;
+    }}
+    .engine-table tbody tr.active {{
+      background: rgba(15, 118, 110, 0.10);
+    }}
+    .engine-table tbody tr:last-child td {{
+      border-bottom: 0;
+    }}
+    .engine-table .num {{
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }}
     #chart {{
       width: 100%;
       height: 100%;
@@ -706,6 +775,17 @@ def write_interactive_spectrum_viewer(
               <select id="nistReference"></select>
             </div>
             <div class="control">
+              <label for="scaleEngine">Scale Engine</label>
+              <select id="scaleEngine">
+                <option value="manual_static" selected>Manual Static</option>
+                <option value="global_ls">Global LS</option>
+                <option value="global_weighted_ls">Weighted LS</option>
+                <option value="global_huber">Huber</option>
+                <option value="piecewise_region">Piecewise Region</option>
+                <option value="power_law">Power Law</option>
+              </select>
+            </div>
+            <div class="control">
               <label>NIST Fit</label>
               <div class="button-row">
                 <button id="autoFitScale" type="button" class="ghost-btn">Auto-fit scale</button>
@@ -713,7 +793,23 @@ def write_interactive_spectrum_viewer(
               </div>
             </div>
           </div>
-          <div id="fitSummary" class="fit-summary">Choose a NIST reference and press Auto-fit scale to estimate the best frequency scaling.</div>
+          <div id="fitSummary" class="fit-summary">Choose a NIST reference and engine. Manual Static keeps the slider and Auto-fit; the other engines use precomputed matched-peak fits.</div>
+          <div class="engine-table-wrap">
+            <div class="engine-table-scroll">
+              <table class="engine-table">
+                <thead>
+                  <tr>
+                    <th>Engine</th>
+                    <th class="num">Mean %Δ</th>
+                    <th class="num">RMS %Δ</th>
+                    <th class="num">Max %Δ</th>
+                    <th class="num">Matched</th>
+                  </tr>
+                </thead>
+                <tbody id="engineTableBody"></tbody>
+              </table>
+            </div>
+          </div>
           <div class="checkrow">
             <label><input id="showSticks" type="checkbox" checked> Show sticks</label>
             <label><input id="invertAxis" type="checkbox" checked> Invert x-axis</label>
@@ -785,9 +881,11 @@ def write_interactive_spectrum_viewer(
     const hwhm = document.getElementById("hwhm");
     const yMode = document.getElementById("yMode");
     const nistReference = document.getElementById("nistReference");
+    const scaleEngine = document.getElementById("scaleEngine");
     const autoFitScale = document.getElementById("autoFitScale");
     const resetZoom = document.getElementById("resetZoom");
     const fitSummary = document.getElementById("fitSummary");
+    const engineTableBody = document.getElementById("engineTableBody");
     const showSticks = document.getElementById("showSticks");
     const invertAxis = document.getElementById("invertAxis");
     const scaleValue = document.getElementById("scaleValue");
@@ -911,9 +1009,19 @@ def write_interactive_spectrum_viewer(
       viewer.render();
     }}
 
+    function getScaledModes(file, scale, engineName = getSelectedScaleEngine(), engineFit = getSelectedScaleEngineFit()) {{
+      return (file.modes || [])
+        .map(mode => ({{
+          ...mode,
+          scaled: transformFrequencyByEngine(mode.frequency_cm1, scale, engineName, engineFit),
+        }}))
+        .filter(mode => Number.isFinite(mode.scaled) && mode.scaled > 0);
+    }}
+
     function defaultRange(file, scale) {{
       if (!file.modes.length) return [0, 4000];
-      const scaled = file.modes.map(mode => mode.frequency_cm1 * scale);
+      const scaled = getScaledModes(file, scale).map(mode => mode.scaled);
+      if (!scaled.length) return [0, 4000];
       const minScaled = Math.min(...scaled);
       const maxScaled = Math.max(...scaled);
       const left = Math.max(0, Math.floor(minScaled / 25) * 25 - 50);
@@ -966,6 +1074,137 @@ def write_interactive_spectrum_viewer(
       const selected = String(nistReference.value || "");
       if (!selected) return null;
       return refSet.reference_spectra.find(item => String(item.index) === selected) || null;
+    }}
+
+    function getSelectedScaleEngine() {{
+      return String(scaleEngine.value || "manual_static");
+    }}
+
+    function getSelectedScaleEnginePayload() {{
+      const referenceSpectrum = getSelectedReferenceSpectrum();
+      return referenceSpectrum?.scale_engine_payload || null;
+    }}
+
+    function getSelectedScaleEngineFit() {{
+      const engineName = getSelectedScaleEngine();
+      const payload = getSelectedScaleEnginePayload();
+      if (!payload || !payload.engine_fits) return null;
+      return payload.engine_fits[engineName] || null;
+    }}
+
+    function transformFrequencyByEngine(freq, scale, engineName, engineFit) {{
+      const omega = Number(freq);
+      if (!Number.isFinite(omega) || omega <= 0) return Number.NaN;
+      if (!engineName || engineName === "manual_static" || !engineFit || !engineFit.parameters) {{
+        return omega * scale;
+      }}
+
+      const params = engineFit.parameters || {{}};
+      if (engineName === "global_ls" || engineName === "global_weighted_ls" || engineName === "global_huber") {{
+        const k = Number(params.k);
+        return Number.isFinite(k) ? omega * k : omega * scale;
+      }}
+      if (engineName === "power_law") {{
+        const a = Number(params.a);
+        const b = Number(params.b);
+        return (Number.isFinite(a) && Number.isFinite(b) && omega > 0)
+          ? omega * (a * Math.pow(omega, b))
+          : omega * scale;
+      }}
+      if (engineName === "piecewise_region") {{
+        const regions = Array.isArray(params.regions) ? params.regions : [];
+        for (const region of regions) {{
+          const range = region.range || [];
+          const lo = Number(range[0]);
+          const hi = Number(range[1]);
+          const k = Number(region.k);
+          if (!Number.isFinite(lo) || !Number.isFinite(hi) || !Number.isFinite(k)) continue;
+          if (omega >= lo && omega < hi) return omega * k;
+        }}
+      }}
+      return omega * scale;
+    }}
+
+    function updateScaleControlsState() {{
+      const engineName = getSelectedScaleEngine();
+      const manual = engineName === "manual_static";
+      scaleFactor.disabled = !manual;
+      autoFitScale.disabled = !manual;
+    }}
+
+    function updateFitSummaryForCurrentContext() {{
+      const engineName = getSelectedScaleEngine();
+      const referenceSpectrum = getSelectedReferenceSpectrum();
+      const payload = getSelectedScaleEnginePayload();
+      if (!referenceSpectrum) {{
+        fitSummary.textContent = engineName === "manual_static"
+          ? "Choose a NIST reference and press Auto-fit scale to estimate the best frequency scaling."
+          : "Choose a NIST reference to use precomputed matched-peak scale-engine fits.";
+        return;
+      }}
+
+      if (engineName === "manual_static") {{
+        const bestScale = Number(payload?.default_manual_scale);
+        fitSummary.textContent = Number.isFinite(bestScale)
+          ? `Reference loaded. Manual Static is active; Auto-fit can refine the slider around ${{bestScale.toFixed(3)}}.`
+          : "Reference loaded. Manual Static is active; press Auto-fit scale to estimate the best frequency scaling.";
+        return;
+      }}
+
+      const fit = getSelectedScaleEngineFit();
+      if (!fit) {{
+        fitSummary.textContent = `No precomputed fit is available for ${{engineName}} on the selected reference spectrum.`;
+        return;
+      }}
+      const met = fit.metrics || {{}};
+      fitSummary.textContent = `${{fit.engine}} | mean %Δ ${{Number(met.mean_percent_deviation ?? NaN).toFixed(2)}}% | RMS %Δ ${{Number(met.rmse_percent_deviation ?? NaN).toFixed(2)}}% | matched ${{Number(fit.matched_count ?? 0)}}`;
+    }}
+
+    function prettyEngineName(engine) {{
+      const mapping = {{
+        manual_static: "Manual Static",
+        global_ls: "Global LS",
+        global_weighted_ls: "Weighted LS",
+        global_huber: "Huber",
+        piecewise_region: "Piecewise Region",
+        power_law: "Power Law",
+      }};
+      return mapping[String(engine || "")] || String(engine || "n/a");
+    }}
+
+    function updateEngineTable() {{
+      const payload = getSelectedScaleEnginePayload();
+      const activeEngine = getSelectedScaleEngine();
+      engineTableBody.innerHTML = "";
+
+      const rows = Array.isArray(payload?.engine_table) ? payload.engine_table : [];
+      if (!rows.length) {{
+        const tr = document.createElement("tr");
+        tr.innerHTML = '<td colspan="5" style="color:#677483;padding:8px;">No engine comparison is available for the selected NIST reference.</td>';
+        engineTableBody.appendChild(tr);
+        return;
+      }}
+
+      for (const row of rows) {{
+        const tr = document.createElement("tr");
+        if (String(row.engine) === String(activeEngine)) tr.classList.add("active");
+        tr.innerHTML = `
+          <td>${{prettyEngineName(row.engine)}}</td>
+          <td class="num">${{Number(row.mean_percent_deviation ?? NaN).toFixed(2)}}%</td>
+          <td class="num">${{Number(row.rmse_percent_deviation ?? NaN).toFixed(2)}}%</td>
+          <td class="num">${{Number(row.max_percent_deviation ?? NaN).toFixed(2)}}%</td>
+          <td class="num">${{Number(row.matched_count ?? 0)}}</td>
+        `;
+        tr.addEventListener("click", () => {{
+          if (row.engine && scaleEngine.value !== String(row.engine)) {{
+            scaleEngine.value = String(row.engine);
+            pinnedTooltipMode = null;
+            chartTooltip.classList.remove("visible");
+            drawSpectrum(false);
+          }}
+        }});
+        engineTableBody.appendChild(tr);
+      }}
     }}
 
     function convertReferenceY(value, yUnits, axisMode) {{
@@ -1157,6 +1396,10 @@ def write_interactive_spectrum_viewer(
     }}
 
     function autoFitScaleAgainstReference() {{
+      if (getSelectedScaleEngine() !== "manual_static") {{
+        updateFitSummaryForCurrentContext();
+        return;
+      }}
       const file = getCurrentFile();
       const referenceSpectrum = getSelectedReferenceSpectrum();
       if (!file || !referenceSpectrum) {{
@@ -1177,24 +1420,26 @@ def write_interactive_spectrum_viewer(
         return;
       }}
 
+      const fitMessage = `Best scale ${{best.scale.toFixed(3)}} | mean Δ ${{best.meanAbsDelta.toFixed(1)}} cm-1 | matched ${{best.matchedCount}}/${{best.totalPeaks}}`;
       scaleFactor.value = best.scale.toFixed(3);
-      fitSummary.textContent = `Best scale ${{best.scale.toFixed(3)}} | mean Δ ${{best.meanAbsDelta.toFixed(1)}} cm-1 | matched ${{best.matchedCount}}/${{best.totalPeaks}}`;
       pinnedTooltipMode = null;
       chartTooltip.classList.remove("visible");
       currentView = null;
       drawSpectrum(false);
+      fitSummary.textContent = fitMessage;
     }}
 
-    function buildSpectrum(file, scale, gamma, x1, x2, axisMode) {{
+    function buildSpectrum(file, scale, gamma, x1, x2, axisMode, engineName, engineFit) {{
       const n = 1500;
       const xs = [];
       const rawYs = [];
+      const scaledModes = getScaledModes(file, scale, engineName, engineFit);
       let rawMax = 0;
       for (let i = 0; i < n; i += 1) {{
         const x = x1 + (x2 - x1) * i / (n - 1);
         let y = 0;
-        for (const mode of file.modes) {{
-          y += lorentz(x, mode.frequency_cm1 * scale, Math.max(0, mode.intensity), gamma);
+        for (const mode of scaledModes) {{
+          y += lorentz(x, mode.scaled, Math.max(0, mode.intensity), gamma);
         }}
         xs.push(x);
         rawYs.push(y);
@@ -1203,7 +1448,7 @@ def write_interactive_spectrum_viewer(
       const ys = rawYs.map(y => transformYValue(y, axisMode, rawMax));
       const yMin = axisMode === "transmittance" ? Math.min(...ys) : 0;
       const yMax = axisMode === "transmittance" ? 1.0 : Math.max(...ys, 1e-6);
-      return {{ xs, ys, yMin, yMax, rawMax }};
+      return {{ xs, ys, yMin, yMax, rawMax, scaledModes }};
     }}
 
     function tx(x, x1, x2, left, width, inverted) {{
@@ -1236,15 +1481,16 @@ def write_interactive_spectrum_viewer(
       summaryGrid.innerHTML = items.map(([k, v]) => `<div class="kv"><strong>${{k}}</strong>${{v}}</div>`).join("");
     }}
 
-    function updateModeDetails(file, scale) {{
-      const mode = file.modes.find(row => row.mode === selectedMode) || file.modes[0];
+    function updateModeDetails(file, scale, engineName = getSelectedScaleEngine(), engineFit = getSelectedScaleEngineFit()) {{
+      const scaledModes = getScaledModes(file, scale, engineName, engineFit);
+      const mode = scaledModes.find(row => row.mode === selectedMode) || scaledModes[0];
       if (!mode) {{
         modeDetails.innerHTML = '<div class="wide">No positive-frequency modes available.</div>';
         return;
       }}
       modeDetails.innerHTML = `
         <div class="kv"><strong>Mode</strong>${{mode.mode}}</div>
-        <div class="kv"><strong>Scaled Frequency</strong>${{(mode.frequency_cm1 * scale).toFixed(2)}} cm-1</div>
+        <div class="kv"><strong>Scaled Frequency</strong>${{mode.scaled.toFixed(2)}} cm-1</div>
         <div class="kv"><strong>Original Frequency</strong>${{mode.frequency_cm1.toFixed(2)}} cm-1</div>
         <div class="kv"><strong>IR Intensity</strong>${{Number(mode.intensity).toFixed(4)}}</div>
         <div class="kv wide"><strong>Final Assignment</strong>${{mode.assignment || "unassigned"}}</div>
@@ -1253,9 +1499,8 @@ def write_interactive_spectrum_viewer(
       `;
     }}
 
-    function updatePeakTable(file, scale, x1, x2) {{
-      const rows = file.modes
-        .map(mode => ({{ ...mode, scaled: mode.frequency_cm1 * scale }}))
+    function updatePeakTable(file, scale, x1, x2, engineName = getSelectedScaleEngine(), engineFit = getSelectedScaleEngineFit()) {{
+      const rows = getScaledModes(file, scale, engineName, engineFit)
         .filter(mode => mode.scaled >= x1 && mode.scaled <= x2)
         .sort((a, b) => a.scaled - b.scaled);
       peakTable.innerHTML = "";
@@ -1290,7 +1535,9 @@ def write_interactive_spectrum_viewer(
     }}
 
     function modeScreenX(mode, render) {{
-      const center = mode.frequency_cm1 * render.scale;
+      const center = Number.isFinite(mode.scaled)
+        ? mode.scaled
+        : transformFrequencyByEngine(mode.frequency_cm1, render.scale, render.engineName, render.engineFit);
       return tx(center, render.x1, render.x2, render.margin.left, render.plotW, invertAxis.checked);
     }}
 
@@ -1298,8 +1545,8 @@ def write_interactive_spectrum_viewer(
       if (!currentRender) return null;
       let best = null;
       let bestDx = Infinity;
-      for (const mode of currentRender.file.modes) {{
-        const center = mode.frequency_cm1 * currentRender.scale;
+      for (const mode of currentRender.scaledModes || []) {{
+        const center = mode.scaled;
         if (center < currentRender.x1 || center > currentRender.x2) continue;
         const sx = modeScreenX(mode, currentRender);
         const dx = Math.abs(px - sx);
@@ -1318,7 +1565,7 @@ def write_interactive_spectrum_viewer(
       }}
       chartTooltip.innerHTML = `
         <strong>Mode ${{mode.mode}}</strong>
-        <div>${{(mode.frequency_cm1 * currentRender.scale).toFixed(1)}} cm-1</div>
+        <div>${{Number(mode.scaled ?? transformFrequencyByEngine(mode.frequency_cm1, currentRender.scale, currentRender.engineName, currentRender.engineFit)).toFixed(1)}} cm-1</div>
         <div>IR: ${{Number(mode.intensity).toFixed(3)}}</div>
         <div>${{mode.assignment || "unassigned"}}</div>
       `;
@@ -1356,9 +1603,14 @@ def write_interactive_spectrum_viewer(
       const scale = Number(scaleFactor.value);
       const gamma = Number(hwhm.value);
       const axisMode = yMode.value || "intensity";
+      const engineName = getSelectedScaleEngine();
+      const engineFit = getSelectedScaleEngineFit();
       const [x1, x2] = clampView(file, scale, currentView?.x1, currentView?.x2);
       currentView = {{ x1, x2 }};
-      scaleValue.textContent = scale.toFixed(3);
+      updateScaleControlsState();
+      updateFitSummaryForCurrentContext();
+      updateEngineTable();
+      scaleValue.textContent = engineName === "manual_static" ? scale.toFixed(3) : "engine";
       hwhmValue.textContent = gamma.toFixed(1);
 
       const width = canvas.width;
@@ -1367,10 +1619,10 @@ def write_interactive_spectrum_viewer(
       const plotW = width - margin.left - margin.right;
       const plotH = height - margin.top - margin.bottom;
 
-      const render = buildSpectrum(file, scale, gamma, x1, x2, axisMode);
+      const render = buildSpectrum(file, scale, gamma, x1, x2, axisMode, engineName, engineFit);
       const referenceSpectrum = getSelectedReferenceSpectrum();
       const referenceOverlay = buildReferenceOverlay(referenceSpectrum, x1, x2, axisMode);
-      currentRender = {{ ...render, x1, x2, scale, gamma, axisMode, margin, plotW, plotH, file, referenceSpectrum, referenceOverlay }};
+      currentRender = {{ ...render, x1, x2, scale, gamma, axisMode, margin, plotW, plotH, file, referenceSpectrum, referenceOverlay, engineName, engineFit }};
       ctx.clearRect(0, 0, width, height);
       ctx.fillStyle = "#fffdf8";
       ctx.fillRect(0, 0, width, height);
@@ -1431,8 +1683,8 @@ def write_interactive_spectrum_viewer(
       }}
 
       if (showSticks.checked) {{
-        for (const mode of file.modes) {{
-          const center = mode.frequency_cm1 * scale;
+        for (const mode of render.scaledModes) {{
+          const center = mode.scaled;
           if (center < x1 || center > x2) continue;
           const px = tx(center, x1, x2, margin.left, plotW, invertAxis.checked);
           const stickValue = transformYValue(Math.max(0, mode.intensity), axisMode, Math.max(render.rawMax, 1e-6));
@@ -1469,8 +1721,8 @@ def write_interactive_spectrum_viewer(
         selectedMode = file.modes[Math.min(file.modes.length - 1, Math.floor(file.modes.length * 0.7))].mode;
       }}
       updateSummary(file);
-      updateModeDetails(file, scale);
-      updatePeakTable(file, scale, x1, x2);
+      updateModeDetails(file, scale, engineName, engineFit);
+      updatePeakTable(file, scale, x1, x2, engineName, engineFit);
       highlightSelectedRow();
     }}
 
@@ -1580,13 +1832,13 @@ def write_interactive_spectrum_viewer(
       drawSpectrum(true);
       renderMolecule();
     }});
-    [scaleFactor, hwhm, yMode, showSticks, invertAxis, nistReference].forEach(el => {{
+    [scaleFactor, hwhm, yMode, showSticks, invertAxis, nistReference, scaleEngine].forEach(el => {{
       el.addEventListener("input", () => {{
-        if (el === yMode || el === nistReference) {{
+        if (el === yMode || el === nistReference || el === scaleEngine) {{
           pinnedTooltipMode = null;
           chartTooltip.classList.remove("visible");
           if (el === nistReference) {{
-            fitSummary.textContent = "Reference changed. Press Auto-fit scale to estimate the best frequency scaling for this spectrum.";
+            fitSummary.textContent = "Reference changed. Manual Static can use Auto-fit; the other engines use precomputed matched-peak fits.";
           }}
         }}
         drawSpectrum(false);
