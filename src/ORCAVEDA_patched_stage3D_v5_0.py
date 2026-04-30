@@ -78,9 +78,11 @@ from orca_parser import (
     split_orca_hess_sections as parser_split_orca_hess_sections,
 )
 from reports import (
+    build_spectrum_payload as reports_build_spectrum_payload,
     normalize_sheet_name as reports_normalize_sheet_name,
     output_prefix_for_hess_paths as reports_output_prefix_for_hess_paths,
     safe_output_stem as reports_safe_output_stem,
+    write_interactive_spectrum_viewer as reports_write_interactive_spectrum_viewer,
     write_xlsx_report as reports_write_xlsx_report,
 )
 from orcaveda_cli import (
@@ -1762,6 +1764,11 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
                 "Source": f"[{source_index}]", "Filename": hess.filename,
                 "type": h["type"], "D": h["D"], "H": h["H"], "A": h["A"],
                 "rHA_A": h["rHA_A"], "rDA_A": h["rDA_A"], "angle_deg": h["angle_deg"],
+                "chem_type": h.get("chem_type", ""),
+                "context_label": h.get("context_label", ""),
+                "donor_group": h.get("donor_group", ""),
+                "acceptor_group": h.get("acceptor_group", ""),
+                "fragment_pair": h.get("fragment_pair", ""),
             })
 
         for i, ic in enumerate(internals):
@@ -2333,9 +2340,19 @@ def analyze_orca_ped_like(paths: Sequence[str | Path], outdir: str | Path, out_p
         tables.update(tracking_tables)
 
     xlsx_path = write_xlsx_report(tables, outdir / f"{output_prefix}__orca_ped_like_stage3C_integrated_report.xlsx")
+    hess_list = [read_orca_hess(p) for p in paths]
+    spectrum_payload = reports_build_spectrum_payload(hess_list, tables.get("assignment_audit"))
+    spectrum_json_path = outdir / f"{output_prefix}__spectrum_data.json"
+    spectrum_html_path = reports_write_interactive_spectrum_viewer(
+        spectrum_payload,
+        outdir / f"{output_prefix}__interactive_spectrum.html",
+        json_path=spectrum_json_path,
+    )
     manifest = {
         "integration_status": "Stage 3A general organic engine + Stage 3C mode tracking + Stage 3D assignment audit integrated into ORCAVEDA",
         "xlsx_report": str(xlsx_path),
+        "interactive_spectrum_html": str(spectrum_html_path),
+        "interactive_spectrum_data_json": str(spectrum_json_path),
         "tables": list(tables.keys()),
         "chemistry_backend": chemistry_get_active_backend_name(),
         "functional_group_templates": "automatic in build_internal_coordinates(..., groups=detect_functional_groups(...))",

@@ -58,6 +58,12 @@ class RDKitChemistryBackend:
             pass
         return mol.GetMol()
 
+    def _bond_length(self, mol, i: int, j: int) -> float:
+        conf = mol.GetConformer()
+        pi = conf.GetAtomPosition(int(i))
+        pj = conf.GetAtomPosition(int(j))
+        return float(np.linalg.norm(np.array([pi.x, pi.y, pi.z]) - np.array([pj.x, pj.y, pj.z])))
+
     def build_connectivity(
         self,
         atoms: Sequence[str],
@@ -149,6 +155,11 @@ class RDKitChemistryBackend:
                     self._add_group(groups, "lactam_amide" if same_ring else "amide", (c_idx, o_idx, n_idx), "RDKit amide context", "high", "C=O carbon bonded to N")
                 elif len(c_neighbors) >= 2:
                     self._add_group(groups, "ketone", (c_idx, o_idx, int(c_neighbors[0].GetIdx()), int(c_neighbors[1].GetIdx())), "RDKit ketone context", "high", "C=O carbon bonded to two carbons")
+                    aromatic_neighbors = [nbr for nbr in c_neighbors if int(nbr.GetIdx()) in aromatic_carbon_indices]
+                    if aromatic_neighbors:
+                        aromatic_c = int(aromatic_neighbors[0].GetIdx())
+                        alkyl_c = next(int(nbr.GetIdx()) for nbr in c_neighbors if int(nbr.GetIdx()) != aromatic_c)
+                        self._add_group(groups, "aryl_ketone", (c_idx, o_idx, aromatic_c, alkyl_c), "RDKit aryl ketone context", "high", "Ketone carbonyl conjugated to aromatic carbon")
                 elif h_neighbors and c_neighbors:
                     self._add_group(groups, "aldehyde", (c_idx, o_idx, int(h_neighbors[0].GetIdx()), int(c_neighbors[0].GetIdx())), "RDKit aldehyde context", "high", "C=O carbon bonded to H and C")
                 elif o_neighbors:
@@ -167,6 +178,25 @@ class RDKitChemistryBackend:
                 s_atom = begin if begin.GetSymbol() == "S" else end
                 o_atom = end if s_atom is begin else begin
                 self._add_group(groups, "sulfoxide_S=O", (int(s_atom.GetIdx()), int(o_atom.GetIdx())), "RDKit S=O bond perception", "high", "RDKit S=O bond order")
+
+            if symbols == {"O", "O"} and 0.5 <= bond.GetBondTypeAsDouble() <= 1.5:
+                o1_idx = int(begin.GetIdx())
+                o2_idx = int(end.GetIdx())
+                self._add_group(groups, "peroxide", (o1_idx, o2_idx), "RDKit peroxide O-O context", "high", "Single O-O bond")
+
+        for atom in mol.GetAtoms():
+            if atom.GetSymbol() != "C":
+                continue
+            c_idx = int(atom.GetIdx())
+            o_neighbors = [nbr for nbr in atom.GetNeighbors() if nbr.GetSymbol() == "O"]
+            if len(o_neighbors) < 2:
+                continue
+            o_pair = sorted(int(nbr.GetIdx()) for nbr in o_neighbors[:2])
+            o_has_h = any(any(nbr.GetSymbol() == "H" for nbr in mol.GetAtomWithIdx(o_idx).GetNeighbors()) for o_idx in o_pair)
+            d1 = self._bond_length(mol, c_idx, o_pair[0])
+            d2 = self._bond_length(mol, c_idx, o_pair[1])
+            if not o_has_h and max(d1, d2) <= 1.32 and abs(d1 - d2) <= 0.08:
+                self._add_group(groups, "carboxylate", (c_idx, o_pair[0], o_pair[1]), "RDKit carboxylate resonance context", "high", f"Two short C-O bonds with |Δ|={abs(d1-d2):.3f} A")
 
         for ring in aromatic_rings:
             self._add_group(groups, "aromatic_ring", ring, f"{len(ring)}-membered aromatic ring from RDKit aromaticity", "high", "RDKit aromatic ring perception")
@@ -253,6 +283,144 @@ class RDKitChemistryBackend:
 
         return groups
 
+    def _carboxylic_roles_for_atom(
+        self,
+        atom_idx: int,
+        groups: Sequence[FunctionalGroup],
+    ) -> List[Tuple[FunctionalGroup, str]]:
+        roles: List[Tuple[FunctionalGroup, str]] = []
+        for group in groups:
+            if group.group != "carboxylic_acid":
+                continue
+            c_idx, o_carbonyl, o_hydroxyl = (int(x) for x in group.atoms0[:3])
+            if int(atom_idx) == o_hydroxyl:
+                roles.append((group, "hydroxyl_O"))
+            elif int(atom_idx) == o_carbonyl:
+                roles.append((group, "carbonyl_O"))
+            elif int(atom_idx) == c_idx:
+                roles.append((group, "carbonyl_C"))
+        return roles
+
+    def _carboxylate_roles_for_atom(
+        self,
+        atom_idx: int,
+        groups: Sequence[FunctionalGroup],
+    ) -> List[Tuple[FunctionalGroup, str]]:
+        roles: List[Tuple[FunctionalGroup, str]] = []
+        for group in groups:
+            if group.group != "carboxylate":
+                continue
+            c_idx, o1, o2 = (int(x) for x in group.atoms0[:3])
+            if int(atom_idx) in {o1, o2}:
+                roles.append((group, "carboxylate_O"))
+            elif int(atom_idx) == c_idx:
+                roles.append((group, "carboxylate_C"))
+        return roles
+
+    def _annotate_hbond_contexts(
+        self,
+        hbonds: Sequence[dict],
+        groups: Sequence[FunctionalGroup],
+        atoms: Sequence[str],
+        fragments: Sequence[Sequence[int]],
+    ) -> List[dict]:
+        frag_id = {int(atom): int(frag_idx) for frag_idx, frag in enumerate(fragments) for atom in frag}
+        annotated: List[dict] = []
+        for hbond in hbonds:
+            row = dict(hbond)
+            donor = int(row["D0"])
+            acceptor = int(row["A0"])
+            donor_roles = self._carboxylic_roles_for_atom(donor, groups)
+            acceptor_roles = self._carboxylic_roles_for_atom(acceptor, groups)
+            acceptor_carboxylate_roles = self._carboxylate_roles_for_atom(acceptor, groups)
+
+            chem_type = "intermolecular_hbond"
+            context_label = f"intermolecular {atoms[donor]}-H···{atoms[acceptor]} H-bond"
+            donor_group = ""
+            acceptor_group = ""
+            donor_group_atoms = ()
+            acceptor_group_atoms = ()
+
+            donor_hydroxyl = [(group, role) for group, role in donor_roles if role == "hydroxyl_O"]
+            acceptor_carbonyl = [(group, role) for group, role in acceptor_roles if role == "carbonyl_O"]
+
+            if donor_hydroxyl and acceptor_carbonyl:
+                chem_type = "carboxylic_acid_hbond"
+                context_label = "intermolecular carboxylic O-H···O=C H-bond"
+                donor_group = "carboxylic_acid"
+                acceptor_group = "carboxylic_acid"
+                donor_group_atoms = tuple(int(x) for x in donor_hydroxyl[0][0].atoms0)
+                acceptor_group_atoms = tuple(int(x) for x in acceptor_carbonyl[0][0].atoms0)
+            elif donor_hydroxyl and acceptor_carboxylate_roles:
+                chem_type = "carboxylate_hbond"
+                context_label = "intermolecular carboxylic O-H···O(carboxylate) H-bond"
+                donor_group = "carboxylic_acid"
+                acceptor_group = "carboxylate"
+                donor_group_atoms = tuple(int(x) for x in donor_hydroxyl[0][0].atoms0)
+                acceptor_group_atoms = tuple(int(x) for x in acceptor_carboxylate_roles[0][0].atoms0)
+            elif atoms[donor] == "O" and atoms[acceptor] == "O":
+                chem_type = "intermolecular_OH_O_hbond"
+                context_label = "intermolecular O-H···O H-bond"
+            elif atoms[donor] == "N" and atoms[acceptor] == "O":
+                chem_type = "intermolecular_NH_O_hbond"
+                context_label = "intermolecular N-H···O H-bond"
+            elif atoms[donor] == "O" and atoms[acceptor] == "N":
+                chem_type = "intermolecular_OH_N_hbond"
+                context_label = "intermolecular O-H···N H-bond"
+
+            row["chem_type"] = chem_type
+            row["context_label"] = context_label
+            row["donor_group"] = donor_group
+            row["acceptor_group"] = acceptor_group
+            row["donor_group_atoms"] = "-".join(str(int(x) + 1) for x in donor_group_atoms) if donor_group_atoms else ""
+            row["acceptor_group_atoms"] = "-".join(str(int(x) + 1) for x in acceptor_group_atoms) if acceptor_group_atoms else ""
+            row["fragment_pair"] = f"{frag_id.get(donor, -1)+1}-{frag_id.get(acceptor, -1)+1}"
+            annotated.append(row)
+        return annotated
+
+    def _augment_supramolecular_groups(
+        self,
+        groups: Sequence[FunctionalGroup],
+        hbonds: Sequence[dict],
+    ) -> List[FunctionalGroup]:
+        augmented = list(groups)
+        seen = {(group.group, tuple(sorted(int(a) for a in group.atoms0))) for group in augmented}
+        by_pair = {}
+        for row in hbonds:
+            if row.get("chem_type") != "carboxylic_acid_hbond":
+                continue
+            donor_atoms = tuple(sorted(int(x) for x in str(row.get("donor_group_atoms", "")).split("-") if x))
+            acceptor_atoms = tuple(sorted(int(x) for x in str(row.get("acceptor_group_atoms", "")).split("-") if x))
+            if not donor_atoms or not acceptor_atoms:
+                continue
+            key = frozenset((donor_atoms, acceptor_atoms))
+            by_pair.setdefault(key, set()).add((donor_atoms, acceptor_atoms))
+
+        for key, directions in by_pair.items():
+            if len(directions) < 2:
+                continue
+            atom_union = sorted({atom - 1 for atoms1 in key for atom in atoms1})
+            group_key = ("carboxylic_acid_dimer", tuple(atom_union))
+            if group_key in seen:
+                continue
+            seen.add(group_key)
+            augmented.append(
+                FunctionalGroup(
+                    group="carboxylic_acid_dimer",
+                    atoms0=tuple(atom_union),
+                    description="Two carboxylic acid groups linked by reciprocal intermolecular H-bonds",
+                    confidence="high",
+                    evidence="paired carboxylic O-H···O=C H-bonds across fragments",
+                )
+            )
+            for row in hbonds:
+                donor_atoms = tuple(sorted(int(x) for x in str(row.get("donor_group_atoms", "")).split("-") if x))
+                acceptor_atoms = tuple(sorted(int(x) for x in str(row.get("acceptor_group_atoms", "")).split("-") if x))
+                if frozenset((donor_atoms, acceptor_atoms)) == key and row.get("chem_type") == "carboxylic_acid_hbond":
+                    row["chem_type"] = "acid_dimer_hbond"
+                    row["context_label"] = "carboxylic acid dimer H-bond"
+        return augmented
+
     def _filter_legacy_conflicts(
         self,
         primary: Sequence[FunctionalGroup],
@@ -314,8 +482,7 @@ class RDKitChemistryBackend:
         angle_min_deg: float = 120.0,
     ):
         from chemistry import _legacy_detect_interfragment_hbonds
-
-        return _legacy_detect_interfragment_hbonds(
+        hbonds = _legacy_detect_interfragment_hbonds(
             atoms,
             coords_A,
             bonds,
@@ -324,6 +491,8 @@ class RDKitChemistryBackend:
             d_a_max_A=d_a_max_A,
             angle_min_deg=angle_min_deg,
         )
+        groups = self.detect_functional_groups(atoms, coords_A, bonds)
+        return self._annotate_hbond_contexts(hbonds, groups, atoms, fragments)
 
     def atom_environment_table(self, atoms, coords_A, bonds) -> pd.DataFrame:
         from chemistry import _legacy_atom_environment_table
@@ -344,13 +513,14 @@ class RDKitChemistryBackend:
         mol = self._build_mol(atoms, coords_A)
         bonds = tuple(self.build_connectivity(atoms, coords_A))
         fragments = self._fragments_from_mol(mol)
-        hbonds = tuple(self.detect_interfragment_hbonds(atoms, coords_A, bonds, fragments))
-        groups = tuple(self.detect_functional_groups(atoms, coords_A, bonds))
+        groups = list(self.detect_functional_groups(atoms, coords_A, bonds))
+        hbonds = list(self.detect_interfragment_hbonds(atoms, coords_A, bonds, fragments))
+        groups = self._augment_supramolecular_groups(groups, hbonds)
         return ChemicalSystemAnnotation(
             formula=formula_string(atoms),
             system_type=classify_system(fragments),
             bonds=bonds,
             fragments=fragments,
-            functional_groups=groups,
-            interfragment_hbonds=hbonds,
+            functional_groups=tuple(groups),
+            interfragment_hbonds=tuple(hbonds),
         )

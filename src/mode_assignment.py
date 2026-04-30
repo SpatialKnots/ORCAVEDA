@@ -52,12 +52,36 @@ def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
     kind = ic.kind.lower()
     name = ic.name.lower()
 
+    if "acid_dimer" in kind or "acid_dimer" in name:
+        return "acid dimer H-bond / intermolecular"
+    if "carboxylate_hbond" in kind or "carboxylate_hbond" in name:
+        return "carboxylate H-bond / intermolecular"
+    if "carboxylic_acid_hbond" in kind or "carboxylic_acid_hbond" in name:
+        return "carboxylic acid H-bond / intermolecular"
+    if "intermolecular_oh_o_hbond" in kind or "intermolecular_oh_o_hbond" in name:
+        return "intermolecular O-H···O H-bond"
+    if "intermolecular_nh_o_hbond" in kind or "intermolecular_nh_o_hbond" in name:
+        return "intermolecular N-H···O H-bond"
+    if "intermolecular_oh_n_hbond" in kind or "intermolecular_oh_n_hbond" in name:
+        return "intermolecular O-H···N H-bond"
     if "phenol_oh_stretch" in name or "phenolic_oh_stretch" in kind or "phenolic_oh_stretch" in name:
         return "phenolic O-H stretch"
     if "phenol_co_stretch" in name or "phenolic_co_stretch" in kind or "phenolic_co_stretch" in name:
         return "phenolic C-O stretch"
     if "phenol_coh_bend" in name or "phenolic_coh_bend" in kind or "phenolic_coh_bend" in name:
         return "phenolic O-H bend"
+    if "carboxylic_oh_stretch" in name or "carboxylic_oh_stretch" in kind:
+        return "carboxylic O-H stretch"
+    if "carboxylate_co_stretch" in name or "carboxylate_co_stretch" in kind:
+        return "carboxylate C-O stretch"
+    if "carboxylate_oco_bend" in name or "carboxylate_oco_bend" in kind:
+        return "carboxylate O-C-O bend"
+    if "carboxylic_co_single_stretch" in name or "carboxylic_co_stretch" in kind:
+        return "carboxylic C-O stretch"
+    if "carboxylic_coh_bend" in name or "carboxylic_coh_bend" in kind:
+        return "carboxylic O-H bend"
+    if "carboxylic_carbonyl_stretch" in name or "carboxylic_carbonyl_stretch" in kind:
+        return "carboxylic C=O stretch"
     if "secondary_aryl_amine_nh_stretch" in name or "secondary_aryl_amine_nh_stretch" in kind:
         return "secondary aryl amine N-H stretch"
     if "secondary_aryl_amine_cn_stretch" in name or "secondary_aryl_amine_cn_stretch" in kind:
@@ -66,14 +90,26 @@ def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
         return "aryl amine N-H stretch"
     if "aniline_cn_stretch" in name or "aryl_amine_cn_stretch" in kind or "aryl_amine_cn_stretch" in name:
         return "aryl C-N stretch"
+    if "aryl_amide_nh_stretch" in name or "aryl_amide_nh_stretch" in kind:
+        return "aryl amide N-H stretch"
     if "aryl_amide_cn_stretch" in name or "aryl_amide_cn_stretch" in kind:
         return "aryl amide C-N stretch"
+    if "aryl_amide_nc_stretch" in name or "aryl_amide_nc_stretch" in kind:
+        return "aryl amide C-N stretch"
+    if "aryl_amide_co_stretch" in name or "aryl_amide_co_stretch" in kind:
+        return "aryl amide C=O stretch"
+    if "aryl_ketone_co_stretch" in name or "aryl_ketone_co_stretch" in kind:
+        return "aryl-conjugated C=O stretch"
     if "heteroaromatic_cn_stretch" in name or "heteroaromatic_cn_stretch" in kind:
         return "heteroaromatic C-N stretch"
     if "aryl_ether_co_stretch" in name or "aryl_ether_co_stretch" in kind:
         return "aryl ether C-O stretch"
     if "aryl_ether_oc_stretch" in name or "aryl_ether_oc_stretch" in kind:
         return "aryl ether O-C stretch"
+    if "peroxide_oo_stretch" in name or "peroxide_oo_stretch" in kind:
+        return "O-O stretch"
+    if "peroxide_ooh_bend" in name or "peroxide_ooh_bend" in kind:
+        return "H-O-O bend"
     if "aromatic_ch_stretch" in kind or "aromatic_ch_stretch" in name:
         return "aromatic C-H stretch"
     if "aromatic_ch_bend" in kind or "aromatic_ch_bend" in name:
@@ -206,10 +242,14 @@ def _stage3d_contextual_xh_label(
 ) -> str:
     names = [str(name).lower() for name in coord_names]
     if elem == "O":
+        if any("carboxylic_oh_stretch" in name for name in names):
+            return "carboxylic O-H stretch"
         if any("phenol_oh_stretch" in name or "phenolic_oh_stretch" in name for name in names):
             return "phenolic O-H stretch"
         return "O-H stretch"
     if elem == "N":
+        if any("aryl_amide_nh_stretch" in name for name in names):
+            return "aryl amide N-H stretch"
         if any("secondary_aryl_amine_nh_stretch" in name for name in names):
             return "secondary aryl amine N-H stretch"
         if any("aniline_nh_stretch" in name or "aryl_amine_nh_stretch" in name for name in names):
@@ -577,7 +617,9 @@ def _stage3d_assignment_from_weighted_terms(
             "O-H stretch",
             "N-H stretch",
             "C-H stretch",
+            "carboxylic O-H stretch",
             "phenolic O-H stretch",
+            "aryl amide N-H stretch",
             "aryl amine N-H stretch",
             "secondary aryl amine N-H stretch",
             "aromatic C-H stretch",
