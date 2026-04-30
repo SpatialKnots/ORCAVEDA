@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -13,6 +14,7 @@ if str(SRC) not in sys.path:
 
 from orca_parser import read_orca_hess  # noqa: E402
 from reports import build_spectrum_payload, write_interactive_spectrum_viewer  # noqa: E402
+from reports import attach_nist_reference_set  # noqa: E402
 
 
 def test_interactive_spectrum_viewer_artifacts():
@@ -58,3 +60,63 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "\"geometry\"" in json_text
     assert "\"atoms\"" in json_text
     assert "\"bonds\"" in json_text
+
+
+def test_interactive_spectrum_viewer_with_nist_reference():
+    payload = {
+        "viewer_title": "ORCAVEDA Interactive IR Spectrum",
+        "default_scale_factor": 1.0,
+        "default_lorentz_hwhm": 12.0,
+        "files": [
+            {
+                "filename": "acetophenone.hess",
+                "title": "acetophenone",
+                "summary": {},
+                "modes": [{"mode": 1, "frequency_cm1": 1700.0, "intensity": 100.0, "assignment": "C=O stretch", "top_internal_coordinates": "", "warnings": ""}],
+                "geometry": {"atoms": [], "bonds": []},
+            }
+        ],
+    }
+    outdir = ROOT / "outputs" / "pytest_interactive_spectrum_viewer_nist"
+    if outdir.exists():
+        shutil.rmtree(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    ref_csv = outdir / "ref.csv"
+    pd.DataFrame({"wavenumber_cm-1": [1600.0, 1700.0, 1800.0], "intensity": [0.1, 0.5, 0.2]}).to_csv(ref_csv, index=False)
+    ref_meta = outdir / "ref_meta.json"
+    ref_meta.write_text(json.dumps({"jcamp_metadata": {"YUNITS": "ABSORBANCE", "STATE": "gas"}}), encoding="utf-8")
+    manifest_path = outdir / "refset.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "inchikey": "TEST",
+                "canonical_smiles": "CC",
+                "reference_spectra": [
+                    {
+                        "csv": str(ref_csv),
+                        "meta_json": str(ref_meta),
+                        "index": "0",
+                        "phase_tag": "gas",
+                        "phase_label": "gas",
+                        "selection_priority": 100,
+                        "description": "gas",
+                    }
+                ],
+                "preferred_reference": {"index": "0", "phase_tag": "gas", "phase_label": "gas"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = attach_nist_reference_set(payload, manifest_path)
+    html_path = outdir / "viewer.html"
+    json_path = outdir / "viewer.json"
+    write_interactive_spectrum_viewer(payload, html_path, json_path=json_path)
+
+    html_text = html_path.read_text(encoding="utf-8")
+    assert "NIST Reference" in html_text
+    assert "nistReference" in html_text
+    assert "Auto-fit scale" in html_text
+    assert "fitSummary" in html_text
+    assert "reference_spectra" in json_path.read_text(encoding="utf-8")

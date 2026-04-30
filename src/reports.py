@@ -36,6 +36,66 @@ def normalize_sheet_name(name: str) -> str:
     return clean[:31] if len(clean) > 31 else clean
 
 
+def load_nist_reference_set(manifest_path: str | Path) -> Dict[str, object]:
+    manifest_path = Path(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_dir = manifest_path.parent
+
+    spectra = []
+    for item in manifest.get("reference_spectra", []):
+        csv_path = manifest_dir / Path(item["csv"]).name if not Path(item["csv"]).is_absolute() else Path(item["csv"])
+        meta_path = manifest_dir / Path(item["meta_json"]).name if not Path(item["meta_json"]).is_absolute() else Path(item["meta_json"])
+        spectrum_df = pd.read_csv(csv_path, encoding="utf-8")
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        spectra.append(
+            {
+                "index": str(item.get("index", "")),
+                "phase_tag": str(item.get("phase_tag", "")),
+                "phase_label": str(item.get("phase_label", "")),
+                "selection_priority": int(item.get("selection_priority", 0)),
+                "description": str(item.get("description", "")),
+                "y_units": str(meta.get("jcamp_metadata", {}).get("YUNITS", "")),
+                "state": str(meta.get("jcamp_metadata", {}).get("STATE", "")),
+                "csv": str(csv_path),
+                "points": [
+                    {
+                        "x": float(row["wavenumber_cm-1"]),
+                        "y": float(row["intensity"]),
+                    }
+                    for _, row in spectrum_df.iterrows()
+                ],
+            }
+        )
+
+    return {
+        "inchikey": str(manifest.get("inchikey", "")),
+        "canonical_smiles": str(manifest.get("canonical_smiles", "")),
+        "reference_spectra": spectra,
+        "preferred_reference": manifest.get("preferred_reference", {}),
+    }
+
+
+def attach_nist_reference_set(
+    payload: Dict[str, object],
+    manifest_path: str | Path,
+    *,
+    file_title: str | None = None,
+) -> Dict[str, object]:
+    updated = dict(payload)
+    refs = dict(updated.get("nist_reference_sets", {}))
+    target_title = file_title
+    if target_title is None:
+        files = updated.get("files", [])
+        if len(files) == 1:
+            target_title = str(files[0].get("title", ""))
+    if not target_title:
+        raise ValueError("file_title is required when payload has multiple files")
+
+    refs[str(target_title)] = load_nist_reference_set(manifest_path)
+    updated["nist_reference_sets"] = refs
+    return updated
+
+
 def write_xlsx_report(report_tables: Dict[str, pd.DataFrame], xlsx_path: str | Path) -> Path:
     xlsx_path = Path(xlsx_path)
     xlsx_path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,6 +168,8 @@ def write_xlsx_report(report_tables: Dict[str, pd.DataFrame], xlsx_path: str | P
 def build_spectrum_payload(
     hess_list,
     assignment_audit: pd.DataFrame | None = None,
+    *,
+    nist_reference_sets: Dict[str, object] | None = None,
 ) -> Dict[str, object]:
     from chemistry import (
         build_connectivity as chemistry_build_connectivity,
@@ -194,6 +256,7 @@ def build_spectrum_payload(
         "default_scale_factor": 1.0,
         "default_lorentz_hwhm": 12.0,
         "files": files,
+        "nist_reference_sets": nist_reference_sets or {},
     }
 
 
@@ -431,15 +494,27 @@ def write_interactive_spectrum_viewer(
       margin-bottom: 2px;
       flex-wrap: wrap;
     }}
-    .ghost-btn {{
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 5px 10px;
-      background: white;
+        .ghost-btn {{
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          padding: 5px 10px;
+          background: white;
       color: var(--accent);
       font-size: 11px;
-      cursor: pointer;
-    }}
+          cursor: pointer;
+        }}
+        .button-row {{
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+        }}
+        .fit-summary {{
+          color: var(--muted);
+          font-size: 11px;
+          line-height: 1.3;
+          margin-bottom: 2px;
+        }}
     #chart {{
       width: 100%;
       height: 100%;
@@ -627,10 +702,18 @@ def write_interactive_spectrum_viewer(
               </select>
             </div>
             <div class="control">
-              <label>View Range</label>
-              <button id="resetZoom" type="button" class="ghost-btn">Reset Zoom</button>
+              <label for="nistReference">NIST Reference</label>
+              <select id="nistReference"></select>
+            </div>
+            <div class="control">
+              <label>NIST Fit</label>
+              <div class="button-row">
+                <button id="autoFitScale" type="button" class="ghost-btn">Auto-fit scale</button>
+                <button id="resetZoom" type="button" class="ghost-btn">Reset Zoom</button>
+              </div>
             </div>
           </div>
+          <div id="fitSummary" class="fit-summary">Choose a NIST reference and press Auto-fit scale to estimate the best frequency scaling.</div>
           <div class="checkrow">
             <label><input id="showSticks" type="checkbox" checked> Show sticks</label>
             <label><input id="invertAxis" type="checkbox" checked> Invert x-axis</label>
@@ -701,7 +784,10 @@ def write_interactive_spectrum_viewer(
     const scaleFactor = document.getElementById("scaleFactor");
     const hwhm = document.getElementById("hwhm");
     const yMode = document.getElementById("yMode");
+    const nistReference = document.getElementById("nistReference");
+    const autoFitScale = document.getElementById("autoFitScale");
     const resetZoom = document.getElementById("resetZoom");
+    const fitSummary = document.getElementById("fitSummary");
     const showSticks = document.getElementById("showSticks");
     const invertAxis = document.getElementById("invertAxis");
     const scaleValue = document.getElementById("scaleValue");
@@ -747,6 +833,35 @@ def write_interactive_spectrum_viewer(
 
     function getCurrentFile() {{
       return payload.files[currentIndex] || {{ filename: "", summary: {{}}, modes: [], geometry: {{ atoms: [] }} }};
+    }}
+
+    function getCurrentReferenceSet() {{
+      const file = getCurrentFile();
+      const sets = payload.nist_reference_sets || {{}};
+      return sets[file.title] || null;
+    }}
+
+    function populateReferenceOptions() {{
+      const refSet = getCurrentReferenceSet();
+      nistReference.innerHTML = "";
+      const noneOpt = document.createElement("option");
+      noneOpt.value = "";
+      noneOpt.textContent = "None";
+      nistReference.appendChild(noneOpt);
+
+      if (!refSet || !Array.isArray(refSet.reference_spectra)) {{
+        nistReference.disabled = true;
+        return;
+      }}
+      nistReference.disabled = false;
+      for (const item of refSet.reference_spectra) {{
+        const opt = document.createElement("option");
+        opt.value = String(item.index);
+        opt.textContent = `${{item.phase_label || item.phase_tag || item.index}}`;
+        nistReference.appendChild(opt);
+      }}
+      const preferred = refSet.preferred_reference || null;
+      nistReference.value = preferred ? String(preferred.index || "") : "";
     }}
 
     function lorentz(x, x0, intensity, gamma) {{
@@ -843,6 +958,231 @@ def write_interactive_spectrum_viewer(
       const norm = maxIntensity > 0 ? Math.min(1, clipped / maxIntensity) : 0;
       if (mode === "absorbance") return Math.log10(1 + 9 * norm);
       return Math.max(0.02, 1 - 0.92 * norm);
+    }}
+
+    function getSelectedReferenceSpectrum() {{
+      const refSet = getCurrentReferenceSet();
+      if (!refSet || !Array.isArray(refSet.reference_spectra)) return null;
+      const selected = String(nistReference.value || "");
+      if (!selected) return null;
+      return refSet.reference_spectra.find(item => String(item.index) === selected) || null;
+    }}
+
+    function convertReferenceY(value, yUnits, axisMode) {{
+      const unit = String(yUnits || "").toUpperCase();
+      const clipped = Math.max(0, Number(value) || 0);
+      if (axisMode === "absorbance") {{
+        if (unit.includes("ABSORB")) return clipped;
+        let t = clipped;
+        if (t > 1.5) t /= 100.0;
+        t = Math.max(1e-6, Math.min(1.0, t));
+        return -Math.log10(t);
+      }}
+      if (unit.includes("TRANS")) {{
+        let t = clipped;
+        if (t > 1.5) t /= 100.0;
+        return Math.max(0.0, Math.min(1.0, t));
+      }}
+      return Math.pow(10, -clipped);
+    }}
+
+    function buildReferenceOverlay(referenceSpectrum, x1, x2, axisMode) {{
+      if (!referenceSpectrum || !Array.isArray(referenceSpectrum.points)) return null;
+      const points = referenceSpectrum.points
+        .filter(pt => Number(pt.x) >= x1 && Number(pt.x) <= x2)
+        .sort((a, b) => Number(a.x) - Number(b.x));
+      if (!points.length) return null;
+      const rawY = points.map(pt => convertReferenceY(pt.y, referenceSpectrum.y_units, axisMode));
+      const minY = Math.min(...rawY);
+      const maxY = Math.max(...rawY);
+      const span = Math.max(1e-9, maxY - minY);
+      let ys;
+      let yMin;
+      let yMax;
+      if (axisMode === "absorbance") {{
+        ys = rawY.map(y => (y - minY) / span);
+        yMin = 0.0;
+        yMax = 1.0;
+      }} else {{
+        ys = rawY.map(y => 0.02 + 0.98 * ((y - minY) / span));
+        yMin = 0.02;
+        yMax = 1.0;
+      }}
+      return {{
+        xs: points.map(pt => Number(pt.x)),
+        ys,
+        yMin,
+        yMax,
+        label: referenceSpectrum.phase_label || referenceSpectrum.phase_tag || `Index ${{referenceSpectrum.index}}`,
+      }};
+    }}
+
+    function inferReferencePeakDirection(referenceSpectrum) {{
+      const unit = String(referenceSpectrum?.y_units || "").toUpperCase();
+      return unit.includes("ABSORB") ? "max" : "min";
+    }}
+
+    function smoothSeries(values, radius = 2) {{
+      if (!Array.isArray(values) || values.length < 3) return values.slice();
+      const out = [];
+      for (let i = 0; i < values.length; i += 1) {{
+        let total = 0;
+        let count = 0;
+        for (let j = Math.max(0, i - radius); j <= Math.min(values.length - 1, i + radius); j += 1) {{
+          total += Number(values[j]) || 0;
+          count += 1;
+        }}
+        out.push(total / Math.max(1, count));
+      }}
+      return out;
+    }}
+
+    function pickReferencePeaks(referenceSpectrum, limit = 16, minSpacingCm1 = 18) {{
+      if (!referenceSpectrum || !Array.isArray(referenceSpectrum.points) || referenceSpectrum.points.length < 5) return [];
+      const points = referenceSpectrum.points
+        .map(pt => ({{ x: Number(pt.x), y: Number(pt.y) }}))
+        .filter(pt => Number.isFinite(pt.x) && Number.isFinite(pt.y))
+        .sort((a, b) => a.x - b.x);
+      if (points.length < 5) return [];
+
+      const ys = smoothSeries(points.map(pt => pt.y), 2);
+      const direction = inferReferencePeakDirection(referenceSpectrum);
+      const candidates = [];
+      for (let i = 2; i < points.length - 2; i += 1) {{
+        const y0 = ys[i - 1];
+        const y1 = ys[i];
+        const y2 = ys[i + 1];
+        const isExtremum = direction === "min"
+          ? (y1 <= y0 && y1 < y2)
+          : (y1 >= y0 && y1 > y2);
+        if (!isExtremum) continue;
+
+        const leftWindow = ys.slice(Math.max(0, i - 8), i);
+        const rightWindow = ys.slice(i + 1, Math.min(ys.length, i + 9));
+        if (!leftWindow.length || !rightWindow.length) continue;
+        const shoulder = (Math.max(...leftWindow) + Math.max(...rightWindow)) / 2;
+        const valley = (Math.min(...leftWindow) + Math.min(...rightWindow)) / 2;
+        const prominence = direction === "min" ? shoulder - y1 : y1 - valley;
+        if (!(prominence > 0)) continue;
+        candidates.push({{
+          x: points[i].x,
+          y: points[i].y,
+          prominence,
+        }});
+      }}
+
+      candidates.sort((a, b) => b.prominence - a.prominence);
+      const selected = [];
+      for (const candidate of candidates) {{
+        if (selected.some(existing => Math.abs(existing.x - candidate.x) < minSpacingCm1)) continue;
+        selected.push(candidate);
+        if (selected.length >= limit) break;
+      }}
+      return selected.sort((a, b) => a.x - b.x);
+    }}
+
+    function scoreScaleAgainstReference(file, referenceSpectrum, scale) {{
+      const referencePeaks = pickReferencePeaks(referenceSpectrum, 16, 18);
+      if (!referencePeaks.length) return null;
+
+      const modes = (file.modes || [])
+        .map(mode => ({{
+          ...mode,
+          scaled: Number(mode.frequency_cm1) * scale,
+          weight: Math.max(1e-6, Number(mode.intensity) || 0),
+        }}))
+        .sort((a, b) => b.weight - a.weight);
+      if (!modes.length) return null;
+
+      const rankedPeaks = referencePeaks
+        .map(peak => ({{
+          ...peak,
+          weight: Math.max(1e-6, peak.prominence),
+        }}))
+        .sort((a, b) => b.weight - a.weight);
+
+      const tolerance = 35.0;
+      const unmatchedPenalty = 28.0;
+      const usedModes = new Set();
+      const matches = [];
+      let weightedDelta = 0;
+      let totalWeight = 0;
+      let unmatchedCount = 0;
+
+      for (const peak of rankedPeaks) {{
+        let best = null;
+        for (const mode of modes) {{
+          if (usedModes.has(mode.mode)) continue;
+          const delta = Math.abs(mode.scaled - peak.x);
+          if (delta > tolerance) continue;
+          const score = delta - 0.015 * Math.log10(1 + mode.weight);
+          if (!best || score < best.score) {{
+            best = {{ mode, delta, score }};
+          }}
+        }}
+
+        const w = peak.weight;
+        totalWeight += w;
+        if (!best) {{
+          unmatchedCount += 1;
+          weightedDelta += w * unmatchedPenalty;
+          continue;
+        }}
+
+        usedModes.add(best.mode.mode);
+        weightedDelta += w * best.delta;
+        matches.push({{
+          peak_x: peak.x,
+          mode: best.mode.mode,
+          scaled: best.mode.scaled,
+          delta: best.delta,
+          weight: w,
+          assignment: best.mode.assignment || "unassigned",
+        }});
+      }}
+
+      const score = weightedDelta / Math.max(1e-6, totalWeight) + unmatchedCount * 2.5;
+      const meanAbsDelta = matches.length
+        ? matches.reduce((acc, row) => acc + row.delta, 0) / matches.length
+        : Infinity;
+      return {{
+        score,
+        scale,
+        matchedCount: matches.length,
+        totalPeaks: rankedPeaks.length,
+        unmatchedCount,
+        meanAbsDelta,
+        matches,
+      }};
+    }}
+
+    function autoFitScaleAgainstReference() {{
+      const file = getCurrentFile();
+      const referenceSpectrum = getSelectedReferenceSpectrum();
+      if (!file || !referenceSpectrum) {{
+        fitSummary.textContent = "Select a NIST reference first, then press Auto-fit scale.";
+        return;
+      }}
+
+      let best = null;
+      for (let scale = 0.9; scale <= 1.0500001; scale += 0.0005) {{
+        const rounded = Number(scale.toFixed(4));
+        const result = scoreScaleAgainstReference(file, referenceSpectrum, rounded);
+        if (!result) continue;
+        if (!best || result.score < best.score) best = result;
+      }}
+
+      if (!best || !Number.isFinite(best.scale)) {{
+        fitSummary.textContent = "Auto-fit could not estimate a stable scale for the selected NIST reference.";
+        return;
+      }}
+
+      scaleFactor.value = best.scale.toFixed(3);
+      fitSummary.textContent = `Best scale ${{best.scale.toFixed(3)}} | mean Δ ${{best.meanAbsDelta.toFixed(1)}} cm-1 | matched ${{best.matchedCount}}/${{best.totalPeaks}}`;
+      pinnedTooltipMode = null;
+      chartTooltip.classList.remove("visible");
+      currentView = null;
+      drawSpectrum(false);
     }}
 
     function buildSpectrum(file, scale, gamma, x1, x2, axisMode) {{
@@ -1028,7 +1368,9 @@ def write_interactive_spectrum_viewer(
       const plotH = height - margin.top - margin.bottom;
 
       const render = buildSpectrum(file, scale, gamma, x1, x2, axisMode);
-      currentRender = {{ ...render, x1, x2, scale, gamma, axisMode, margin, plotW, plotH, file }};
+      const referenceSpectrum = getSelectedReferenceSpectrum();
+      const referenceOverlay = buildReferenceOverlay(referenceSpectrum, x1, x2, axisMode);
+      currentRender = {{ ...render, x1, x2, scale, gamma, axisMode, margin, plotW, plotH, file, referenceSpectrum, referenceOverlay }};
       ctx.clearRect(0, 0, width, height);
       ctx.fillStyle = "#fffdf8";
       ctx.fillRect(0, 0, width, height);
@@ -1069,6 +1411,24 @@ def write_interactive_spectrum_viewer(
         else ctx.lineTo(px, py);
       }});
       ctx.stroke();
+
+      if (referenceOverlay) {{
+        ctx.strokeStyle = "rgba(154, 52, 18, 0.88)";
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        referenceOverlay.xs.forEach((x, idx) => {{
+          const px = tx(x, x1, x2, margin.left, plotW, invertAxis.checked);
+          const py = ty(referenceOverlay.ys[idx], referenceOverlay.yMin, referenceOverlay.yMax, margin.top, plotH);
+          if (idx === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }});
+        ctx.stroke();
+
+        ctx.fillStyle = "rgba(154, 52, 18, 0.88)";
+        ctx.font = "12px Segoe UI";
+        ctx.textAlign = "left";
+        ctx.fillText(`NIST: ${{referenceOverlay.label}}`, margin.left + 6, margin.top + 16);
+      }}
 
       if (showSticks.checked) {{
         for (const mode of file.modes) {{
@@ -1207,6 +1567,7 @@ def write_interactive_spectrum_viewer(
       chartTooltip.classList.remove("visible");
       drawSpectrum(false);
     }});
+    autoFitScale.addEventListener("click", autoFitScaleAgainstReference);
 
     molStyle.addEventListener("input", renderMolecule);
     fileSelect.addEventListener("input", () => {{
@@ -1215,14 +1576,18 @@ def write_interactive_spectrum_viewer(
       currentView = null;
       pinnedTooltipMode = null;
       chartTooltip.classList.remove("visible");
+      populateReferenceOptions();
       drawSpectrum(true);
       renderMolecule();
     }});
-    [scaleFactor, hwhm, yMode, showSticks, invertAxis].forEach(el => {{
+    [scaleFactor, hwhm, yMode, showSticks, invertAxis, nistReference].forEach(el => {{
       el.addEventListener("input", () => {{
-        if (el === yMode) {{
+        if (el === yMode || el === nistReference) {{
           pinnedTooltipMode = null;
           chartTooltip.classList.remove("visible");
+          if (el === nistReference) {{
+            fitSummary.textContent = "Reference changed. Press Auto-fit scale to estimate the best frequency scaling for this spectrum.";
+          }}
         }}
         drawSpectrum(false);
       }});
@@ -1239,6 +1604,7 @@ def write_interactive_spectrum_viewer(
     scaleFactor.value = String(payload.default_scale_factor || 1.0);
     hwhm.value = String(payload.default_lorentz_hwhm || 12.0);
     fileSelect.value = "0";
+    populateReferenceOptions();
     drawSpectrum(true);
     renderMolecule();
   </script>
