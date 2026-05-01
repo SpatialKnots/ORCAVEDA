@@ -14,24 +14,68 @@ from scale_factor_engine import (
 from nist_ir.matching import match_reference_to_orcaveda_v2
 
 
+def _phase_peak_picking_profile(
+    reference_context: dict[str, object] | None = None,
+) -> dict[str, float | int | None]:
+    phase_text = " ".join(
+        str((reference_context or {}).get(key, "") or "").lower()
+        for key in ("phase_tag", "phase_label", "state", "description")
+    )
+    if any(token in phase_text for token in ("liquid", "solution", "solid")):
+        return {
+            "top_n_factor": 0.75,
+            "min_separation_factor": 1.5,
+            "relative_min_intensity": 0.12,
+        }
+    return {
+        "top_n_factor": 1.0,
+        "min_separation_factor": 1.0,
+        "relative_min_intensity": None,
+    }
+
+
+def _prefer_minima(reference_context: dict[str, object] | None = None) -> bool:
+    y_units = str((reference_context or {}).get("y_units", "") or "").lower()
+    return "transmittance" in y_units
+
+
 def pick_reference_peaks(
     spectrum: pd.DataFrame,
     *,
     top_n: int = 12,
     min_intensity: float | None = None,
     min_separation_cm1: float = 20.0,
+    reference_context: dict[str, object] | None = None,
 ) -> pd.DataFrame:
     if spectrum.empty:
         return pd.DataFrame(columns=["wavenumber_cm-1", "intensity"])
 
+    profile = _phase_peak_picking_profile(reference_context)
+    adjusted_top_n = max(1, int(round(float(top_n) * float(profile["top_n_factor"]))))
+    adjusted_min_separation = float(min_separation_cm1) * float(profile["min_separation_factor"])
+
     df = spectrum.copy()
     df = df.sort_values("wavenumber_cm-1").reset_index(drop=True)
+    prefer_minima = _prefer_minima(reference_context)
+    if min_intensity is None and profile["relative_min_intensity"] is not None:
+        max_intensity = float(df["intensity"].max()) if not df.empty else 0.0
+        min_intensity = max_intensity * float(profile["relative_min_intensity"])
     peaks: List[Dict[str, float]] = []
     values = df["intensity"].tolist()
     wns = df["wavenumber_cm-1"].tolist()
 
     for i in range(1, len(df) - 1):
         y = values[i]
+        if prefer_minima:
+            if y > values[i - 1] or y > values[i + 1]:
+                continue
+            if min_intensity is not None:
+                max_intensity = float(df["intensity"].max()) if not df.empty else 0.0
+                if (max_intensity - y) < min_intensity:
+                    continue
+            peaks.append({"wavenumber_cm-1": wns[i], "intensity": float((float(df["intensity"].max()) if not df.empty else 0.0) - y)})
+            continue
+
         if y < values[i - 1] or y < values[i + 1]:
             continue
         if min_intensity is not None and y < min_intensity:
@@ -46,9 +90,9 @@ def pick_reference_peaks(
     selected = []
     for _, row in peak_df.iterrows():
         wn = float(row["wavenumber_cm-1"])
-        if all(abs(wn - item["wavenumber_cm-1"]) > min_separation_cm1 for item in selected):
+        if all(abs(wn - item["wavenumber_cm-1"]) > adjusted_min_separation for item in selected):
             selected.append({"wavenumber_cm-1": wn, "intensity": float(row["intensity"])})
-        if len(selected) >= top_n:
+        if len(selected) >= adjusted_top_n:
             break
 
     return pd.DataFrame(selected).sort_values("wavenumber_cm-1", ascending=False).reset_index(drop=True)
@@ -116,6 +160,7 @@ def reference_points_to_peaks(
     top_n: int = 12,
     min_intensity: float | None = None,
     min_separation_cm1: float = 20.0,
+    reference_context: dict[str, object] | None = None,
 ) -> pd.DataFrame:
     if not points:
         return pd.DataFrame(columns=["wavenumber_cm-1", "intensity"])
@@ -134,6 +179,7 @@ def reference_points_to_peaks(
         top_n=top_n,
         min_intensity=min_intensity,
         min_separation_cm1=min_separation_cm1,
+        reference_context=reference_context,
     )
 
 
@@ -179,9 +225,18 @@ def build_matched_peak_pairs(
     assignment_audit: pd.DataFrame,
     *,
     method: str = "nearest",
+    reference_context: dict[str, object] | None = None,
 ) -> pd.DataFrame:
-    if method == "scored":
-        matched = match_reference_to_orcaveda_v2(reference_peaks, assignment_audit)
+    if method in {"scored", "scored_extended", "scored_high_confidence"}:
+        include_stages = None
+        if method == "scored_high_confidence":
+            include_stages = {"primary"}
+        matched = match_reference_to_orcaveda_v2(
+            reference_peaks,
+            assignment_audit,
+            include_stages=include_stages,
+            reference_context=reference_context,
+        )
         if matched.empty:
             return pd.DataFrame(
                 columns=[
@@ -309,10 +364,26 @@ def build_scale_engine_payload(
     *,
     piecewise_regions: Sequence[tuple[float, float]] | None = None,
     matching_method: str = "nearest",
+    reference_context: dict[str, object] | None = None,
 ) -> dict:
-    matched_pairs = build_matched_peak_pairs(reference_peaks, assignment_audit, method=matching_method)
+    matched_pairs = build_matched_peak_pairs(reference_peaks, assignment_audit, method=matching_method, reference_context=reference_context)
+    nearest_pairs = build_matched_peak_pairs(reference_peaks, assignment_audit, method="nearest", reference_context=reference_context)
+    high_confidence_pairs = build_matched_peak_pairs(reference_peaks, assignment_audit, method="scored_high_confidence", reference_context=reference_context)
+    extended_pairs = build_matched_peak_pairs(reference_peaks, assignment_audit, method="scored_extended", reference_context=reference_context)
     engine_table = compare_scale_engines_on_matched_peaks(
         matched_pairs,
+        piecewise_regions=piecewise_regions,
+    )
+    nearest_engine_table = compare_scale_engines_on_matched_peaks(
+        nearest_pairs,
+        piecewise_regions=piecewise_regions,
+    )
+    high_conf_engine_table = compare_scale_engines_on_matched_peaks(
+        high_confidence_pairs,
+        piecewise_regions=piecewise_regions,
+    )
+    extended_engine_table = compare_scale_engines_on_matched_peaks(
+        extended_pairs,
         piecewise_regions=piecewise_regions,
     )
     engine_fits: dict[str, dict] = {}
@@ -328,15 +399,117 @@ def build_scale_engine_payload(
             "matched_count": int(row["matched_count"]),
         }
 
+    def _table_to_fits(table: pd.DataFrame) -> dict[str, dict]:
+        fits: dict[str, dict] = {}
+        for _, row in table.iterrows():
+            fits[str(row["engine"])] = {
+                "engine": str(row["engine"]),
+                "parameters": json.loads(str(row["parameters_json"])),
+                "metrics": {
+                    "mean_percent_deviation": float(row["mean_percent_deviation"]),
+                    "rmse_percent_deviation": float(row["rmse_percent_deviation"]),
+                    "max_percent_deviation": float(row["max_percent_deviation"]),
+                },
+                "matched_count": int(row["matched_count"]),
+            }
+        return fits
+
+    def _layer_overview(label: str, pairs: pd.DataFrame, total_reference_peaks: int) -> dict:
+        matched_count = int(len(pairs))
+        coverage = float(matched_count / total_reference_peaks) if total_reference_peaks > 0 else 0.0
+        if pairs.empty:
+            mean_percent = float("nan")
+            rmse_percent = float("nan")
+        else:
+            abs_percent = (
+                (
+                    pairs["calc_frequency_cm-1"].astype(float)
+                    - pairs["reference_peak_cm-1"].astype(float)
+                ).abs()
+                / pairs["reference_peak_cm-1"].astype(float).abs().clip(lower=1e-9)
+            ) * 100.0
+            mean_percent = float(abs_percent.mean()) if not abs_percent.empty else float("nan")
+            rmse_percent = float(np.sqrt(np.mean(abs_percent**2))) if not abs_percent.empty else float("nan")
+        return {
+            "layer": label,
+            "matched_count": matched_count,
+            "total_reference_peaks": int(total_reference_peaks),
+            "coverage": coverage,
+            "mean_percent_deviation": mean_percent,
+            "rmse_percent_deviation": rmse_percent,
+        }
+
+    def _engine_layer_matrix(nearest_table: pd.DataFrame, high_table: pd.DataFrame, ext_table: pd.DataFrame) -> list[dict]:
+        by_layer = {
+            "nearest": nearest_table,
+            "high_confidence": high_table,
+            "extended": ext_table,
+        }
+        engine_names: set[str] = set()
+        for table in by_layer.values():
+            if not table.empty:
+                engine_names.update(str(name) for name in table["engine"].tolist())
+        rows: list[dict] = []
+        for engine in sorted(engine_names):
+            row: dict[str, object] = {"engine": engine}
+            for layer_name, table in by_layer.items():
+                sub = table[table["engine"].astype(str) == engine]
+                if sub.empty:
+                    row[f"{layer_name}_mean_percent_deviation"] = float("nan")
+                    row[f"{layer_name}_matched_count"] = 0
+                else:
+                    hit = sub.iloc[0]
+                    row[f"{layer_name}_mean_percent_deviation"] = float(hit["mean_percent_deviation"])
+                    row[f"{layer_name}_matched_count"] = int(hit["matched_count"])
+            rows.append(row)
+        return rows
+
     default_manual_scale = fit_constant_scale(
         matched_pairs["calc_frequency_cm-1"].astype(float).to_numpy(),
         matched_pairs["reference_peak_cm-1"].astype(float).to_numpy(),
         weights=matched_pairs["reference_intensity"].astype(float).to_numpy(),
     ) if not matched_pairs.empty else 1.0
 
+    total_reference_peaks = int(len(reference_peaks))
     return {
         "matched_pairs": matched_pairs.to_dict(orient="records"),
+        "nearest_matched_pairs": nearest_pairs.to_dict(orient="records"),
+        "high_confidence_matched_pairs": high_confidence_pairs.to_dict(orient="records"),
+        "extended_matched_pairs": extended_pairs.to_dict(orient="records"),
         "engine_table": engine_table.to_dict(orient="records"),
         "engine_fits": engine_fits,
+        "matching_layer_overview": [
+            _layer_overview("nearest", nearest_pairs, total_reference_peaks),
+            _layer_overview("high_confidence", high_confidence_pairs, total_reference_peaks),
+            _layer_overview("extended", extended_pairs, total_reference_peaks),
+        ],
+        "engine_layer_matrix": _engine_layer_matrix(
+            nearest_engine_table,
+            high_conf_engine_table,
+            extended_engine_table,
+        ),
+        "matching_layers": {
+            "nearest": {
+                "matched_pairs": nearest_pairs.to_dict(orient="records"),
+                "engine_table": nearest_engine_table.to_dict(orient="records"),
+                "engine_fits": _table_to_fits(nearest_engine_table),
+                "matched_count": int(len(nearest_pairs)),
+                "total_reference_peaks": total_reference_peaks,
+            },
+            "high_confidence": {
+                "matched_pairs": high_confidence_pairs.to_dict(orient="records"),
+                "engine_table": high_conf_engine_table.to_dict(orient="records"),
+                "engine_fits": _table_to_fits(high_conf_engine_table),
+                "matched_count": int(len(high_confidence_pairs)),
+                "total_reference_peaks": total_reference_peaks,
+            },
+            "extended": {
+                "matched_pairs": extended_pairs.to_dict(orient="records"),
+                "engine_table": extended_engine_table.to_dict(orient="records"),
+                "engine_fits": _table_to_fits(extended_engine_table),
+                "matched_count": int(len(extended_pairs)),
+                "total_reference_peaks": total_reference_peaks,
+            },
+        },
         "default_manual_scale": float(default_manual_scale),
     }

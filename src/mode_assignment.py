@@ -40,6 +40,51 @@ def _compact_coord_label(name: str, max_len: Optional[int] = None) -> str:
     return str(name).replace("FG_", "").replace("Hbond_", "Hbond:")
 
 
+def _normalize_element_symbol(text: str) -> str:
+    token = str(text or "").strip()
+    if not token:
+        return token
+    return token[0].upper() + token[1:].lower()
+
+
+def _primitive_bond_label(name: str) -> Optional[str]:
+    match = re.search(r"r\(([A-Za-z]{1,2})\d+-([A-Za-z]{1,2})\d+\)", str(name), flags=re.IGNORECASE)
+    if not match:
+        return None
+    left = _normalize_element_symbol(match.group(1))
+    right = _normalize_element_symbol(match.group(2))
+    return f"{left}-{right} stretch"
+
+
+def _primitive_angle_label(name: str) -> Optional[str]:
+    match = re.search(
+        r"ang\(([A-Za-z]{1,2})\d+-([A-Za-z]{1,2})\d+-([A-Za-z]{1,2})\d+\)",
+        str(name),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    left = _normalize_element_symbol(match.group(1))
+    center = _normalize_element_symbol(match.group(2))
+    right = _normalize_element_symbol(match.group(3))
+    return f"{left}-{center}-{right} bend"
+
+
+def _primitive_angle_tokens(name: str) -> Optional[Tuple[str, str, str]]:
+    match = re.search(
+        r"ang\(([A-Za-z]{1,2})\d+-([A-Za-z]{1,2})\d+-([A-Za-z]{1,2})\d+\)",
+        str(name),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return (
+        _normalize_element_symbol(match.group(1)),
+        _normalize_element_symbol(match.group(2)),
+        _normalize_element_symbol(match.group(3)),
+    )
+
+
 def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
     """Map an internal coordinate to a chemically readable assignment family.
 
@@ -116,6 +161,12 @@ def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
         return "aromatic C-H bend"
     if "aromatic_ring_stretch" in kind or "aromatic_ring_stretch" in name:
         return "aromatic ring stretch"
+    if "aromatic_ring_deformation" in kind or "aromatic_ring_deformation" in name:
+        return "aromatic ring deformation"
+    if "lactam_ocn_bend" in kind or "lactam_ocn_bend" in name:
+        return "amide-adjacent C-N bend"
+    if "lactam_ring_deformation" in kind or "lactam_ring_deformation" in name:
+        return "lactam ring deformation"
 
     if "hbond" in kind or "hbond" in name:
         return "H-bond / intermolecular"
@@ -162,11 +213,20 @@ def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
     if "co_stretch" in kind:
         return "C-O stretch"
     if "stretch" in kind:
+        primitive = _primitive_bond_label(ic.name)
+        if primitive:
+            return primitive
         return "bond stretch"
 
     if "bend" in kind or "angle" in kind:
         if "hbond" in name:
             return "H-bond angle bend"
+        primitive_tokens = _primitive_angle_tokens(ic.name)
+        if primitive_tokens == ("O", "C", "N") or primitive_tokens == ("N", "C", "O"):
+            return "amide-adjacent C-N bend"
+        primitive = _primitive_angle_label(ic.name)
+        if primitive:
+            return primitive
         return "angle bend"
     if "torsion" in kind or "tor(" in name:
         return "torsion"

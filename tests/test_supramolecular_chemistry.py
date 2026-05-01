@@ -16,7 +16,7 @@ pytest.importorskip("rdkit")
 from chemistry_rdkit_backend import RDKitChemistryBackend  # noqa: E402
 from internal_coordinates import build_internal_coordinates  # noqa: E402
 from mode_assignment import _assignment_family_from_internal  # noqa: E402
-from orcaveda_models import FunctionalGroup  # noqa: E402
+from orcaveda_models import FunctionalGroup, InternalCoordinate  # noqa: E402
 
 
 def test_rdkit_detects_synthetic_carboxylate():
@@ -103,3 +103,18 @@ def test_supramolecular_internal_coordinate_labels():
     assert "acid dimer H-bond / intermolecular" in labels
     assert "carboxylate C-O stretch" in labels
     assert "carboxylate O-C-O bend" in labels
+
+
+def test_generic_primitive_coordinate_labels_are_specific():
+    dummy_fn = lambda coords: 0.0
+    cn = InternalCoordinate("r(C1-N2)", "stretch", (0, 1), 10, dummy_fn)
+    ccn = InternalCoordinate("ang(C1-C2-N3)", "angle", (0, 1, 2), 10, dummy_fn)
+    ocn = InternalCoordinate("ang(O1-C2-N3)", "angle", (0, 1, 2), 10, dummy_fn)
+    lactam = InternalCoordinate("FG_lactam_ring_CNC_bend(C1-N2-C3)", "fg_lactam_ring_deformation", (0, 1, 2), 10, dummy_fn)
+    aromatic_ring = InternalCoordinate("FG_aromatic_ring_CCC_bend(C1-C2-C3)", "fg_aromatic_ring_deformation", (0, 1, 2), 10, dummy_fn)
+
+    assert _assignment_family_from_internal(cn) == "C-N stretch"
+    assert _assignment_family_from_internal(ccn) == "C-C-N bend"
+    assert _assignment_family_from_internal(ocn) == "amide-adjacent C-N bend"
+    assert _assignment_family_from_internal(lactam) == "lactam ring deformation"
+    assert _assignment_family_from_internal(aromatic_ring) == "aromatic ring deformation"

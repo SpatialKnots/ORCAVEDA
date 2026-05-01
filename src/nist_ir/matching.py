@@ -14,6 +14,8 @@ class ExperimentalPeak:
     intensity: float
     prominence: float | None = None
     region: str | None = None
+    phase_tag: str | None = None
+    state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,20 +55,62 @@ class MatchedPair:
     region: str
     total_cost: float
     confidence: str
+    stage: str
 
 
 DEFAULT_TOLERANCE_BY_REGION = {
-    "low": 35.0,
-    "fingerprint": 20.0,
-    "double_bond": 18.0,
-    "xh_stretch": 30.0,
+    "low": 45.0,
+    "fingerprint": 28.0,
+    "double_bond": 24.0,
+    "xh_stretch": 40.0,
+}
+
+SECONDARY_TOLERANCE_BY_REGION = {
+    "low": 55.0,
+    "fingerprint": 35.0,
+    "double_bond": 28.0,
+    "xh_stretch": 48.0,
+}
+
+BACKFILL_TOLERANCE_BY_REGION = {
+    "low": 65.0,
+    "fingerprint": 40.0,
+    "double_bond": 32.0,
+    "xh_stretch": 55.0,
+}
+
+AROMATIC_FINGERPRINT_CLASSES = {
+    "aromatic_ch_bend",
+    "aromatic_ch",
+    "co_stretch",
+    "cn_stretch",
+    "bend",
+    "stretch",
+    "generic",
+}
+
+DOUBLE_BOND_CLASSES = {
+    "carbonyl",
+    "co_stretch",
+    "cn_stretch",
+    "stretch",
+    "generic",
+}
+
+XH_STRETCH_CLASSES = {
+    "oh_stretch",
+    "nh_stretch",
+    "ch_stretch",
+    "aromatic_ch",
+    "stretch",
+    "generic",
 }
 
 DEFAULT_WEIGHTS = {
     "freq": 1.0,
-    "class": 0.6,
-    "intensity": 0.2,
-    "warning": 0.2,
+    "class": 0.35,
+    "intensity": 0.10,
+    "warning": 0.10,
 }
 
 
@@ -101,6 +145,10 @@ def infer_assignment_class(assignment: str) -> str:
         return "co_stretch"
     if "c-n" in text and "stretch" in text:
         return "cn_stretch"
+    if "ring" in text and "stretch" in text:
+        return "aromatic_ring"
+    if "ring" in text:
+        return "aromatic_ring"
     if "aromatic c-h bend" in text:
         return "aromatic_ch_bend"
     if "aromatic c-h" in text:
@@ -114,10 +162,12 @@ def infer_assignment_class(assignment: str) -> str:
     return "generic"
 
 
-def build_experimental_peaks(reference_peaks: pd.DataFrame) -> list[ExperimentalPeak]:
+def build_experimental_peaks(reference_peaks: pd.DataFrame, *, reference_context: dict[str, object] | None = None) -> list[ExperimentalPeak]:
     peaks: list[ExperimentalPeak] = []
     if reference_peaks.empty:
         return peaks
+    phase_tag = str((reference_context or {}).get("phase_tag", "") or "")
+    state = str((reference_context or {}).get("state", "") or "")
     for idx, row in reference_peaks.reset_index(drop=True).iterrows():
         freq = float(row["wavenumber_cm-1"])
         peaks.append(
@@ -127,6 +177,8 @@ def build_experimental_peaks(reference_peaks: pd.DataFrame) -> list[Experimental
                 intensity=float(row.get("intensity", 0.0)),
                 prominence=float(row["intensity"]) if pd.notna(row.get("intensity")) else None,
                 region=infer_region(freq),
+                phase_tag=phase_tag,
+                state=state,
             )
         )
     return peaks
@@ -160,14 +212,44 @@ def region_tolerance(region: str, tolerance_by_region: dict[str, float] | None =
     return float(mapping.get(str(region), 20.0))
 
 
+def is_condensed_phase(peak: ExperimentalPeak) -> bool:
+    phase = str(peak.phase_tag or peak.state or "").lower()
+    return any(token in phase for token in ("liquid", "solution", "solid"))
+
+
+def phase_scaled_tolerance(peak: ExperimentalPeak, base: float) -> float:
+    if not is_condensed_phase(peak):
+        return base
+    region = peak.region or "fingerprint"
+    factor = {
+        "low": 1.35,
+        "fingerprint": 1.28,
+        "double_bond": 1.22,
+        "xh_stretch": 1.45,
+    }.get(region, 1.2)
+    return base * factor
+
+
 def _experimental_expected_classes(peak: ExperimentalPeak) -> set[str]:
     if peak.region == "double_bond":
-        return {"carbonyl", "co_stretch", "cn_stretch", "generic"}
+        expected = {"carbonyl", "co_stretch", "cn_stretch", "stretch", "generic"}
+        if is_condensed_phase(peak):
+            expected |= {"bend"}
+        return expected
     if peak.region == "xh_stretch":
-        return {"oh_stretch", "nh_stretch", "ch_stretch", "stretch", "generic"}
+        expected = {"oh_stretch", "nh_stretch", "ch_stretch", "aromatic_ch", "stretch", "generic"}
+        if is_condensed_phase(peak):
+            expected |= {"intermolecular", "bend"}
+        return expected
     if peak.region == "low":
-        return {"torsion", "intermolecular", "bend", "generic"}
-    return {"co_stretch", "cn_stretch", "aromatic_ch_bend", "bend", "stretch", "generic"}
+        expected = {"torsion", "intermolecular", "bend", "stretch", "generic"}
+        if is_condensed_phase(peak):
+            expected |= {"oh_stretch", "nh_stretch"}
+        return expected
+    expected = {"co_stretch", "cn_stretch", "aromatic_ch_bend", "aromatic_ch", "aromatic_ring", "bend", "stretch", "generic"}
+    if is_condensed_phase(peak):
+        expected |= {"intermolecular"}
+    return expected
 
 
 def score_candidate(
@@ -177,7 +259,7 @@ def score_candidate(
     tolerance_by_region: dict[str, float] | None = None,
     weights: dict[str, float] | None = None,
 ) -> MatchCandidate | None:
-    tol = region_tolerance(exp_peak.region or "fingerprint", tolerance_by_region)
+    tol = phase_scaled_tolerance(exp_peak, region_tolerance(exp_peak.region or "fingerprint", tolerance_by_region))
     delta = float(calc_mode.frequency_cm1 - exp_peak.frequency_cm1)
     abs_delta = abs(delta)
     if abs_delta > tol:
@@ -191,21 +273,23 @@ def score_candidate(
     expected = _experimental_expected_classes(exp_peak)
     if calc_mode.assignment_class in expected:
         class_penalty = 0.0
+    elif is_condensed_phase(exp_peak) and calc_mode.assignment_class in {"generic", "stretch", "bend", "intermolecular", "aromatic_ring"}:
+        class_penalty = 0.08
     elif calc_mode.assignment_class in {"generic", "stretch", "bend"}:
-        class_penalty = 0.25
+        class_penalty = 0.12
     else:
-        class_penalty = 0.75
+        class_penalty = 0.35
 
     exp_int = max(float(exp_peak.intensity), 1e-9)
     calc_int = max(float(calc_mode.intensity), 1e-9)
     ratio = max(exp_int, calc_int) / min(exp_int, calc_int)
-    intensity_penalty = min(1.0, abs(math.log10(ratio)) / 3.0)
+    intensity_penalty = min(1.0, abs(math.log10(ratio)) / 6.0)
 
     warn_text = calc_mode.warnings.lower()
     if "mixed" in calc_mode.assignment.lower():
-        warning_penalty = 0.15
+        warning_penalty = 0.08
     elif warn_text and warn_text != "none":
-        warning_penalty = 0.25
+        warning_penalty = 0.15
     else:
         warning_penalty = 0.0
 
@@ -256,6 +340,42 @@ def assign_match_confidence(total_cost: float, abs_delta_cm1: float, class_penal
     return "low"
 
 
+def _secondary_region_policy(peak: ExperimentalPeak, mode: CalculatedMode) -> tuple[float, float, set[str] | None]:
+    region = peak.region or "fingerprint"
+    if region == "fingerprint":
+        # Aromatic fingerprint modes need a wider fallback window than generic bends,
+        # but only for chemically plausible aromatic / heteroatom-coupled classes.
+        tol = 38.0 if mode.assignment_class in AROMATIC_FINGERPRINT_CLASSES else 32.0
+        if is_condensed_phase(peak):
+            tol *= 1.2
+        return (
+            tol,
+            0.50 if mode.assignment_class in AROMATIC_FINGERPRINT_CLASSES else (0.35 if is_condensed_phase(peak) else 0.28),
+            AROMATIC_FINGERPRINT_CLASSES,
+        )
+    if region == "double_bond":
+        tol = 26.0 * (1.2 if is_condensed_phase(peak) else 1.0)
+        return (tol, 0.24 if is_condensed_phase(peak) else 0.18, DOUBLE_BOND_CLASSES)
+    if region == "xh_stretch":
+        tol = 48.0 * (1.25 if is_condensed_phase(peak) else 1.0)
+        return (tol, 0.38 if is_condensed_phase(peak) else 0.28, XH_STRETCH_CLASSES | {"intermolecular"})
+    return (phase_scaled_tolerance(peak, region_tolerance(region, SECONDARY_TOLERANCE_BY_REGION)), 0.35, None)
+
+
+def _backfill_region_policy(peak: ExperimentalPeak, mode: CalculatedMode) -> tuple[float, set[str] | None]:
+    region = peak.region or "fingerprint"
+    if region == "fingerprint":
+        tol = 42.0 if mode.assignment_class in AROMATIC_FINGERPRINT_CLASSES else 36.0
+        if is_condensed_phase(peak):
+            tol *= 1.2
+        return (tol, AROMATIC_FINGERPRINT_CLASSES)
+    if region == "double_bond":
+        return (30.0 * (1.2 if is_condensed_phase(peak) else 1.0), DOUBLE_BOND_CLASSES)
+    if region == "xh_stretch":
+        return (52.0 * (1.25 if is_condensed_phase(peak) else 1.0), XH_STRETCH_CLASSES | {"intermolecular"})
+    return (phase_scaled_tolerance(peak, region_tolerance(region, BACKFILL_TOLERANCE_BY_REGION)), None)
+
+
 def solve_peak_matching(
     candidates: Sequence[MatchCandidate],
     exp_peaks: Sequence[ExperimentalPeak],
@@ -267,9 +387,16 @@ def solve_peak_matching(
     used_modes: set[int] = set()
     matched_pairs: list[MatchedPair] = []
 
-    for candidate in sorted(candidates, key=lambda item: (item.total_cost, abs(item.delta_cm1), item.mode, item.peak_id)):
+    primary_candidates = [
+        item
+        for item in candidates
+        if item.total_cost <= 0.85 and item.class_penalty <= 0.12 and item.freq_penalty <= 0.85
+    ]
+    secondary_candidates = list(candidates)
+
+    def accept(candidate: MatchCandidate, *, stage: str) -> bool:
         if candidate.peak_id in used_peaks or candidate.mode in used_modes:
-            continue
+            return False
         peak = peak_by_id[candidate.peak_id]
         mode = mode_by_id[candidate.mode]
         used_peaks.add(candidate.peak_id)
@@ -288,8 +415,70 @@ def solve_peak_matching(
                 region=peak.region or mode.region or "fingerprint",
                 total_cost=candidate.total_cost,
                 confidence=assign_match_confidence(candidate.total_cost, abs(candidate.delta_cm1), candidate.class_penalty),
+                stage=stage,
             )
         )
+        return True
+
+    for candidate in sorted(primary_candidates, key=lambda item: (item.total_cost, abs(item.delta_cm1), item.mode, item.peak_id)):
+        accept(candidate, stage="primary")
+
+    def secondary_sort_key(candidate: MatchCandidate) -> tuple[float, float, int, str]:
+        peak = peak_by_id[candidate.peak_id]
+        mode = mode_by_id[candidate.mode]
+        fallback_tol, _, _ = _secondary_region_policy(peak, mode)
+        secondary_score = (
+            abs(candidate.delta_cm1) / max(fallback_tol, 1e-9)
+            + 0.5 * candidate.class_penalty
+            + 0.08 * candidate.intensity_penalty
+            + 0.05 * candidate.warning_penalty
+        )
+        return (secondary_score, abs(candidate.delta_cm1), mode.mode, peak.peak_id)
+
+    for candidate in sorted(secondary_candidates, key=secondary_sort_key):
+        if candidate.peak_id in used_peaks or candidate.mode in used_modes:
+            continue
+        peak = peak_by_id[candidate.peak_id]
+        mode = mode_by_id[candidate.mode]
+        fallback_tol, class_limit, allowed_classes = _secondary_region_policy(peak, mode)
+        if abs(candidate.delta_cm1) > fallback_tol:
+            continue
+        if allowed_classes is not None and mode.assignment_class not in allowed_classes:
+            continue
+        if candidate.class_penalty > class_limit:
+            continue
+        accept(candidate, stage="secondary")
+
+    # Final completion pass: region-aware nearest backfill for still-uncovered peaks.
+    for peak in sorted((item for item in exp_peaks if item.peak_id not in used_peaks), key=lambda item: item.intensity, reverse=True):
+        candidate_pool = [
+            item
+            for item in candidates
+            if item.peak_id == peak.peak_id and item.mode not in used_modes
+        ]
+        filtered_pool: list[MatchCandidate] = []
+        for item in candidate_pool:
+            mode = mode_by_id[item.mode]
+            backfill_tol, allowed_classes = _backfill_region_policy(peak, mode)
+            if abs(item.delta_cm1) > backfill_tol:
+                continue
+            if allowed_classes is not None and mode.assignment_class not in allowed_classes:
+                continue
+            filtered_pool.append(item)
+        candidate_pool = filtered_pool
+        if not candidate_pool:
+            continue
+        best = min(
+            candidate_pool,
+            key=lambda item: (
+                abs(item.delta_cm1),
+                item.class_penalty,
+                item.intensity_penalty,
+                item.warning_penalty,
+                item.mode,
+            ),
+        )
+        accept(best, stage="backfill")
 
     unmatched_exp = [asdict(peak) for peak in exp_peaks if peak.peak_id not in used_peaks]
     unmatched_calc = [asdict(mode) for mode in calc_modes if mode.mode not in used_modes]
@@ -306,8 +495,10 @@ def match_reference_to_orcaveda_v2(
     *,
     tolerance_by_region: dict[str, float] | None = None,
     weights: dict[str, float] | None = None,
+    include_stages: set[str] | None = None,
+    reference_context: dict[str, object] | None = None,
 ) -> pd.DataFrame:
-    exp_peaks = build_experimental_peaks(reference_peaks)
+    exp_peaks = build_experimental_peaks(reference_peaks, reference_context=reference_context)
     calc_modes = build_calculated_modes(assignment_audit)
     candidates = generate_match_candidates(
         exp_peaks,
@@ -331,8 +522,10 @@ def match_reference_to_orcaveda_v2(
             "region": pair.region,
             "total_cost": pair.total_cost,
             "match_confidence": pair.confidence,
+            "match_stage": pair.stage,
         }
         for pair in matched_pairs
+        if include_stages is None or pair.stage in include_stages
     ]
     return pd.DataFrame(rows).sort_values("reference_peak_cm-1", ascending=False).reset_index(drop=True) if rows else pd.DataFrame(
         columns=[
@@ -348,5 +541,6 @@ def match_reference_to_orcaveda_v2(
             "region",
             "total_cost",
             "match_confidence",
+            "match_stage",
         ]
     )

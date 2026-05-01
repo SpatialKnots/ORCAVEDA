@@ -14,7 +14,7 @@ if str(SRC) not in sys.path:
 
 from orca_parser import read_orca_hess  # noqa: E402
 from reports import build_spectrum_payload, write_interactive_spectrum_viewer  # noqa: E402
-from reports import attach_nist_reference_set  # noqa: E402
+from reports import attach_nist_reference_set, classify_reference_suitability  # noqa: E402
 
 
 def test_interactive_spectrum_viewer_artifacts():
@@ -89,16 +89,19 @@ def test_interactive_spectrum_viewer_with_nist_reference():
     manifest_path = outdir / "refset.json"
     manifest_path.write_text(
         json.dumps(
-            {
-                "inchikey": "TEST",
-                "canonical_smiles": "CC",
-                "reference_spectra": [
-                    {
-                        "csv": str(ref_csv),
-                        "meta_json": str(ref_meta),
-                        "index": "0",
-                        "phase_tag": "gas",
-                        "phase_label": "gas",
+                {
+                    "nist_page_url": "https://webbook.nist.gov/cgi/inchi?ID=C98862",
+                    "inchikey": "TEST",
+                    "canonical_smiles": "CC",
+                    "reference_spectra": [
+                        {
+                            "csv": str(ref_csv),
+                            "meta_json": str(ref_meta),
+                            "nist_id": "C98862",
+                            "jcamp_url": "https://webbook.nist.gov/cgi/inchi?JCAMP=C98862&Index=0&Type=IR",
+                            "index": "0",
+                            "phase_tag": "gas",
+                            "phase_label": "gas",
                         "selection_priority": 100,
                         "description": "gas",
                     }
@@ -113,7 +116,11 @@ def test_interactive_spectrum_viewer_with_nist_reference():
     ref_payload = payload["nist_reference_sets"]["acetophenone"]["reference_spectra"][0]["scale_engine_payload"]
     assert "engine_table" in ref_payload
     assert "engine_fits" in ref_payload
+    assert "matching_layers" in ref_payload
+    assert "high_confidence" in ref_payload["matching_layers"]
+    assert "extended" in ref_payload["matching_layers"]
     assert "global_ls" in ref_payload["engine_fits"]
+    assert payload["nist_reference_sets"]["acetophenone"]["reference_spectra"][0]["nist_spectrum_url"].startswith("https://webbook.nist.gov/")
 
     html_path = outdir / "viewer.html"
     json_path = outdir / "viewer.json"
@@ -121,9 +128,21 @@ def test_interactive_spectrum_viewer_with_nist_reference():
 
     html_text = html_path.read_text(encoding="utf-8")
     assert "NIST Reference" in html_text
+    assert "Open on NIST" in html_text
+    assert "nistReferenceLink" in html_text
     assert "Scale Engine" in html_text
     assert "scaleEngine" in html_text
+    assert "Matching Layer" in html_text
+    assert "matchingLayer" in html_text
     assert "engineTableBody" in html_text
+    assert "matchingLayerSummary" in html_text
+    assert "matchingLayerTableBody" in html_text
+    assert "engineLayerMatrixBody" in html_text
+    assert "Active layer:" in html_text
+    assert "Coverage" in html_text
+    assert "Nearest %Δ" in html_text
+    assert "High-Conf %Δ" in html_text
+    assert "Extended %Δ" in html_text
     assert "Mean %Δ" in html_text
     assert "RMS %Δ" in html_text
     assert "Max %Δ" in html_text
@@ -132,6 +151,71 @@ def test_interactive_spectrum_viewer_with_nist_reference():
     assert "fitSummary" in html_text
     json_text = json_path.read_text(encoding="utf-8")
     assert "reference_spectra" in json_text
+    assert "nist_spectrum_url" in json_text
     assert "scale_engine_payload" in json_text
+    assert "matching_layers" in json_text
+    assert "matching_layer_overview" in json_text
+    assert "engine_layer_matrix" in json_text
+    assert "high_confidence_matched_pairs" in json_text
+    assert "nearest_matched_pairs" in json_text
     assert "global_weighted_ls" in json_text
     assert "mean_percent_deviation" in json_text
+
+
+def test_unsuitable_reference_is_kept_but_skipped_for_matching():
+    assert classify_reference_suitability(y_units="ABSORPTION INDEX", phase_tag="liquid", description="liquid") == (
+        False,
+        "absorption_index_reference",
+    )
+
+    payload = {
+        "viewer_title": "ORCAVEDA Interactive IR Spectrum",
+        "default_scale_factor": 1.0,
+        "default_lorentz_hwhm": 12.0,
+        "files": [
+            {
+                "filename": "MeOH_freq.hess",
+                "title": "MeOH",
+                "summary": {},
+                "modes": [{"mode": 1, "frequency_cm1": 1030.0, "intensity": 100.0, "assignment": "C-O stretch", "top_internal_coordinates": "", "warnings": ""}],
+                "geometry": {"atoms": [], "bonds": []},
+            }
+        ],
+    }
+    outdir = ROOT / "outputs" / "pytest_interactive_spectrum_viewer_unsuitable"
+    if outdir.exists():
+        shutil.rmtree(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    ref_csv = outdir / "ref.csv"
+    pd.DataFrame({"wavenumber_cm-1": [1000.0, 1010.0, 1020.0], "intensity": [1.0, 2.0, 3.0]}).to_csv(ref_csv, index=False)
+    ref_meta = outdir / "ref_meta.json"
+    ref_meta.write_text(json.dumps({"jcamp_metadata": {"YUNITS": "ABSORPTION INDEX", "STATE": "liquid"}}), encoding="utf-8")
+    manifest_path = outdir / "refset.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "inchikey": "TEST",
+                "canonical_smiles": "CO",
+                "reference_spectra": [
+                    {
+                        "csv": str(ref_csv),
+                        "meta_json": str(ref_meta),
+                        "index": "28",
+                        "phase_tag": "liquid",
+                        "phase_label": "liquid",
+                        "selection_priority": 10,
+                        "description": "absorption index",
+                    }
+                ],
+                "preferred_reference": {"index": "28", "phase_tag": "liquid", "phase_label": "liquid"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    payload = attach_nist_reference_set(payload, manifest_path)
+    ref_item = payload["nist_reference_sets"]["MeOH"]["reference_spectra"][0]
+    assert ref_item["suitable_for_matching"] is False
+    assert ref_item["suitability_reason"] == "absorption_index_reference"
+    assert ref_item["scale_engine_payload"] is None
+    assert ref_item["matching_status"] == "skipped_unsuitable_reference"

@@ -178,6 +178,13 @@ def build_internal_coordinates(
                 c, o = group.atoms0[:2]
                 if tuple(sorted((c, o))) not in specialized_carbonyl_pairs:
                     coords.append(InternalCoordinate(f"FG_carbonyl_CO_stretch({atoms[c]}{c+1}={atoms[o]}{o+1})", "fg_carbonyl_stretch", (c, o), 4, distance_fn(c, o), "functional_group_template"))
+                if group.group == "lactam_amide":
+                    nitrogens = sorted(x for x in adj[c] if atoms[x] == "N")
+                    for n in nitrogens:
+                        coords.append(InternalCoordinate(f"FG_lactam_OCN_bend({atoms[o]}{o+1}-{atoms[c]}{c+1}-{atoms[n]}{n+1})", "fg_lactam_OCN_bend", (o, c, n), 12, angle_fn(o, c, n), "functional_group_template"))
+                        carbon_neighbors = sorted(x for x in adj[n] if atoms[x] == "C" and x != c)
+                        for c2 in carbon_neighbors:
+                            coords.append(InternalCoordinate(f"FG_lactam_ring_CNC_bend({atoms[c]}{c+1}-{atoms[n]}{n+1}-{atoms[c2]}{c2+1})", "fg_lactam_ring_deformation", (c, n, c2), 18, angle_fn(c, n, c2), "functional_group_template"))
             elif group.group == "nitrile_C≡N":
                 c, n = group.atoms0[:2]
                 coords.append(InternalCoordinate(f"FG_nitrile_CN_stretch({atoms[c]}{c+1}≡{atoms[n]}{n+1})", "fg_nitrile_stretch", (c, n), 4, distance_fn(c, n), "functional_group_template"))
@@ -202,6 +209,11 @@ def build_internal_coordinates(
                         b = ring_atoms[(pos + 1) % ring_size]
                         if b in adj[a]:
                             coords.append(InternalCoordinate(f"FG_aromatic_ring_CC_stretch({atoms[a]}{a+1}-{atoms[b]}{b+1})", "fg_aromatic_ring_stretch", (a, b), 12, distance_fn(a, b), "functional_group_template"))
+                    for pos, a in enumerate(ring_atoms):
+                        b = ring_atoms[(pos + 1) % ring_size]
+                        c = ring_atoms[(pos + 2) % ring_size]
+                        if b in adj[a] and c in adj[b]:
+                            coords.append(InternalCoordinate(f"FG_aromatic_ring_CCC_bend({atoms[a]}{a+1}-{atoms[b]}{b+1}-{atoms[c]}{c+1})", "fg_aromatic_ring_deformation", (a, b, c), 18, angle_fn(a, b, c), "functional_group_template"))
             elif group.group == "peroxide":
                 o1, o2 = group.atoms0[:2]
                 coords.append(InternalCoordinate(f"FG_peroxide_OO_stretch({atoms[o1]}{o1+1}-{atoms[o2]}{o2+1})", "fg_peroxide_OO_stretch", (o1, o2), 5, distance_fn(o1, o2), "functional_group_template"))

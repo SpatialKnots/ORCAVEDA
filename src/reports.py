@@ -8,6 +8,42 @@ from typing import Dict, Sequence
 import pandas as pd
 
 
+def classify_reference_suitability(
+    *,
+    y_units: str = "",
+    phase_tag: str = "",
+    description: str = "",
+) -> tuple[bool, str]:
+    y_text = str(y_units or "").strip().lower()
+    phase_text = str(phase_tag or "").strip().lower()
+    desc_text = str(description or "").strip().lower()
+    combined = " ".join(part for part in (y_text, phase_text, desc_text) if part)
+
+    if "absorption index" in combined:
+        return False, "absorption_index_reference"
+    if not y_text:
+        return False, "missing_y_units"
+    if "transmittance" in y_text or "absorbance" in y_text:
+        return True, "ir_curve"
+    return False, f"unsupported_y_units:{y_text}"
+
+
+def build_nist_spectrum_url(
+    *,
+    nist_id: str = "",
+    index: str = "",
+    fallback_page_url: str = "",
+    jcamp_url: str = "",
+) -> str:
+    nist_id = str(nist_id or "").strip()
+    index = str(index or "").strip()
+    if nist_id and index:
+        return f"https://webbook.nist.gov/cgi/inchi?ID={nist_id}&Type=IR-SPEC&Index={index}#IR-SPEC"
+    if fallback_page_url:
+        return str(fallback_page_url)
+    return str(jcamp_url or "")
+
+
 def safe_output_stem(name: str) -> str:
     stem = Path(str(name)).name
     for suffix in ("_freq.hess", ".hess", "_freq.out", ".out"):
@@ -40,6 +76,7 @@ def load_nist_reference_set(manifest_path: str | Path) -> Dict[str, object]:
     manifest_path = Path(manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest_dir = manifest_path.parent
+    manifest_page_url = str(manifest.get("nist_page_url", ""))
 
     spectra = []
     for item in manifest.get("reference_spectra", []):
@@ -47,15 +84,32 @@ def load_nist_reference_set(manifest_path: str | Path) -> Dict[str, object]:
         meta_path = manifest_dir / Path(item["meta_json"]).name if not Path(item["meta_json"]).is_absolute() else Path(item["meta_json"])
         spectrum_df = pd.read_csv(csv_path, encoding="utf-8")
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        y_units = str(meta.get("jcamp_metadata", {}).get("YUNITS", ""))
+        phase_tag = str(item.get("phase_tag", ""))
+        description = str(item.get("description", ""))
+        suitable_for_matching, suitability_reason = classify_reference_suitability(
+            y_units=y_units,
+            phase_tag=phase_tag,
+            description=description,
+        )
+        nist_spectrum_url = build_nist_spectrum_url(
+            nist_id=str(item.get("nist_id", "")),
+            index=str(item.get("index", "")),
+            fallback_page_url=manifest_page_url,
+            jcamp_url=str(item.get("jcamp_url", "")),
+        )
         spectra.append(
             {
                 "index": str(item.get("index", "")),
-                "phase_tag": str(item.get("phase_tag", "")),
+                "phase_tag": phase_tag,
                 "phase_label": str(item.get("phase_label", "")),
                 "selection_priority": int(item.get("selection_priority", 0)),
-                "description": str(item.get("description", "")),
-                "y_units": str(meta.get("jcamp_metadata", {}).get("YUNITS", "")),
+                "description": description,
+                "y_units": y_units,
                 "state": str(meta.get("jcamp_metadata", {}).get("STATE", "")),
+                "nist_spectrum_url": nist_spectrum_url,
+                "suitable_for_matching": bool(suitable_for_matching),
+                "suitability_reason": str(suitability_reason),
                 "csv": str(csv_path),
                 "points": [
                     {
@@ -70,6 +124,7 @@ def load_nist_reference_set(manifest_path: str | Path) -> Dict[str, object]:
     return {
         "inchikey": str(manifest.get("inchikey", "")),
         "canonical_smiles": str(manifest.get("canonical_smiles", "")),
+        "nist_page_url": manifest_page_url,
         "reference_spectra": spectra,
         "preferred_reference": manifest.get("preferred_reference", {}),
     }
@@ -106,12 +161,29 @@ def attach_nist_reference_set(
         assignment_audit = assignment_modes_to_dataframe(target_file.get("modes", []), scale_factor=1.0)
         if not assignment_audit.empty:
             for spectrum in ref_set.get("reference_spectra", []):
+                reference_context = {
+                    "phase_tag": spectrum.get("phase_tag", ""),
+                    "phase_label": spectrum.get("phase_label", ""),
+                    "state": spectrum.get("state", ""),
+                    "description": spectrum.get("description", ""),
+                    "y_units": spectrum.get("y_units", ""),
+                }
+                if not bool(spectrum.get("suitable_for_matching", True)):
+                    spectrum["scale_engine_payload"] = None
+                    spectrum["matching_status"] = "skipped_unsuitable_reference"
+                    spectrum["matching_status_reason"] = str(spectrum.get("suitability_reason", "unsuitable_reference"))
+                    continue
                 reference_peaks = reference_points_to_peaks(
                     spectrum.get("points", []),
                     top_n=16,
                     min_separation_cm1=18.0,
+                    reference_context=reference_context,
                 )
-                spectrum["scale_engine_payload"] = build_scale_engine_payload(reference_peaks, assignment_audit)
+                spectrum["scale_engine_payload"] = build_scale_engine_payload(
+                    reference_peaks,
+                    assignment_audit,
+                    reference_context=reference_context,
+                )
 
     refs[str(target_title)] = ref_set
     updated["nist_reference_sets"] = refs
@@ -584,6 +656,24 @@ def write_interactive_spectrum_viewer(
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
     }}
+    .inline-link-row {{
+      margin-top: 5px;
+      min-height: 16px;
+    }}
+    .inline-link-row a {{
+      color: var(--accent);
+      font-size: 11px;
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+    }}
+    .inline-link-row a:hover {{
+      border-bottom-color: currentColor;
+    }}
+    .inline-link-row a.disabled {{
+      color: #93a1af;
+      pointer-events: none;
+      border-bottom-color: transparent;
+    }}
     #chart {{
       width: 100%;
       height: 100%;
@@ -773,6 +863,7 @@ def write_interactive_spectrum_viewer(
             <div class="control">
               <label for="nistReference">NIST Reference</label>
               <select id="nistReference"></select>
+              <div class="inline-link-row"><a id="nistReferenceLink" href="#" target="_blank" rel="noopener noreferrer">Open on NIST</a></div>
             </div>
             <div class="control">
               <label for="scaleEngine">Scale Engine</label>
@@ -786,6 +877,14 @@ def write_interactive_spectrum_viewer(
               </select>
             </div>
             <div class="control">
+              <label for="matchingLayer">Matching Layer</label>
+              <select id="matchingLayer">
+                <option value="nearest">Nearest</option>
+                <option value="extended" selected>Extended</option>
+                <option value="high_confidence">High-Confidence</option>
+              </select>
+            </div>
+            <div class="control">
               <label>NIST Fit</label>
               <div class="button-row">
                 <button id="autoFitScale" type="button" class="ghost-btn">Auto-fit scale</button>
@@ -794,6 +893,37 @@ def write_interactive_spectrum_viewer(
             </div>
           </div>
           <div id="fitSummary" class="fit-summary">Choose a NIST reference and engine. Manual Static keeps the slider and Auto-fit; the other engines use precomputed matched-peak fits.</div>
+          <div id="matchingLayerSummary" class="fit-summary">Matching layers will appear here after you choose a NIST reference.</div>
+          <div class="engine-table-wrap">
+            <div class="engine-table-scroll">
+              <table class="engine-table">
+                <thead>
+                  <tr>
+                    <th>Layer</th>
+                    <th class="num">Matched</th>
+                    <th class="num">Coverage</th>
+                    <th class="num">Mean %Δ</th>
+                  </tr>
+                </thead>
+                <tbody id="matchingLayerTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="engine-table-wrap">
+            <div class="engine-table-scroll">
+              <table class="engine-table">
+                <thead>
+                  <tr>
+                    <th>Engine</th>
+                    <th class="num">Nearest %Δ</th>
+                    <th class="num">High-Conf %Δ</th>
+                    <th class="num">Extended %Δ</th>
+                  </tr>
+                </thead>
+                <tbody id="engineLayerMatrixBody"></tbody>
+              </table>
+            </div>
+          </div>
           <div class="engine-table-wrap">
             <div class="engine-table-scroll">
               <table class="engine-table">
@@ -881,10 +1011,15 @@ def write_interactive_spectrum_viewer(
     const hwhm = document.getElementById("hwhm");
     const yMode = document.getElementById("yMode");
     const nistReference = document.getElementById("nistReference");
+    const nistReferenceLink = document.getElementById("nistReferenceLink");
     const scaleEngine = document.getElementById("scaleEngine");
+    const matchingLayer = document.getElementById("matchingLayer");
     const autoFitScale = document.getElementById("autoFitScale");
     const resetZoom = document.getElementById("resetZoom");
     const fitSummary = document.getElementById("fitSummary");
+    const matchingLayerSummary = document.getElementById("matchingLayerSummary");
+    const matchingLayerTableBody = document.getElementById("matchingLayerTableBody");
+    const engineLayerMatrixBody = document.getElementById("engineLayerMatrixBody");
     const engineTableBody = document.getElementById("engineTableBody");
     const showSticks = document.getElementById("showSticks");
     const invertAxis = document.getElementById("invertAxis");
@@ -939,6 +1074,20 @@ def write_interactive_spectrum_viewer(
       return sets[file.title] || null;
     }}
 
+    function updateNistReferenceLink() {{
+      const referenceSpectrum = getSelectedReferenceSpectrum();
+      const href = String(referenceSpectrum?.nist_spectrum_url || "");
+      if (!href) {{
+        nistReferenceLink.href = "#";
+        nistReferenceLink.textContent = "NIST link unavailable";
+        nistReferenceLink.classList.add("disabled");
+        return;
+      }}
+      nistReferenceLink.href = href;
+      nistReferenceLink.textContent = "Open on NIST";
+      nistReferenceLink.classList.remove("disabled");
+    }}
+
     function populateReferenceOptions() {{
       const refSet = getCurrentReferenceSet();
       nistReference.innerHTML = "";
@@ -949,6 +1098,7 @@ def write_interactive_spectrum_viewer(
 
       if (!refSet || !Array.isArray(refSet.reference_spectra)) {{
         nistReference.disabled = true;
+        updateNistReferenceLink();
         return;
       }}
       nistReference.disabled = false;
@@ -960,6 +1110,7 @@ def write_interactive_spectrum_viewer(
       }}
       const preferred = refSet.preferred_reference || null;
       nistReference.value = preferred ? String(preferred.index || "") : "";
+      updateNistReferenceLink();
     }}
 
     function lorentz(x, x0, intensity, gamma) {{
@@ -1080,9 +1231,30 @@ def write_interactive_spectrum_viewer(
       return String(scaleEngine.value || "manual_static");
     }}
 
+    function getSelectedMatchingLayer() {{
+      return String(matchingLayer?.value || "extended");
+    }}
+
+    function getSelectedMatchingLayerPayload(basePayload) {{
+      if (!basePayload) return null;
+      const layerName = getSelectedMatchingLayer();
+      const layer = basePayload?.matching_layers?.[layerName] || null;
+      if (!layer) return basePayload;
+      return {{
+        ...basePayload,
+        engine_table: Array.isArray(layer.engine_table) ? layer.engine_table : [],
+        engine_fits: layer.engine_fits || {{}},
+        matched_pairs: Array.isArray(layer.matched_pairs) ? layer.matched_pairs : [],
+        matched_count: Number(layer.matched_count ?? 0),
+        total_reference_peaks: Number(layer.total_reference_peaks ?? 0),
+        matching_layer_name: layerName,
+      }};
+    }}
+
     function getSelectedScaleEnginePayload() {{
       const referenceSpectrum = getSelectedReferenceSpectrum();
-      return referenceSpectrum?.scale_engine_payload || null;
+      const payload = referenceSpectrum?.scale_engine_payload || null;
+      return getSelectedMatchingLayerPayload(payload);
     }}
 
     function getSelectedScaleEngineFit() {{
@@ -1132,6 +1304,105 @@ def write_interactive_spectrum_viewer(
       autoFitScale.disabled = !manual;
     }}
 
+    function updateMatchingLayerSummary() {{
+      const referenceSpectrum = getSelectedReferenceSpectrum();
+      const payload = referenceSpectrum?.scale_engine_payload || null;
+      const layers = payload?.matching_layers || {{}};
+      const hc = layers.high_confidence || {{}};
+      const ext = layers.extended || {{}};
+      const total = Number(ext.total_reference_peaks ?? hc.total_reference_peaks ?? 0);
+      const hcMatched = Number(hc.matched_count ?? 0);
+      const extMatched = Number(ext.matched_count ?? 0);
+      const active = getSelectedMatchingLayer() === "high_confidence" ? "High-Confidence" : "Extended";
+      if (!total) {{
+        matchingLayerSummary.textContent = "Matching layers will appear here after you choose a NIST reference.";
+        return;
+      }}
+      matchingLayerSummary.textContent = `Active layer: ${{active}} | High-confidence matches: ${{hcMatched}}/${{total}} | Extended matches: ${{extMatched}}/${{total}}`;
+    }}
+
+    function prettyMatchingLayerName(layer) {{
+      const mapping = {{
+        nearest: "Nearest",
+        high_confidence: "High-Confidence",
+        extended: "Extended",
+      }};
+      return mapping[String(layer || "")] || String(layer || "n/a");
+    }}
+
+    function updateMatchingLayerTable() {{
+      const referenceSpectrum = getSelectedReferenceSpectrum();
+      const basePayload = referenceSpectrum?.scale_engine_payload || null;
+      matchingLayerTableBody.innerHTML = "";
+      const rows = Array.isArray(basePayload?.matching_layer_overview) ? basePayload.matching_layer_overview : [];
+      if (!rows.length) {{
+        const tr = document.createElement("tr");
+        tr.innerHTML = '<td colspan="4" style="color:#677483;padding:8px;">No matching-layer summary is available for the selected NIST reference.</td>';
+        matchingLayerTableBody.appendChild(tr);
+        return;
+      }}
+      const activeLayer = getSelectedMatchingLayer();
+      for (const row of rows) {{
+        const tr = document.createElement("tr");
+        if (String(row.layer) === String(activeLayer)) tr.classList.add("active");
+        const total = Number(row.total_reference_peaks ?? 0);
+        const matched = Number(row.matched_count ?? 0);
+        const coverage = Number(row.coverage ?? NaN);
+        const mean = Number(row.mean_percent_deviation ?? NaN);
+        tr.innerHTML = `
+          <td>${{prettyMatchingLayerName(row.layer)}}</td>
+          <td class="num">${{matched}}/${{total}}</td>
+          <td class="num">${{(coverage * 100).toFixed(1)}}%</td>
+          <td class="num">${{mean.toFixed(2)}}%</td>
+        `;
+        tr.addEventListener("click", () => {{
+          if (row.layer && matchingLayer.value !== String(row.layer)) {{
+            matchingLayer.value = String(row.layer);
+            pinnedTooltipMode = null;
+            chartTooltip.classList.remove("visible");
+            drawSpectrum(false);
+          }}
+        }});
+        matchingLayerTableBody.appendChild(tr);
+      }}
+    }}
+
+    function updateEngineLayerMatrix() {{
+      const referenceSpectrum = getSelectedReferenceSpectrum();
+      const basePayload = referenceSpectrum?.scale_engine_payload || null;
+      engineLayerMatrixBody.innerHTML = "";
+      const rows = Array.isArray(basePayload?.engine_layer_matrix) ? basePayload.engine_layer_matrix : [];
+      if (!rows.length) {{
+        const tr = document.createElement("tr");
+        tr.innerHTML = '<td colspan="4" style="color:#677483;padding:8px;">No engine-by-layer comparison is available for the selected NIST reference.</td>';
+        engineLayerMatrixBody.appendChild(tr);
+        return;
+      }}
+      const activeEngine = getSelectedScaleEngine();
+      for (const row of rows) {{
+        const tr = document.createElement("tr");
+        if (String(row.engine) === String(activeEngine)) tr.classList.add("active");
+        const nearestMean = Number(row.nearest_mean_percent_deviation ?? NaN);
+        const highMean = Number(row.high_confidence_mean_percent_deviation ?? NaN);
+        const extMean = Number(row.extended_mean_percent_deviation ?? NaN);
+        tr.innerHTML = `
+          <td>${{prettyEngineName(row.engine)}}</td>
+          <td class="num">${{nearestMean.toFixed(2)}}%</td>
+          <td class="num">${{highMean.toFixed(2)}}%</td>
+          <td class="num">${{extMean.toFixed(2)}}%</td>
+        `;
+        tr.addEventListener("click", () => {{
+          if (row.engine && scaleEngine.value !== String(row.engine)) {{
+            scaleEngine.value = String(row.engine);
+            pinnedTooltipMode = null;
+            chartTooltip.classList.remove("visible");
+            drawSpectrum(false);
+          }}
+        }});
+        engineLayerMatrixBody.appendChild(tr);
+      }}
+    }}
+
     function updateFitSummaryForCurrentContext() {{
       const engineName = getSelectedScaleEngine();
       const referenceSpectrum = getSelectedReferenceSpectrum();
@@ -1140,6 +1411,8 @@ def write_interactive_spectrum_viewer(
         fitSummary.textContent = engineName === "manual_static"
           ? "Choose a NIST reference and press Auto-fit scale to estimate the best frequency scaling."
           : "Choose a NIST reference to use precomputed matched-peak scale-engine fits.";
+        updateMatchingLayerSummary();
+        updateMatchingLayerTable();
         return;
       }}
 
@@ -1148,16 +1421,22 @@ def write_interactive_spectrum_viewer(
         fitSummary.textContent = Number.isFinite(bestScale)
           ? `Reference loaded. Manual Static is active; Auto-fit can refine the slider around ${{bestScale.toFixed(3)}}.`
           : "Reference loaded. Manual Static is active; press Auto-fit scale to estimate the best frequency scaling.";
+        updateMatchingLayerSummary();
+        updateMatchingLayerTable();
         return;
       }}
 
       const fit = getSelectedScaleEngineFit();
       if (!fit) {{
         fitSummary.textContent = `No precomputed fit is available for ${{engineName}} on the selected reference spectrum.`;
+        updateMatchingLayerSummary();
+        updateMatchingLayerTable();
         return;
       }}
       const met = fit.metrics || {{}};
       fitSummary.textContent = `${{fit.engine}} | mean %Δ ${{Number(met.mean_percent_deviation ?? NaN).toFixed(2)}}% | RMS %Δ ${{Number(met.rmse_percent_deviation ?? NaN).toFixed(2)}}% | matched ${{Number(fit.matched_count ?? 0)}}`;
+      updateMatchingLayerSummary();
+      updateMatchingLayerTable();
     }}
 
     function prettyEngineName(engine) {{
@@ -1609,6 +1888,7 @@ def write_interactive_spectrum_viewer(
       currentView = {{ x1, x2 }};
       updateScaleControlsState();
       updateFitSummaryForCurrentContext();
+      updateEngineLayerMatrix();
       updateEngineTable();
       scaleValue.textContent = engineName === "manual_static" ? scale.toFixed(3) : "engine";
       hwhmValue.textContent = gamma.toFixed(1);
@@ -1832,12 +2112,13 @@ def write_interactive_spectrum_viewer(
       drawSpectrum(true);
       renderMolecule();
     }});
-    [scaleFactor, hwhm, yMode, showSticks, invertAxis, nistReference, scaleEngine].forEach(el => {{
+    [scaleFactor, hwhm, yMode, showSticks, invertAxis, nistReference, scaleEngine, matchingLayer].forEach(el => {{
       el.addEventListener("input", () => {{
-        if (el === yMode || el === nistReference || el === scaleEngine) {{
+        if (el === yMode || el === nistReference || el === scaleEngine || el === matchingLayer) {{
           pinnedTooltipMode = null;
           chartTooltip.classList.remove("visible");
           if (el === nistReference) {{
+            updateNistReferenceLink();
             fitSummary.textContent = "Reference changed. Manual Static can use Auto-fit; the other engines use precomputed matched-peak fits.";
           }}
         }}

@@ -95,6 +95,48 @@ def test_assignment_modes_to_dataframe_and_reference_points_to_peaks():
     assert set(round(v, 1) for v in peaks["wavenumber_cm-1"]) == {1210.0, 1632.0}
 
 
+def test_reference_points_to_peaks_condensed_phase_is_more_selective():
+    points = [
+        {"x": 980.0, "y": 0.10},
+        {"x": 1000.0, "y": 0.80},
+        {"x": 1010.0, "y": 0.72},
+        {"x": 1020.0, "y": 0.15},
+        {"x": 1600.0, "y": 0.95},
+        {"x": 1610.0, "y": 0.84},
+        {"x": 1620.0, "y": 0.20},
+    ]
+    gas_peaks = reference_points_to_peaks(points, top_n=4, min_separation_cm1=8.0)
+    condensed_peaks = reference_points_to_peaks(
+        points,
+        top_n=4,
+        min_separation_cm1=8.0,
+        reference_context={"phase_tag": "liquid_neat", "state": "LIQUID"},
+    )
+
+    assert len(gas_peaks) >= len(condensed_peaks)
+    assert len(condensed_peaks) == 2
+    assert set(round(v, 1) for v in condensed_peaks["wavenumber_cm-1"]) == {1000.0, 1600.0}
+
+
+def test_reference_points_to_peaks_transmittance_uses_minima():
+    points = [
+        {"x": 1000.0, "y": 92.0},
+        {"x": 1010.0, "y": 70.0},
+        {"x": 1020.0, "y": 90.0},
+        {"x": 1600.0, "y": 88.0},
+        {"x": 1610.0, "y": 60.0},
+        {"x": 1620.0, "y": 85.0},
+    ]
+    peaks = reference_points_to_peaks(
+        points,
+        top_n=2,
+        min_separation_cm1=8.0,
+        reference_context={"y_units": "TRANSMITTANCE"},
+    )
+    assert len(peaks) == 2
+    assert set(round(v, 1) for v in peaks["wavenumber_cm-1"]) == {1010.0, 1610.0}
+
+
 def test_build_matched_peak_pairs_and_engine_table():
     assignment_audit = pd.DataFrame(
         [
@@ -134,6 +176,9 @@ def test_build_matched_peak_pairs_and_engine_table():
 
     matched_pairs_scored = build_matched_peak_pairs(reference_peaks, assignment_audit, method="scored")
     assert set(matched_pairs_scored["mode"]) == {10, 11, 12}
+    matched_pairs_hc = build_matched_peak_pairs(reference_peaks, assignment_audit, method="scored_high_confidence")
+    assert set(matched_pairs_hc["mode"]) <= {10, 11, 12}
+    assert len(matched_pairs_hc) <= len(matched_pairs_scored)
 
     engine_table = compare_scale_engines_on_matched_peaks(matched_pairs)
     assert not engine_table.empty
@@ -168,10 +213,19 @@ def test_build_scale_engine_payload_contains_engine_fits():
     )
     payload = build_scale_engine_payload(reference_peaks, assignment_audit)
     assert "matched_pairs" in payload
+    assert "high_confidence_matched_pairs" in payload
+    assert "extended_matched_pairs" in payload
+    assert "nearest_matched_pairs" in payload
     assert "engine_table" in payload
     assert "engine_fits" in payload
+    assert "matching_layers" in payload
+    assert "matching_layer_overview" in payload
+    assert "engine_layer_matrix" in payload
     assert payload["default_manual_scale"] > 0.0
     assert "global_ls" in payload["engine_fits"]
     assert "power_law" in payload["engine_fits"]
+    assert "high_confidence" in payload["matching_layers"]
+    assert "extended" in payload["matching_layers"]
+    assert "nearest" in payload["matching_layers"]
     assert "mean_percent_deviation" in payload["engine_fits"]["global_ls"]["metrics"]
     assert "max_percent_deviation" in payload["engine_fits"]["global_ls"]["metrics"]
