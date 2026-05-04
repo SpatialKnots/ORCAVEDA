@@ -130,6 +130,7 @@ def test_interactive_spectrum_viewer_with_nist_reference():
     assert "NIST Reference" in html_text
     assert "Open on NIST" in html_text
     assert "nistReferenceLink" in html_text
+    assert "Index ${item.index} - ${phase}${units}${description}${suitability}" in html_text
     assert "Scale Engine" in html_text
     assert "scaleEngine" in html_text
     assert "Matching Layer" in html_text

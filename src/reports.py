@@ -1105,7 +1105,11 @@ def write_interactive_spectrum_viewer(
       for (const item of refSet.reference_spectra) {{
         const opt = document.createElement("option");
         opt.value = String(item.index);
-        opt.textContent = `${{item.phase_label || item.phase_tag || item.index}}`;
+        const phase = item.phase_label || item.phase_tag || "unknown phase";
+        const units = item.y_units ? `; ${{item.y_units}}` : "";
+        const description = item.description ? `; ${{item.description}}` : "";
+        const suitability = item.suitable_for_matching === false ? `; skipped: ${{item.suitability_reason || "unsuitable_reference"}}` : "";
+        opt.textContent = `Index ${{item.index}} - ${{phase}}${{units}}${{description}}${{suitability}}`;
         nistReference.appendChild(opt);
       }}
       const preferred = refSet.preferred_reference || null;
