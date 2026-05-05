@@ -17,6 +17,7 @@ class HessData:
     normal_modes: np.ndarray
     temperature_K: Optional[float] = None
     frequency_scale_factor: Optional[float] = None
+    cartesian_hessian: Optional[np.ndarray] = None
 
 
 @dataclass

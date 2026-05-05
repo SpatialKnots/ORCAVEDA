@@ -39,8 +39,32 @@ def test_interactive_spectrum_viewer_artifacts():
             }
         ]
     )
+    wilson_ped = pd.DataFrame(
+        [
+            {
+                "Filename": hess.filename,
+                "mode": positive_mode,
+                "frequency_cm-1": float(hess.frequencies_cm1[positive_mode]),
+                "wilson_rank": 1,
+                "coordinate_family": "H-O-H bend",
+                "internal_coordinate": "ang(H2-O1-H3)",
+                "coordinate_class": "bend",
+                "contribution_percent": 99.9,
+                "wilson_ped_method": "Wilson GF PED test method",
+            }
+        ]
+    )
 
-    payload = build_spectrum_payload([hess], assignment_audit)
+    payload = build_spectrum_payload([hess], assignment_audit, wilson_ped_audit=wilson_ped)
+    target_mode = next(mode for mode in payload["files"][0]["modes"] if mode["mode"] == positive_mode)
+    assert target_mode["assignment"] == "H-O-H bend"
+    assert target_mode["stage3d_assignment"] == "O-H stretch"
+    assert target_mode["ped_source"] == "Wilson PED"
+    assert target_mode["ped_top_percent"] == 99.9
+    fallback_mode = next(mode for mode in payload["files"][0]["modes"] if mode["mode"] != positive_mode)
+    assert fallback_mode["ped_source"] == ""
+    assert fallback_mode["stage3d_assignment"] == ""
+
     outdir = ROOT / "outputs" / "pytest_interactive_spectrum_viewer"
     if outdir.exists():
         shutil.rmtree(outdir)
@@ -55,6 +79,9 @@ def test_interactive_spectrum_viewer_artifacts():
     html_text = html_path.read_text(encoding="utf-8")
     assert "Interactive IR Spectrum" in html_text
     assert "3D Molecule Viewer" in html_text
+    assert "PED Assignment" in html_text
+    assert "Stage 3D Assignment" in html_text
+    assert "PED Contributors" in html_text
     assert "moleculeViewer" in html_text
     assert "3Dmol-min.js" in html_text
     assert "molStyle" in html_text
@@ -62,6 +89,8 @@ def test_interactive_spectrum_viewer_artifacts():
     json_text = json_path.read_text(encoding="utf-8")
     assert "frequency_cm1" in json_text
     assert hess.filename in json_text
+    assert "H-O-H bend" in json_text
+    assert "stage3d_assignment" in json_text
     assert "O-H stretch" in json_text
     assert "\"geometry\"" in json_text
     assert "\"atoms\"" in json_text

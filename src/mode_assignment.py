@@ -85,6 +85,27 @@ def _primitive_angle_tokens(name: str) -> Optional[Tuple[str, str, str]]:
     )
 
 
+def _primitive_torsion_label(name: str) -> Optional[str]:
+    match = re.search(
+        r"tor\(([A-Za-z]{1,2})\d+-([A-Za-z]{1,2})\d+-([A-Za-z]{1,2})\d+-([A-Za-z]{1,2})\d+\)",
+        str(name),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    elems = [_normalize_element_symbol(match.group(i)) for i in range(1, 5)]
+    joined = "-".join(elems)
+    if "N" in elems and "H" in elems:
+        return "N-H torsion"
+    if "O" in elems and "H" in elems:
+        return "O-H torsion"
+    if "C" in elems and "H" in elems:
+        return "C-H torsion"
+    if elems.count("C") >= 3:
+        return "C-C-C torsion"
+    return f"{joined} torsion"
+
+
 def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
     """Map an internal coordinate to a chemically readable assignment family.
 
@@ -223,12 +244,17 @@ def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
             return "H-bond angle bend"
         primitive_tokens = _primitive_angle_tokens(ic.name)
         if primitive_tokens == ("O", "C", "N") or primitive_tokens == ("N", "C", "O"):
-            return "amide-adjacent C-N bend"
+            return "amide carbonyl-adjacent C-N bend"
+        if primitive_tokens and primitive_tokens[1] == "N" and "H" in (primitive_tokens[0], primitive_tokens[2]):
+            return "N-H bend"
         primitive = _primitive_angle_label(ic.name)
         if primitive:
             return primitive
         return "angle bend"
     if "torsion" in kind or "tor(" in name:
+        primitive = _primitive_torsion_label(ic.name)
+        if primitive:
+            return primitive
         return "torsion"
     return kind or "internal coordinate"
 
@@ -638,6 +664,7 @@ def _stage3d_assignment_from_weighted_terms(
     top_terms: Sequence[Tuple[InternalCoordinate, float]],
     totals: Dict[str, float],
     freq: float,
+    assignment_terms: Optional[Sequence[Tuple[InternalCoordinate, float]]] = None,
 ) -> str:
     """Create the final readable assignment from weighted dominant terms."""
     if not top_terms:
@@ -690,12 +717,35 @@ def _stage3d_assignment_from_weighted_terms(
             primary, primary_pct = xh[0]
 
     if len(ordered) == 1 or ordered[1][1] < 10.0:
-        return primary
+        assignment = primary
+    else:
+        secondary, secondary_pct = ordered[1]
+        if secondary == primary:
+            assignment = primary
+        else:
+            assignment = f"{primary} mixed with {secondary}"
 
-    secondary, secondary_pct = ordered[1]
-    if secondary == primary:
-        return primary
-    return f"{primary} mixed with {secondary}"
+    context_terms = assignment_terms if assignment_terms is not None else top_terms
+    context_totals: Dict[str, float] = {}
+    for ic, pct in context_terms:
+        fam = _assignment_family_from_internal(ic)
+        context_totals[fam] = context_totals.get(fam, 0.0) + float(pct)
+
+    # Preserve chemically diagnostic minor context only when it has explicit
+    # selected-coordinate evidence. This is label-only; percentages, frequency,
+    # and confidence diagnostics remain unchanged.
+    diagnostic_context = [
+        ("carboxylic O-H bend", 5.0, 600.0, 1900.0),
+        ("N-H bend", 3.0, 900.0, 1800.0),
+    ]
+    for fam, threshold, lo, hi in diagnostic_context:
+        if lo <= float(freq) <= hi and context_totals.get(fam, 0.0) >= threshold and fam not in assignment:
+            if "mixed with" in assignment:
+                assignment = f"{assignment} and {fam}"
+            else:
+                assignment = f"{assignment} mixed with {fam}"
+
+    return assignment
 
 
 def _stage3d_assignment_confidence(
@@ -862,12 +912,13 @@ def build_stage3d_assignment_audit(
 
         order = np.argsort(pct)[::-1]
         top = [(selected_internals[i], float(pct[i])) for i in order[:top_n] if float(pct[i]) > 0.0]
+        assignment_terms = [(selected_internals[i], float(pct[i])) for i in order if float(pct[i]) >= 0.5]
         top_terms_str = "; ".join(f"{_compact_coord_label(ic.name)}={value:.1f}%" for ic, value in top)
 
         top1_ic, top1_pct = top[0] if top else (None, 0.0)
         top2_ic, top2_pct = top[1] if len(top) > 1 else (None, 0.0)
 
-        assignment = _stage3d_assignment_from_weighted_terms(top, class_totals, float(freq))
+        assignment = _stage3d_assignment_from_weighted_terms(top, class_totals, float(freq), assignment_terms)
         local_xh_assignment, xh2_diag = _stage3d_local_xh2_symmetry_result(
             selected_internals,
             hess.atoms,

@@ -110,11 +110,13 @@ def test_generic_primitive_coordinate_labels_are_specific():
     cn = InternalCoordinate("r(C1-N2)", "stretch", (0, 1), 10, dummy_fn)
     ccn = InternalCoordinate("ang(C1-C2-N3)", "angle", (0, 1, 2), 10, dummy_fn)
     ocn = InternalCoordinate("ang(O1-C2-N3)", "angle", (0, 1, 2), 10, dummy_fn)
+    cnh = InternalCoordinate("ang(C1-N2-H3)", "angle", (0, 1, 2), 10, dummy_fn)
     lactam = InternalCoordinate("FG_lactam_ring_CNC_bend(C1-N2-C3)", "fg_lactam_ring_deformation", (0, 1, 2), 10, dummy_fn)
     aromatic_ring = InternalCoordinate("FG_aromatic_ring_CCC_bend(C1-C2-C3)", "fg_aromatic_ring_deformation", (0, 1, 2), 10, dummy_fn)
 
     assert _assignment_family_from_internal(cn) == "C-N stretch"
     assert _assignment_family_from_internal(ccn) == "C-C-N bend"
-    assert _assignment_family_from_internal(ocn) == "amide-adjacent C-N bend"
+    assert _assignment_family_from_internal(ocn) == "amide carbonyl-adjacent C-N bend"
+    assert _assignment_family_from_internal(cnh) == "N-H bend"
     assert _assignment_family_from_internal(lactam) == "lactam ring deformation"
     assert _assignment_family_from_internal(aromatic_ring) == "aromatic ring deformation"

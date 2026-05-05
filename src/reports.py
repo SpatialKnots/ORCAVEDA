@@ -259,10 +259,85 @@ def write_xlsx_report(report_tables: Dict[str, pd.DataFrame], xlsx_path: str | P
     return xlsx_path
 
 
+def _ped_rank_column(ped_df: pd.DataFrame) -> str:
+    if "wilson_rank" in ped_df.columns:
+        return "wilson_rank"
+    if "ped_rank" in ped_df.columns:
+        return "ped_rank"
+    return ""
+
+
+def _ped_method_column(ped_df: pd.DataFrame) -> str:
+    if "wilson_ped_method" in ped_df.columns:
+        return "wilson_ped_method"
+    if "ped_method" in ped_df.columns:
+        return "ped_method"
+    return ""
+
+
+def _build_ped_viewer_mode_summary(ped_df: pd.DataFrame | None, *, top_n: int = 6) -> Dict[tuple[str, int], Dict[str, object]]:
+    if not isinstance(ped_df, pd.DataFrame) or ped_df.empty:
+        return {}
+    rank_col = _ped_rank_column(ped_df)
+    if not rank_col or "Filename" not in ped_df.columns or "mode" not in ped_df.columns:
+        return {}
+
+    df = ped_df.copy()
+    df["mode"] = pd.to_numeric(df["mode"], errors="coerce")
+    df[rank_col] = pd.to_numeric(df[rank_col], errors="coerce")
+    if "contribution_percent" in df.columns:
+        df["contribution_percent"] = pd.to_numeric(df["contribution_percent"], errors="coerce").fillna(0.0)
+    else:
+        df["contribution_percent"] = 0.0
+    df = df[df["mode"].notna()].copy()
+    df = df[(df[rank_col] >= 1) & (df[rank_col] <= int(top_n))].copy()
+    if df.empty:
+        return {}
+
+    method_col = _ped_method_column(df)
+    summaries: Dict[tuple[str, int], Dict[str, object]] = {}
+    for (filename, mode), group in df.sort_values(["Filename", "mode", rank_col]).groupby(["Filename", "mode"], dropna=False):
+        terms = []
+        family_totals: Dict[str, float] = {}
+        for _, row in group.iterrows():
+            family = str(row.get("coordinate_family", "") or "").strip() or "internal coordinate"
+            coord = str(row.get("internal_coordinate", "") or "").strip()
+            pct = float(row.get("contribution_percent", 0.0) or 0.0)
+            terms.append(f"{family} {pct:.1f}% [{coord}]")
+            family_totals[family] = family_totals.get(family, 0.0) + pct
+
+        ordered = sorted(family_totals.items(), key=lambda item: item[1], reverse=True)
+        if not ordered:
+            assignment = ""
+            top_family = ""
+            top_percent = 0.0
+        else:
+            top_family, top_percent = ordered[0]
+            assignment = top_family
+            mixed = [(family, pct) for family, pct in ordered[1:] if pct >= 12.0 and family != top_family]
+            if mixed:
+                assignment = f"{top_family} mixed with {mixed[0][0]}"
+                if len(mixed) > 1 and mixed[1][1] >= 10.0:
+                    assignment = f"{assignment} and {mixed[1][0]}"
+
+        method = str(group.iloc[0].get(method_col, "") or "") if method_col else ""
+        summaries[(str(filename), int(mode))] = {
+            "ped_assignment": assignment,
+            "ped_top_family": top_family,
+            "ped_top_percent": round(float(top_percent), 3),
+            "ped_top_contributors": "; ".join(terms),
+            "ped_method": method,
+        }
+    return summaries
+
+
 def build_spectrum_payload(
     hess_list,
     assignment_audit: pd.DataFrame | None = None,
     *,
+    wilson_ped_audit: pd.DataFrame | None = None,
+    ped_v2_force_audit: pd.DataFrame | None = None,
+    ped_audit: pd.DataFrame | None = None,
     nist_reference_sets: Dict[str, object] | None = None,
 ) -> Dict[str, object]:
     from chemistry import (
@@ -273,6 +348,18 @@ def build_spectrum_payload(
     )
 
     audit_df = assignment_audit if isinstance(assignment_audit, pd.DataFrame) else pd.DataFrame()
+    ped_source_label = ""
+    ped_df = pd.DataFrame()
+    if isinstance(wilson_ped_audit, pd.DataFrame) and not wilson_ped_audit.empty:
+        ped_df = wilson_ped_audit
+        ped_source_label = "Wilson PED"
+    elif isinstance(ped_v2_force_audit, pd.DataFrame) and not ped_v2_force_audit.empty:
+        ped_df = ped_v2_force_audit
+        ped_source_label = "PED v2 force-aware"
+    elif isinstance(ped_audit, pd.DataFrame) and not ped_audit.empty:
+        ped_df = ped_audit
+        ped_source_label = "PED v1"
+    ped_by_mode = _build_ped_viewer_mode_summary(ped_df)
     files = []
 
     for hess in hess_list:
@@ -290,12 +377,23 @@ def build_spectrum_payload(
             if not pd.notna(freq) or float(freq) <= 0.0:
                 continue
             audit_row = audit_by_mode.get(mode)
+            ped_row = ped_by_mode.get((str(hess.filename), int(mode)), {})
+            stage3d_assignment = str(audit_row.get("functional_group_assignment", "")) if audit_row is not None else ""
+            ped_assignment = str(ped_row.get("ped_assignment", "") or "")
+            viewer_assignment = ped_assignment or stage3d_assignment
             rows.append(
                 {
                     "mode": int(mode),
                     "frequency_cm1": float(freq),
                     "intensity": float(intensity),
-                    "assignment": str(audit_row.get("functional_group_assignment", "")) if audit_row is not None else "",
+                    "assignment": viewer_assignment,
+                    "stage3d_assignment": stage3d_assignment,
+                    "ped_assignment": ped_assignment,
+                    "ped_source": ped_source_label if ped_assignment else "",
+                    "ped_top_family": str(ped_row.get("ped_top_family", "") or ""),
+                    "ped_top_percent": float(ped_row.get("ped_top_percent", 0.0) or 0.0),
+                    "ped_top_contributors": str(ped_row.get("ped_top_contributors", "") or ""),
+                    "ped_method": str(ped_row.get("ped_method", "") or ""),
                     "top_internal_coordinates": str(audit_row.get("top_internal_coordinates", "")) if audit_row is not None else "",
                     "warnings": str(audit_row.get("warnings", "")) if audit_row is not None else "",
                 }
@@ -349,6 +447,7 @@ def build_spectrum_payload(
         "viewer_title": "ORCAVEDA Interactive IR Spectrum",
         "default_scale_factor": 1.0,
         "default_lorentz_hwhm": 12.0,
+        "viewer_assignment_source": ped_source_label or "Stage 3D",
         "files": files,
         "nist_reference_sets": nist_reference_sets or {},
     }
@@ -1036,7 +1135,7 @@ def write_interactive_spectrum_viewer(
                   <th>Mode</th>
                   <th>Scaled Frequency</th>
                   <th>IR Intensity</th>
-                  <th>Final Assignment</th>
+                  <th>PED Assignment</th>
                 </tr>
               </thead>
               <tbody id="peakTable"></tbody>
@@ -1939,9 +2038,14 @@ def write_interactive_spectrum_viewer(
       appendKv(modeDetails, "Scaled Frequency", `${{mode.scaled.toFixed(2)}} cm-1`);
       appendKv(modeDetails, "Original Frequency", `${{mode.frequency_cm1.toFixed(2)}} cm-1`);
       appendKv(modeDetails, "IR Intensity", Number(mode.intensity).toFixed(4));
-      appendKv(modeDetails, "Final Assignment", mode.assignment || "unassigned", true);
+      appendKv(modeDetails, "PED Assignment", mode.assignment || "unassigned", true);
+      appendKv(modeDetails, "PED Source", mode.ped_source || "Stage 3D");
+      appendKv(modeDetails, "Stage 3D Assignment", mode.stage3d_assignment || "n/a", true);
+      appendKv(modeDetails, "PED Top Contributor", mode.ped_top_family ? `${{mode.ped_top_family}} (${{Number(mode.ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
+      appendKv(modeDetails, "PED Contributors", mode.ped_top_contributors || "n/a", true);
+      appendKv(modeDetails, "PED Method", mode.ped_method || "n/a", true);
       appendKv(modeDetails, "Warnings", mode.warnings || "none", true);
-      appendKv(modeDetails, "Supporting Coordinates", mode.top_internal_coordinates || "n/a", true);
+      appendKv(modeDetails, "Stage 3D Supporting Coordinates", mode.top_internal_coordinates || "n/a", true);
     }}
 
     function updatePeakTable(file, scale, x1, x2, engineName = getSelectedScaleEngine(), engineFit = getSelectedScaleEngineFit()) {{

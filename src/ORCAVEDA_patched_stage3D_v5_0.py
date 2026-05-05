@@ -68,6 +68,11 @@ from mode_tracking import (
 from mode_assignment import (
     build_stage3d_assignment_audit as mode_assignment_build_stage3d_assignment_audit,
 )
+from ped import (
+    build_ped_audit_dataframe as ped_build_ped_audit_dataframe,
+    build_ped_v2_force_audit_dataframe as ped_build_ped_v2_force_audit_dataframe,
+    build_wilson_ped_audit_dataframe as ped_build_wilson_ped_audit_dataframe,
+)
 from orca_parser import (
     parse_atoms as parser_parse_atoms,
     parse_block_matrix as parser_parse_block_matrix,
@@ -1692,7 +1697,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             out_map[stem] = p
 
     source_rows, summary_rows, group_rows, atom_rows = [], [], [], []
-    hbond_rows, mode_frames, assignment_frames, basis_rows, selected_rows = [], [], [], [], []
+    hbond_rows, mode_frames, assignment_frames, ped_frames, ped_v2_frames, wilson_ped_frames, basis_rows, selected_rows = [], [], [], [], [], [], [], []
     sanity_rows = []
 
     for source_index, hpath in enumerate(hess_paths, start=1):
@@ -1732,6 +1737,35 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             top_n=6,
         )
         assignment_frames.append(assignment_df)
+
+        ped_df = ped_build_ped_audit_dataframe(
+            hess,
+            internals,
+            B,
+            selected_idx,
+            source_label=f"[{source_index}]",
+            top_n=8,
+        )
+        ped_frames.append(ped_df)
+        if hess.cartesian_hessian is not None:
+            ped_v2_df = ped_build_ped_v2_force_audit_dataframe(
+                hess,
+                internals,
+                B,
+                selected_idx,
+                source_label=f"[{source_index}]",
+                top_n=8,
+            )
+            ped_v2_frames.append(ped_v2_df)
+            wilson_ped_df = ped_build_wilson_ped_audit_dataframe(
+                hess,
+                internals,
+                B,
+                selected_idx,
+                source_label=f"[{source_index}]",
+                top_n=8,
+            )
+            wilson_ped_frames.append(wilson_ped_df)
 
         sanity_df = build_sanity_check_monoethanolamine_monomer(
             hess,
@@ -1854,6 +1888,9 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
         "interfragment_hbonds": pd.DataFrame(hbond_rows),
         "mode_warnings": pd.concat(mode_frames, ignore_index=True) if mode_frames else pd.DataFrame(),
         "assignment_audit": pd.concat(assignment_frames, ignore_index=True) if assignment_frames else pd.DataFrame(),
+        "ped_audit": pd.concat(ped_frames, ignore_index=True) if ped_frames else pd.DataFrame(),
+        "ped_v2_force_audit": pd.concat(ped_v2_frames, ignore_index=True) if ped_v2_frames else pd.DataFrame(),
+        "wilson_ped_audit": pd.concat(wilson_ped_frames, ignore_index=True) if wilson_ped_frames else pd.DataFrame(),
         "sanity_check": pd.DataFrame(sanity_rows),
         "redundant_basis": pd.DataFrame(basis_rows),
         "independent_basis": pd.DataFrame(selected_rows),
@@ -1867,6 +1904,9 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             "status": "Stage 3A general organic engine + Stage 3D assignment audit completed; output filenames are prefixed by input .hess stem",
             "tables": list(tables),
             "chemistry_backend": chemistry_get_active_backend_name(),
+            "ped_audit": "PED v1 normalized B-matrix projection table generated separately from Stage 3D assignment audit",
+            "ped_v2_force_audit": "PED v2 force-aware B-matrix/Hessian projection table generated when ORCA $hessian is available; not full Wilson GF PED",
+            "wilson_ped_audit": "Wilson GF-style PED table generated when ORCA $hessian is available; includes G/F rank and condition diagnostics",
             "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
         }, indent=2),
         encoding="utf-8"
@@ -2354,6 +2394,9 @@ output_prefix_for_hess_paths = reports_output_prefix_for_hess_paths
 normalize_sheet_name = reports_normalize_sheet_name
 write_xlsx_report = reports_write_xlsx_report
 mode_tracking_outputs_for_hess_files = tracking_mode_tracking_outputs_for_hess_files
+build_ped_audit_dataframe = ped_build_ped_audit_dataframe
+build_ped_v2_force_audit_dataframe = ped_build_ped_v2_force_audit_dataframe
+build_wilson_ped_audit_dataframe = ped_build_wilson_ped_audit_dataframe
 
 def general_outputs_for_hess_files(paths: Sequence[str | Path], outdir: str | Path, out_paths: Optional[Sequence[str | Path]] = None) -> Dict[str, pd.DataFrame]:
     """
@@ -2401,7 +2444,13 @@ def analyze_orca_ped_like(paths: Sequence[str | Path], outdir: str | Path, out_p
 
     xlsx_path = write_xlsx_report(tables, outdir / f"{output_prefix}__orca_ped_like_stage3C_integrated_report.xlsx")
     hess_list = [read_orca_hess(p) for p in paths]
-    spectrum_payload = reports_build_spectrum_payload(hess_list, tables.get("assignment_audit"))
+    spectrum_payload = reports_build_spectrum_payload(
+        hess_list,
+        tables.get("assignment_audit"),
+        wilson_ped_audit=tables.get("wilson_ped_audit"),
+        ped_v2_force_audit=tables.get("ped_v2_force_audit"),
+        ped_audit=tables.get("ped_audit"),
+    )
     spectrum_json_path = outdir / f"{output_prefix}__spectrum_data.json"
     spectrum_html_path = reports_write_interactive_spectrum_viewer(
         spectrum_payload,
@@ -2418,6 +2467,9 @@ def analyze_orca_ped_like(paths: Sequence[str | Path], outdir: str | Path, out_p
         "functional_group_templates": "automatic in build_internal_coordinates(..., groups=detect_functional_groups(...))",
         "mode_tracking": "automatic when len(hess_paths) >= 2; same-size and fragment-projected tracking attempted",
         "stage3d_assignment_audit": "prefixed assignment_audit table generated; filenames use current .hess stem",
+        "ped_audit": "prefixed ped_audit table generated; PED v1 is normalized B-matrix projection and not force-constant Wilson GF PED",
+        "ped_v2_force_audit": "prefixed ped_v2_force_audit table generated when ORCA $hessian is available; force-aware diagnostic, not full Wilson GF PED",
+        "wilson_ped_audit": "prefixed wilson_ped_audit table generated when ORCA $hessian is available; includes G = B M^-1 B^T and reconstructed internal F diagnostics",
         "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
     }
     (outdir / f"{output_prefix}__integration_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

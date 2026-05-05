@@ -65,7 +65,11 @@ def parse_ir_spectrum(lines: List[str]) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def parse_block_matrix(lines: List[str]) -> np.ndarray:
-    nrow, ncol = map(int, lines[0].split()[:2])
+    shape = list(map(int, lines[0].split()[:2]))
+    if len(shape) == 1:
+        nrow = ncol = shape[0]
+    else:
+        nrow, ncol = shape[:2]
     matrix = np.zeros((nrow, ncol))
     current_cols: List[int] = []
     for line in lines[1:]:
@@ -95,13 +99,16 @@ def read_orca_hess(path: str | Path) -> HessData:
     frequencies = parse_frequencies(sections["$vibrational_frequencies"])
     _, intensities = parse_ir_spectrum(sections["$ir_spectrum"])
     normal_modes = parse_block_matrix(sections["$normal_modes"])
+    cartesian_hessian = parse_block_matrix(sections["$hessian"]) if "$hessian" in sections else None
     temp = parse_scalar_section(sections.get("$actual_temperature", []))
     scale = parse_scalar_section(sections.get("$frequency_scale_factor", []))
 
     n3 = 3 * len(atoms)
     if normal_modes.shape != (n3, n3):
         raise ValueError(f"normal_modes shape mismatch: {normal_modes.shape}, expected {(n3, n3)}")
+    if cartesian_hessian is not None and cartesian_hessian.shape != (n3, n3):
+        raise ValueError(f"hessian shape mismatch: {cartesian_hessian.shape}, expected {(n3, n3)}")
     if len(frequencies) != n3 or len(intensities) != n3:
         raise ValueError("frequency/intensity length mismatch with 3N")
 
-    return HessData(path.name, atoms, masses, coords_A, frequencies, intensities, normal_modes, temp, scale)
+    return HessData(path.name, atoms, masses, coords_A, frequencies, intensities, normal_modes, temp, scale, cartesian_hessian)

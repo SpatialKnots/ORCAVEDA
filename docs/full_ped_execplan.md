@@ -15,16 +15,52 @@ The initial implementation must be additive. Stage 3D remains available and must
 ## Progress
 
 - [x] (2026-05-05) Initial implementation plan written.
-- [ ] Audit existing `.hess` parser, normal-mode orientation, masses, Hessian, and internal-coordinate data flow.
-- [ ] Specify the exact PED v1 mathematical definition and output semantics.
-- [ ] Implement additive PED module and focused unit tests.
-- [ ] Validate PED v1 on small molecules and benchmark molecules.
-- [ ] Decide whether and how PED should influence final assignment wording.
+- [x] (2026-05-05) Audited existing `.hess` parser, normal-mode orientation, masses, Hessian, and internal-coordinate data flow.
+- [x] (2026-05-05) Specified PED v1 as normalized B-matrix internal-coordinate projection, not force-constant Wilson GF PED.
+- [x] (2026-05-05) Implemented additive PED module and focused unit tests.
+- [x] (2026-05-05) Integrated separate `ped_audit` output table into the ORCAVEDA pipeline.
+- [x] (2026-05-05) Validated PED v1 on synthetic modes, water pipeline output, golden RDKit/NIST focused tests, and Stage 3D regression wrappers.
+- [x] (2026-05-05) Ran PED benchmark review on water, ammonia, acetophenone, benzoic acid, aniline, phenol, and pyridine.
+- [x] (2026-05-05) Decided that PED v1 should remain evidence/diagnostic only for now; no automatic final-label override yet.
+- [x] (2026-05-05) Added PED-aware benchmark diagnostics with optional `--ped-audit`, raw/scaled multiscale correspondence, and PED semantic windows.
+- [x] (2026-05-05) Ran PED-aware benchmark validation on the current 10-molecule assignment benchmark.
+- [x] (2026-05-05) Implemented PED v2 as a force-aware diagnostic using parsed ORCA `$hessian`.
+- [x] (2026-05-05) Validated PED v2 on synthetic force-weighting, H2O pipeline output, and the 10-molecule benchmark.
+- [x] (2026-05-05) Implemented Wilson GF-style PED audit with G matrix, reconstructed internal F matrix, and mode-projected potential-energy terms.
+- [x] (2026-05-05) Validated Wilson PED on H2O, synthetic G/F tests, and the 10-molecule benchmark.
+- [x] (2026-05-06) Switched the interactive viewer assignment text to the strongest available PED layer, with priority `wilson_ped_audit`, then `ped_v2_force_audit`, then `ped_audit`, while preserving Stage 3D assignment text as a separate diagnostic field.
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: Initial planning only; no PED source implementation has been inspected or changed for this plan.
+- Observation: `HessData` currently stores `filename`, `atoms`, `masses`, `coords_A`, `frequencies_cm1`, `ir_intensities`, `normal_modes`, `temperature_K`, and `frequency_scale_factor`; it does not store a separate Cartesian Hessian or internal force-constant matrix.
+  Evidence: `src/orcaveda_models.py` and `src/orca_parser.py`.
+
+- Observation: The parser reads `$atoms`, `$vibrational_frequencies`, `$normal_modes`, and `$ir_spectrum`; normal modes are parsed as a `(3N, 3N)` matrix and existing assignment code uses `hess.normal_modes[:, mode]`.
+  Evidence: `src/orca_parser.py`, `src/mode_assignment.py`, and `rg "normal_modes" src tests`.
+
+- Observation: A finite-difference B-matrix implementation already exists and is used by Stage 3D independent-coordinate selection.
+  Evidence: `src/b_matrix.py` and `src/ORCAVEDA_patched_stage3D_v5_0.py`.
+
+- Observation: PED v1 has been added as an output-only layer. It writes a separate `ped_audit` table and does not change `assignment_audit` wording.
+  Evidence: `src/ped.py` and the `ped_audit` table integration in `src/ORCAVEDA_patched_stage3D_v5_0.py`.
+
+- Observation: PED v1 is useful for exposing chemically meaningful contributors in several benchmark problem cases, but it is not yet reliable enough to override Stage 3D automatically. Acetophenone C=O is correctly exposed by both Stage 3D and PED on the semantically selected mode, but raw frequency matching still needs the multiscale/scale-factor layer. Benzoic acid mixed ring-acid rows show useful O-H torsion/bend and carbonyl context, but some in-plane mixed rows remain aromatic C-H dominated. Aniline reveals strong NH2 scissor evidence in one key row and N-H bend/C-N context in others, but not uniformly. Phenol and pyridine mostly benefit from PED as a more detailed explanation beneath broad labels.
+  Evidence: `outputs/ped_benchmark_review/ped_benchmark_summary.csv`, `outputs/ped_benchmark_review/ped_problem_cases_summary.csv`, and `outputs/ped_benchmark_review/ped_key_cases_compact.csv`.
+
+- Observation: The PED-aware comparator preserves legacy Stage 3D status columns and adds PED-only diagnostics. On the 10-molecule benchmark, raw-primary comparison produced 28 PASS, 63 WARN, and 2 FAIL; scaled-primary with explicit scale factor 0.96 produced 27 PASS, 66 WARN, and 0 FAIL. PED semantic status on the raw-primary report produced 33 PASS, 55 WARN, and 5 FAIL. PED supported benchmark semantics in 5 raw-primary rows where the Stage 3D/frequency layer was not fully clean.
+  Evidence: `outputs/ped_aware_benchmark_10/ped_aware_comparison_raw.csv`, `outputs/ped_aware_benchmark_10/ped_aware_comparison_scaled.csv`, and `outputs/ped_aware_benchmark_10/ped_aware_summary_raw.csv`.
+
+- Observation: ORCA `.hess` files in `data/hess` contain a `$hessian` block. The parser now stores it as `HessData.cartesian_hessian`, and the pipeline emits `ped_v2_force_audit` when that matrix is available.
+  Evidence: `src/orca_parser.py`, `src/orcaveda_models.py`, `src/ped.py`, and generated `outputs/ped_v2_h2o_probe/H2O__ped_v2_force_audit.csv`.
+
+- Observation: PED v2 changes contribution percentages but does not change the legacy benchmark status, because it is still a diagnostic layer. On the 10-molecule benchmark, PED v2 raw-primary legacy status remained 28 PASS, 63 WARN, and 2 FAIL. PED v2 semantic status was 32 PASS, 55 WARN, and 6 FAIL.
+  Evidence: `outputs/ped_v2_benchmark_10/ped_v2_aware_comparison_raw.csv` and `outputs/ped_v2_benchmark_10/ped_v2_summary_raw.csv`.
+
+- Observation: Wilson PED produces sharper diagnostic percentages for simple modes, but it is stricter on mixed benchmark rows. On H2O, Wilson PED gives about 100% H-O-H bend for the bend mode and about 50/50 O-H stretch for stretch modes. On the 10-molecule benchmark, Wilson semantic status was 31 PASS, 51 WARN, and 11 FAIL. The additional FAIL rows mostly reflect mixed benchmark expectations where the Wilson top terms do not include every expected semantic class.
+  Evidence: `outputs/wilson_ped_h2o_probe/H2O__wilson_ped_audit.csv`, `outputs/wilson_ped_benchmark_10/wilson_ped_comparison_raw.csv`, and `outputs/wilson_ped_benchmark_10/wilson_ped_summary_raw.csv`.
+
+- Observation: The interactive viewer now uses PED-derived assignment text when a PED table is available. The most complete available source is chosen in this order: Wilson PED, PED v2 force-aware, PED v1 B-matrix projection, then Stage 3D fallback. Stage 3D assignment and supporting coordinates remain visible in mode details for comparison.
+  Evidence: `src/reports.py`, `src/ORCAVEDA_patched_stage3D_v5_0.py`, `tests/test_interactive_spectrum_viewer.py`, and generated `outputs/ped_frontend_monoethanolamine/monoethanolamine_DFT_therm__spectrum_data.json`.
 
 ## Decision Log
 
@@ -40,9 +76,62 @@ The initial implementation must be additive. Stage 3D remains available and must
   Rationale: PED should improve mode interpretation and mixed-mode decomposition. It does not by itself correct raw calculated frequencies, scaling factors, phase effects, solvent shifts, adsorption effects, or local experimental/calculated mode correspondence.
   Date/Author: 2026-05-05 / Codex
 
+- Decision: PED v1 uses the selected independent internal-coordinate basis by default.
+  Rationale: The redundant coordinate pool contains aliases such as primitive and functional-group template rows. Using the selected basis avoids immediate double-counting while still preserving traceability to the Stage 3D basis diagnostics.
+  Date/Author: 2026-05-05 / Codex
+
+- Decision: Do not allow PED v1 to automatically override final Stage 3D assignment labels yet.
+  Rationale: Benchmark review shows PED v1 is strongest as an explanatory evidence layer. Automatic overrides would be unsafe when mode correspondence is unresolved, when the PED top contributor is diffuse, or when the benchmark label is broader than ORCAVEDA's local-coordinate wording. Future overrides may be allowed only when PED has a strong diagnostic contributor, frequency/mode correspondence is acceptable or multiscale-resolved, and Stage 3D/PED disagreement is explicitly reported.
+  Date/Author: 2026-05-05 / Codex
+
+- Decision: Implement PED v2 as `force-aware normalized B-matrix projection`, not as full Wilson GF PED.
+  Rationale: The ORCA Cartesian Hessian is available and can strengthen mode-specific internal-coordinate diagnostics. A full Wilson GF/VEDA-equivalent PED still needs a more formal internal-coordinate G/F treatment and stricter validation of redundant-coordinate handling. The v2 label therefore remains diagnostic and explicit about its limits.
+  Date/Author: 2026-05-05 / Codex
+
+- Decision: Implement Wilson PED as a separate `wilson_ped_audit` output instead of merging it into `ped_v2_force_audit`.
+  Rationale: Wilson PED uses a different normalization convention and reports G/F diagnostics. Keeping it separate preserves reproducibility and allows v1, v2, and Wilson outputs to be compared directly.
+  Date/Author: 2026-05-05 / Codex
+
+- Decision: Let the frontend use PED as the primary displayed interpretation when PED output is available, but keep CSV `assignment_audit` as the Stage 3D audit and expose Stage 3D beside PED in viewer details.
+  Rationale: The user-facing spectrum table should show the strongest current mode-composition evidence, while reproducibility still requires keeping Stage 3D and PED layers distinguishable. This avoids silently rewriting historical Stage 3D outputs.
+  Date/Author: 2026-05-06 / Codex
+
 ## Outcomes & Retrospective
 
-No outcomes yet. Update this section after each major milestone, especially after the parser audit, first PED prototype, and benchmark validation.
+Initial implementation outcome: `src/ped.py` now computes PED v1 as normalized B-matrix projections onto each ORCA normal mode using `normal_modes[:, mode]`. `analyze_general_hess_files(...)` now emits a separate `ped_audit` table. This is additive and does not change Stage 3D assignments.
+
+Validation outcomes:
+
+- `.\.venv312\Scripts\python.exe -m py_compile src\ped.py src\ORCAVEDA_patched_stage3D_v5_0.py` completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_ped_tmp` returned `3 passed` before the pipeline regression was added.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_ped_tmp2` returned `4 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_golden_rdkit_outputs.py tests\test_nist_ir_matching.py tests\test_nist_ir_compare.py -q --basetemp outputs\pytest_ped_core_tmp` returned `19 passed`.
+- `$env:PYTHONPATH='C:\Users\unive\Documents\Projects\orcaveda\src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_ped_stage3d_tmp` returned `2 passed`.
+
+Water probe outcome: running `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\ped_h2o_probe` generated `H2O__ped_audit.csv`. The positive-frequency rows show the bend mode dominated by `ang(H2-O1-H3)` at about 99.7% and the two stretch modes dominated by the two O-H stretches at about 50/50.
+
+Benchmark review outcome: running ORCAVEDA on `H2O_freq.hess`, `NH3.hess`, `acetophenone.hess`, `benzoic_acid.hess`, `aniline.hess`, `phenol.hess`, and `pyridine.hess` generated `outputs/ped_benchmark_review/*__ped_audit.csv`. The raw-primary benchmark comparison over the requested molecules produced 62 rows: 7 PASS, 53 WARN, and 2 FAIL. The scaled-primary comparison with explicit scale factor 0.96 produced 62 rows: 8 PASS, 54 WARN, and 0 FAIL. This supports keeping frequency/mode correspondence separate from PED interpretation.
+
+PED-aware 10-molecule validation outcome: running ORCAVEDA on water, ammonia, acetaldehyde, acetamide, acetophenone, aniline, benzene, benzoic acid, phenol, and pyridine generated `outputs/ped_aware_benchmark_10/*__ped_audit.csv`. The comparator was run with `--ped-audit`, `--windows-cm1 50,100,200,500`, `--scale-factor 0.96`, and both raw/scaled primary axes. Focused tests for PED and multiscale comparator returned `22 passed`.
+
+PED v2 outcome: `src/ped.py` now includes `compute_ped_v2_force_aware(...)` and `build_ped_v2_force_audit_dataframe(...)`. `src/orca_parser.py` now parses `$hessian` into `HessData.cartesian_hessian`. `analyze_general_hess_files(...)` writes `ped_v2_force_audit` when the Hessian is available. On H2O, v2 preserves the expected bend/stretch identities while shifting force-aware percentages: the bend mode is about 92.7% H-O-H bend, and the two stretch modes remain about 50/50 O-H stretch.
+
+PED v2 validation commands:
+
+- `.\.venv312\Scripts\python.exe -m py_compile src\orca_parser.py src\orcaveda_models.py src\ped.py src\ORCAVEDA_patched_stage3D_v5_0.py` completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_ped_v2_tmp` returned `6 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_golden_rdkit_outputs.py tests\test_nist_ir_matching.py tests\test_nist_ir_compare.py -q --basetemp outputs\pytest_ped_v2_core_tmp` returned `24 passed`.
+- `$env:PYTHONPATH='C:\Users\unive\Documents\Projects\orcaveda\src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_ped_v2_stage3d_tmp` returned `2 passed`.
+
+Wilson PED outcome: `src/ped.py` now includes `build_wilson_g_matrix(...)`, `reconstruct_internal_force_matrix(...)`, and `build_wilson_ped_audit_dataframe(...)`. `analyze_general_hess_files(...)` writes `wilson_ped_audit` when `$hessian` is available. The comparator accepts both `ped_rank` and `wilson_rank` schemas for PED-aware validation.
+
+Wilson PED validation commands:
+
+- `.\.venv312\Scripts\python.exe -m py_compile src\ped.py src\ORCAVEDA_patched_stage3D_v5_0.py` completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_wilson_ped_tmp` returned `9 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_vibrational_assignment_multiscale.py tests\test_ped.py -q --basetemp outputs\pytest_wilson_ped_core_tmp` returned `12 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_golden_rdkit_outputs.py tests\test_nist_ir_matching.py tests\test_nist_ir_compare.py -q --basetemp outputs\pytest_wilson_ped_focus_tmp` returned `28 passed`.
+- `$env:PYTHONPATH='C:\Users\unive\Documents\Projects\orcaveda\src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_wilson_ped_stage3d_tmp` returned `2 passed`.
 
 ## Context and Orientation
 
@@ -76,6 +165,19 @@ Working terms:
 First, audit the current parser and internal-coordinate code. Confirm what data are available from `.hess`: atomic numbers, coordinates, masses, frequencies, normal modes, Hessian or mass-weighted Hessian, and any current normalization assumptions. Verify normal-mode orientation from code and tests.
 
 Second, write a short mathematical specification for PED v1 before patching. This must define whether normal modes are treated as Cartesian displacement vectors or mass-weighted displacement vectors, how internal-coordinate derivatives are computed, how contributions are normalized, how redundant coordinates are handled, and what diagnostics are emitted when a mode cannot be decomposed reliably.
+
+PED v1 specification selected for the first implementation:
+
+- Normal-mode vector convention: `mode_vec = hess.normal_modes[:, mode]`.
+- Normal-mode normalization: divide each mode vector by its Euclidean norm.
+- Internal-coordinate derivative method: use existing finite-difference B-matrix rows from `src/b_matrix.py`.
+- Coordinate-row normalization: divide each B row by its Euclidean norm before projection.
+- Projection: `projection_i = dot(B_unit_i, mode_unit)`.
+- Contribution weight: `weight_i = projection_i ** 2`.
+- Percent normalization: `percent_i = 100 * weight_i / sum(weight)`.
+- Coordinate basis: use selected independent internal-coordinate indices by default.
+- Diagnostics: report zero/invalid normal mode vectors, no internal-coordinate basis, no valid B rows, zero projection weight, and diffuse top contributions.
+- Boundary: this is not force-constant Wilson GF PED because no force-constant matrix is used.
 
 Third, implement a new module, likely `src/ped.py`, with minimal public functions:
 
@@ -168,6 +270,14 @@ A strong validation target is:
 - PED top contributor agrees with simple benchmark assignments for water and ammonia;
 - PED provides explicit mixed-mode decomposition for acetophenone, benzoic acid, aniline, phenol, or pyridine without pretending to solve frequency scaling.
 
+Current acceptance status:
+
+- PED is implemented in `src/ped.py`.
+- Stage 3D remains separate and is not relabeled as full PED.
+- `ped_audit` reports per-mode ranked contributors and normalized percentages.
+- Water has a pipeline regression test and generated probe output.
+- Ammonia and complex benchmark molecules still need dedicated PED interpretation review.
+
 ## Idempotence and Recovery
 
 The parser audit, test commands, and benchmark comparisons are safe to repeat. Generated outputs should go under `outputs/` with unique descriptive folders such as `outputs/ped_h2o_probe`.
@@ -194,6 +304,47 @@ Initial expected output artifacts:
 - `ped_audit.csv` or `ped_summary.csv` in generated output folders
 - optional `ped_summary.json` metadata
 - updated benchmark comparison only after the PED schema is stable
+
+Generated PED benchmark review artifacts:
+
+- `outputs/ped_benchmark_review/stage3d_benchmark_comparison.csv`
+- `outputs/ped_benchmark_review/stage3d_benchmark_comparison_scaled_primary.csv`
+- `outputs/ped_benchmark_review/ped_benchmark_summary.csv`
+- `outputs/ped_benchmark_review/ped_problem_cases_summary.csv`
+- `outputs/ped_benchmark_review/ped_key_cases_compact.csv`
+- `outputs/ped_benchmark_review/ped_key_cases_compact.md`
+
+Generated PED-aware 10-molecule validation artifacts:
+
+- `outputs/ped_aware_benchmark_10/ped_aware_comparison_raw.csv`
+- `outputs/ped_aware_benchmark_10/ped_aware_comparison_scaled.csv`
+- `outputs/ped_aware_benchmark_10/ped_aware_summary_raw.csv`
+- `outputs/ped_aware_benchmark_10/ped_aware_summary_scaled.csv`
+- `outputs/ped_aware_benchmark_10/ped_aware_key_cases_raw.csv`
+
+Generated PED v2 artifacts:
+
+- `outputs/ped_v2_h2o_probe/H2O__ped_v2_force_audit.csv`
+- `outputs/ped_v2_benchmark_10/ped_v2_aware_comparison_raw.csv`
+- `outputs/ped_v2_benchmark_10/ped_v2_aware_comparison_scaled.csv`
+- `outputs/ped_v2_benchmark_10/ped_v2_summary_raw.csv`
+- `outputs/ped_v2_benchmark_10/ped_v2_summary_scaled.csv`
+
+Generated Wilson PED artifacts:
+
+- `outputs/wilson_ped_h2o_probe/H2O__wilson_ped_audit.csv`
+- `outputs/wilson_ped_benchmark_10/wilson_ped_comparison_raw.csv`
+- `outputs/wilson_ped_benchmark_10/wilson_ped_comparison_scaled.csv`
+- `outputs/wilson_ped_benchmark_10/wilson_ped_summary_raw.csv`
+- `outputs/wilson_ped_benchmark_10/wilson_ped_summary_scaled.csv`
+- `outputs/wilson_ped_benchmark_10/wilson_ped_result_table_by_molecule.csv`
+- `outputs/wilson_ped_benchmark_10/wilson_ped_key_result_table.csv`
+
+Generated PED frontend artifacts:
+
+- `outputs/ped_frontend_monoethanolamine/monoethanolamine_DFT_therm__interactive_spectrum.html`
+- `outputs/ped_frontend_monoethanolamine/monoethanolamine_DFT_therm__spectrum_data.json`
+- `outputs/ped_frontend_monoethanolamine/monoethanolamine_DFT_therm__wilson_ped_audit.csv`
 
 Open scientific questions for the first implementation pass:
 
