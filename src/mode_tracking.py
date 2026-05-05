@@ -246,7 +246,7 @@ def mode_tracking_outputs_for_hess_files(
                         "status": "OK",
                         "notes": "",
                     })
-                except Exception as exc:
+                except (ValueError, np.linalg.LinAlgError, FloatingPointError) as exc:
                     summary_rows.append({"pair": pair_label, "tracking_type": "same_size", "reference_file": ref.filename, "target_file": tgt.filename, "status": "ERROR", "notes": str(exc)})
             elif a_idx < b_idx:
                 summary_rows.append({"pair": pair_label, "tracking_type": "same_size", "reference_file": ref.filename, "target_file": tgt.filename, "status": "SKIPPED", "notes": reason})
@@ -269,7 +269,7 @@ def mode_tracking_outputs_for_hess_files(
                         if include_overlap_matrices:
                             overlap_frames.append(mode_overlap_matrix_table(ref, tgt, ov, frag_label).assign(tracking_type="fragment_projected", target_fragment_index=frag_idx, target_fragment_atoms=";".join(map(str, frag))))
                         summary_rows.append({"pair": frag_label, "tracking_type": "fragment_projected", "reference_file": ref.filename, "target_file": tgt.filename, "target_fragment_index": frag_idx, "n_reference_modes": ov.shape[0], "n_target_modes": ov.shape[1], "median_best_overlap": float(np.median(np.max(ov, axis=1))), "status": "OK", "notes": ""})
-                except Exception as exc:
+                except (ValueError, np.linalg.LinAlgError, FloatingPointError) as exc:
                     summary_rows.append({"pair": pair_label, "tracking_type": "fragment_projected", "reference_file": ref.filename, "target_file": tgt.filename, "status": "ERROR", "notes": str(exc)})
 
     tables: Dict[str, pd.DataFrame] = {

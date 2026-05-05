@@ -14,6 +14,7 @@ import pandas as pd
 
 PipelineRunner = Callable[[Sequence[Path], Path], Dict[str, pd.DataFrame]]
 NistIrRunner = Callable[[Path, Path], Sequence[Dict[str, str]]]
+RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,79}$")
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,15 @@ class WebHessImportResult:
 
 def default_web_import_root() -> Path:
     return Path("outputs") / "web_imports"
+
+
+def validate_web_run_id(run_id: str) -> str:
+    candidate = str(run_id or "").strip()
+    if not RUN_ID_PATTERN.fullmatch(candidate):
+        raise ValueError(
+            "Invalid run_id; expected 1-80 characters using letters, digits, dot, underscore, plus, or hyphen."
+        )
+    return candidate
 
 
 def _safe_upload_name(filename: str) -> str:
@@ -156,7 +166,7 @@ def import_hess_files_for_web(
     if not source_paths:
         raise ValueError("No .hess files were provided for web import.")
 
-    resolved_run_id = str(run_id or uuid4().hex)
+    resolved_run_id = validate_web_run_id(str(run_id or uuid4().hex))
     root = Path(import_root) if import_root is not None else default_web_import_root()
     run_dir = root / resolved_run_id
     input_dir = run_dir / "inputs"

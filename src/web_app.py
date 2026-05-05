@@ -14,7 +14,13 @@ from typing import Dict, Sequence
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from web_import import NistIrRunner, PipelineRunner, default_web_import_root, import_hess_files_for_web
+from web_import import (
+    NistIrRunner,
+    PipelineRunner,
+    default_web_import_root,
+    import_hess_files_for_web,
+    validate_web_run_id,
+)
 
 
 @dataclass(frozen=True)
@@ -340,7 +346,11 @@ def create_web_import_handler(
                 self._send_json(413, {"error": f"Upload exceeds {max_upload_bytes} bytes."})
                 return
 
-            run_id = parse_qs(parsed.query).get("run_id", [uuid4().hex])[0]
+            try:
+                run_id = validate_web_run_id(parse_qs(parsed.query).get("run_id", [uuid4().hex])[0])
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
             staging_dir = resolved_staging_root / run_id
             try:
                 body = self.rfile.read(length)
@@ -364,6 +374,11 @@ def create_web_import_handler(
             self._send_json(200, _result_payload(result))
 
         def _send_run_manifest(self, run_id: str) -> None:
+            try:
+                run_id = validate_web_run_id(run_id)
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
             manifest_path = resolved_import_root / run_id / "web_import_manifest.json"
             if not manifest_path.exists():
                 self._send_json(404, {"error": f"Run not found: {run_id}"})
@@ -373,6 +388,11 @@ def create_web_import_handler(
             self._send_json(200, payload)
 
         def _send_artifact(self, run_id: str, artifact_key: str) -> None:
+            try:
+                run_id = validate_web_run_id(run_id)
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
             manifest_path = resolved_import_root / run_id / "web_import_manifest.json"
             if not manifest_path.exists():
                 self._send_json(404, {"error": f"Run not found: {run_id}"})

@@ -52,7 +52,7 @@ class RDKitChemistryBackend:
                 useAtomMap=False,
                 maxIterations=0,
             )
-        except Exception:
+        except (RuntimeError, ValueError):
             # Connectivity alone is still useful even if bond-order perception
             # cannot be completed from coordinates only.
             pass

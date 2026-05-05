@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import shutil
 import sys
+import subprocess
 from pathlib import Path
 
 import pandas as pd
 import json
+import pytest
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -15,6 +18,9 @@ if str(SRC) not in sys.path:
 from orca_parser import read_orca_hess  # noqa: E402
 from reports import build_spectrum_payload, write_interactive_spectrum_viewer  # noqa: E402
 from reports import attach_nist_reference_set, classify_reference_suitability  # noqa: E402
+
+
+CHROME_EXE = Path("C:/Program Files/Google/Chrome/Application/chrome.exe")
 
 
 def test_interactive_spectrum_viewer_artifacts():
@@ -220,3 +226,148 @@ def test_unsuitable_reference_is_kept_but_skipped_for_matching():
     assert ref_item["suitability_reason"] == "absorption_index_reference"
     assert ref_item["scale_engine_payload"] is None
     assert ref_item["matching_status"] == "skipped_unsuitable_reference"
+
+
+def test_interactive_spectrum_viewer_can_inline_local_3dmol_asset():
+    payload = {
+        "viewer_title": "ORCAVEDA Interactive IR Spectrum",
+        "default_scale_factor": 1.0,
+        "default_lorentz_hwhm": 12.0,
+        "files": [
+            {
+                "filename": "H2O_freq.hess",
+                "title": "H2O",
+                "summary": {},
+                "modes": [{"mode": 1, "frequency_cm1": 3700.0, "intensity": 1.0, "assignment": "O-H stretch"}],
+                "geometry": {"atoms": [], "bonds": []},
+            }
+        ],
+    }
+    outdir = ROOT / "outputs" / "pytest_interactive_spectrum_viewer_local_3dmol"
+    if outdir.exists():
+        shutil.rmtree(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    asset_path = outdir / "3Dmol-min.js"
+    asset_path.write_text(
+        "window.$3Dmol={createViewer:function(){return {clear:function(){},addModel:function(){},setStyle:function(){},zoomTo:function(){},resize:function(){},render:function(){}};}}; // </script safety",
+        encoding="utf-8",
+    )
+    html_path = outdir / "viewer.html"
+
+    write_interactive_spectrum_viewer(payload, html_path, three_dmol_js_path=asset_path)
+    html_text = html_path.read_text(encoding="utf-8")
+
+    assert "cdn.jsdelivr.net/npm/3dmol" not in html_text
+    assert "Inlined local 3Dmol.js asset: 3Dmol-min.js" in html_text
+    assert "<\\/script safety" in html_text
+
+
+def test_interactive_spectrum_viewer_escapes_payload_script_breakout_text():
+    payload = {
+        "viewer_title": "ORCAVEDA Interactive IR Spectrum",
+        "default_scale_factor": 1.0,
+        "default_lorentz_hwhm": 12.0,
+        "files": [
+            {
+                "filename": "synthetic.hess",
+                "title": "synthetic",
+                "summary": {},
+                "modes": [
+                    {
+                        "mode": 1,
+                        "frequency_cm1": 1200.0,
+                        "intensity": 1.0,
+                        "assignment": '</script><div id="breakout">bad</div>',
+                    }
+                ],
+                "geometry": {"atoms": [], "bonds": []},
+            }
+        ],
+    }
+    outdir = ROOT / "outputs" / "pytest_interactive_spectrum_viewer_script_escape"
+    if outdir.exists():
+        shutil.rmtree(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    html_path = outdir / "viewer.html"
+
+    write_interactive_spectrum_viewer(payload, html_path)
+    html_text = html_path.read_text(encoding="utf-8")
+
+    assert '</script><div id="breakout">bad</div>' not in html_text
+    assert "\\u003c/script\\u003e" in html_text
+    assert "\\u003cdiv id=" in html_text
+    assert "\\u003c/div\\u003e" in html_text
+
+
+def test_interactive_spectrum_viewer_headless_chrome_smoke_without_cdn():
+    if not CHROME_EXE.exists():
+        pytest.skip("Chrome executable is not available for viewer smoke test.")
+
+    hess = read_orca_hess(ROOT / "data" / "hess" / "H2O_freq.hess")
+    positive_modes = [idx for idx, freq in enumerate(hess.frequencies_cm1) if float(freq) > 0.0]
+    assignment_audit = pd.DataFrame(
+        [
+            {
+                "Filename": hess.filename,
+                "mode": mode,
+                "frequency_cm-1": float(hess.frequencies_cm1[mode]),
+                "IR_intensity": float(hess.ir_intensities[mode]),
+                "functional_group_assignment": "O-H stretch",
+                "top_internal_coordinates": "r(O1-H2)=50.0%; r(O1-H3)=50.0%",
+                "warnings": "",
+            }
+            for mode in positive_modes
+        ]
+    )
+    payload = build_spectrum_payload([hess], assignment_audit)
+    outdir = ROOT / "outputs" / "pytest_interactive_spectrum_viewer_chrome"
+    if outdir.exists():
+        shutil.rmtree(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    html_path = outdir / "viewer.html"
+    screenshot_path = outdir / "viewer.png"
+    write_interactive_spectrum_viewer(payload, html_path)
+
+    chrome_base = [
+        str(CHROME_EXE),
+        "--headless=new",
+        "--disable-gpu",
+        "--disable-crash-reporter",
+        "--disable-crashpad",
+        "--no-first-run",
+        "--allow-file-access-from-files",
+        "--host-resolver-rules=MAP cdn.jsdelivr.net 0.0.0.0",
+        "--window-size=1400,1100",
+        "--virtual-time-budget=3500",
+    ]
+    dom_result = subprocess.run(
+        [*chrome_base, "--dump-dom", html_path.as_uri()],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    if dom_result.returncode != 0 and "crashpad" in dom_result.stderr.lower() and "0x5" in dom_result.stderr:
+        pytest.skip(f"Headless Chrome is blocked by local crashpad permissions: {dom_result.stderr.strip()}")
+    assert dom_result.returncode == 0, dom_result.stderr
+    dom = dom_result.stdout
+    assert 'class="panel panel-spectrum"' in dom
+    assert 'id="summaryGrid"' in dom
+    assert 'id="moleculeViewer"' in dom
+    assert 'id="peakTable"' in dom
+    assert 'data-renderer="native-fallback"' in dom
+    assert "Native 2D projection used because 3Dmol.js is unavailable." in dom
+    assert "O-H stretch" in dom
+
+    screenshot_result = subprocess.run(
+        [*chrome_base, f"--screenshot={screenshot_path}", html_path.as_uri()],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    assert screenshot_result.returncode == 0, screenshot_result.stderr
+    assert screenshot_path.exists()
+    image = Image.open(screenshot_path).convert("RGB")
+    colors = image.getcolors(maxcolors=1_000_000)
+    assert colors is not None and len(colors) > 100

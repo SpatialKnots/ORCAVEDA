@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,3 +82,21 @@ def test_nist_ir_from_smiles_local_smoke():
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["preferred_reference"]["phase_tag"] == "gas"
     assert len(manifest["reference_spectra"]) == 2
+
+
+def test_nist_ir_lookup_failure_reports_attempt_details():
+    tmp_path = ROOT / "outputs" / "pytest_nist_ir_pipeline_failure"
+    if tmp_path.exists():
+        shutil.rmtree(tmp_path)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+
+    def failing_page_fetch(_url: str) -> str:
+        raise ValueError("synthetic lookup failure")
+
+    with pytest.raises(LookupError, match="attempts=ValueError:synthetic lookup failure"):
+        nist_ir_from_smiles(
+            "CC(=O)c1ccccc1",
+            tmp_path,
+            fetch_page_text=failing_page_fetch,
+            fetch_jcamp_text=lambda _url: SAMPLE_JDX,
+        )

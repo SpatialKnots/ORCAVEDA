@@ -117,7 +117,7 @@ def test_golden_rdkit_no_unassigned_high_frequency_modes(golden_rdkit_outputs):
     assert unassigned.empty, unassigned[["Filename", "mode", "frequency_cm-1"]].to_string(index=False)
 
 
-def test_golden_rank_diagnostics_document_current_aromatic_deficits(golden_rdkit_outputs):
+def test_golden_rank_diagnostics_have_no_aromatic_deficits(golden_rdkit_outputs):
     summary = golden_rdkit_outputs["summary"]
     deficits = {
         str(row["Filename"]): int(row["expected_rank_3N_minus_6"]) - int(row["rank_B_independent"])
@@ -125,11 +125,4 @@ def test_golden_rank_diagnostics_document_current_aromatic_deficits(golden_rdkit
         if int(row["expected_rank_3N_minus_6"]) - int(row["rank_B_independent"]) > 0
     }
 
-    # This is a documented current limitation for aromatic systems rather than
-    # a random failure. We lock it down so future chemistry work can improve it
-    # intentionally instead of drifting silently.
-    assert deficits == {
-        "aniline.hess": 2,
-        "phenol.hess": 2,
-        "benzene.hess": 1,
-    }
+    assert deficits == {}

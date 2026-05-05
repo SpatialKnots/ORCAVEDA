@@ -331,7 +331,7 @@ def compare_scale_engines_on_matched_peaks(
                 try:
                     lo, hi = region["range"]
                     k = float(region["k"])
-                except Exception:
+                except (KeyError, TypeError, ValueError):
                     continue
                 if not np.isfinite(k):
                     continue

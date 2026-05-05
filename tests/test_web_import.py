@@ -60,6 +60,20 @@ def test_web_hess_import_rejects_non_hess_file():
         import_hess_files_for_web([ROOT / "README.md"], import_root=outroot, run_id="bad_upload")
 
 
+def test_web_hess_import_rejects_invalid_run_id():
+    outroot = ROOT / "outputs" / "pytest_web_import_bad_run_id"
+    if outroot.exists():
+        shutil.rmtree(outroot)
+
+    with pytest.raises(ValueError, match="Invalid run_id"):
+        import_hess_files_for_web(
+            [ROOT / "data" / "hess" / "H2O_freq.hess"],
+            import_root=outroot,
+            run_id="../bad",
+            pipeline_runner=lambda _paths, _outdir: {"assignment_audit": pd.DataFrame()},
+        )
+
+
 def test_web_hess_import_runs_existing_pipeline_smoke():
     outroot = ROOT / "outputs" / "pytest_web_import_smoke"
     if outroot.exists():

@@ -150,3 +150,75 @@ def test_web_import_http_endpoint_with_fake_pipeline():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_web_import_http_rejects_invalid_run_id():
+    import_root = ROOT / "outputs" / "pytest_web_app_bad_run_id_imports"
+    staging_root = ROOT / "outputs" / "pytest_web_app_bad_run_id_staging"
+    for path in (import_root, staging_root):
+        if path.exists():
+            shutil.rmtree(path)
+
+    handler = create_web_import_handler(import_root=import_root, staging_root=staging_root)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        content_type, body = _multipart_body("H2O_freq.hess", b"$atoms\n")
+        invalid_run_id = "a" * 81
+        conn.request(
+            "POST",
+            f"/api/hess/import?run_id={invalid_run_id}",
+            body=body,
+            headers={"Content-Type": content_type, "Content-Length": str(len(body))},
+        )
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 400
+        assert "Invalid run_id" in payload["error"]
+
+        conn.request(f"GET", f"/api/runs/{invalid_run_id}")
+        get_response = conn.getresponse()
+        get_payload = json.loads(get_response.read().decode("utf-8"))
+        assert get_response.status == 400
+        assert "Invalid run_id" in get_payload["error"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_web_import_http_rejects_artifact_outside_run_dir():
+    import_root = ROOT / "outputs" / "pytest_web_app_outside_artifact"
+    if import_root.exists():
+        shutil.rmtree(import_root)
+    run_dir = import_root / "outside_run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    outside_artifact = import_root / "outside.html"
+    outside_artifact.write_text("<html>outside</html>", encoding="utf-8")
+    (run_dir / "web_import_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "outside_run",
+                "artifacts": {"interactive_spectrum_html": str(outside_artifact)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    handler = create_web_import_handler(import_root=import_root)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        conn.request("GET", "/api/runs/outside_run/artifacts/interactive_spectrum_html")
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 403
+        assert payload["error"] == "Artifact path is outside the run directory."
+    finally:
+        server.shutdown()
+        server.server_close()

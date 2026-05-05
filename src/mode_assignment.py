@@ -1024,7 +1024,7 @@ def _stage3d_direct_xh_stretch_fallback(hess: HessData, internals: Sequence[Inte
     }
     try:
         disp = hess.normal_modes[:, mode].reshape(len(hess.atoms), 3)
-    except Exception:
+    except (IndexError, TypeError, ValueError):
         return empty.copy()
 
     pair_best: Dict[Tuple[int, int], Dict[str, object]] = {}
@@ -1213,7 +1213,7 @@ def _stage3d_topology_direct_xh_fallback(hess: HessData, mode: int) -> Dict[str,
 
     try:
         disp = hess.normal_modes[:, mode].reshape(len(hess.atoms), 3)
-    except Exception:
+    except (IndexError, TypeError, ValueError):
         return empty.copy()
 
     mode_norm = float(np.linalg.norm(disp))
@@ -1224,7 +1224,7 @@ def _stage3d_topology_direct_xh_fallback(hess: HessData, mode: int) -> Dict[str,
 
     try:
         bonds = build_connectivity(hess.atoms, hess.coords_A)
-    except Exception:
+    except (IndexError, TypeError, ValueError, RuntimeError):
         bonds = []
 
     rows = []

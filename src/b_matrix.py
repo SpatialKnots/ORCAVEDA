@@ -66,5 +66,65 @@ def select_independent_coordinates(
             current_rank = rank
         if current_rank >= target_rank:
             break
+
+    redundant_rank, _, _ = svd_rank_condition(B, tol_abs=tol_abs)
+    recoverable_rank = min(int(target_rank), int(redundant_rank))
+    if current_rank < recoverable_rank:
+        selected_idx = _select_independent_coordinates_pivoted_cholesky(
+            B,
+            internals,
+            recoverable_rank,
+            tol_abs=tol_abs,
+        )
+        current = B[selected_idx, :] if selected_idx else np.zeros((0, B.shape[1]))
+
     rank, cond, s = svd_rank_condition(current, tol_abs=tol_abs)
     return selected_idx, rank, cond, s
+
+
+def _select_independent_coordinates_pivoted_cholesky(
+    B: np.ndarray,
+    internals: Sequence[InternalCoordinate],
+    target_rank: int,
+    tol_abs: float = 1.0e-6,
+) -> List[int]:
+    """
+    Select a deterministic row basis when priority-ordered greedy SVD stalls.
+
+    Aromatic coordinate pools can contain groups of nearly dependent rows where
+    no single low-priority row clears the absolute SVD threshold against the
+    current greedy basis, even though the full redundant B matrix has additional
+    rank. Pivoted Cholesky on the row Gram matrix selects rows by residual power
+    and recovers the rank reported for the redundant matrix.
+    """
+    if B.size == 0 or target_rank <= 0:
+        return []
+
+    ordered = sorted(range(len(internals)), key=lambda i: (internals[i].priority, internals[i].name))
+    ordered_B = np.asarray(B[ordered, :], dtype=float)
+    gram = ordered_B @ ordered_B.T
+    nrows = gram.shape[0]
+    max_rank = min(int(target_rank), nrows)
+    diag = np.diag(gram).astype(float).copy()
+    factors = np.zeros((nrows, max_rank), dtype=float)
+    selected_positions: List[int] = []
+    disabled = np.zeros(nrows, dtype=bool)
+
+    for k in range(max_rank):
+        active_diag = np.where(disabled, -np.inf, diag)
+        pivot_pos = int(np.argmax(active_diag))
+        pivot_residual = float(active_diag[pivot_pos])
+        if not np.isfinite(pivot_residual) or pivot_residual <= tol_abs * tol_abs:
+            break
+
+        selected_positions.append(pivot_pos)
+        pivot = float(np.sqrt(pivot_residual))
+        if k:
+            projection = factors[:, :k] @ factors[pivot_pos, :k]
+        else:
+            projection = 0.0
+        factors[:, k] = (gram[:, pivot_pos] - projection) / pivot
+        diag = diag - factors[:, k] ** 2
+        disabled[pivot_pos] = True
+
+    return [ordered[pos] for pos in selected_positions]

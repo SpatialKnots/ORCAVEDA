@@ -283,7 +283,7 @@ def build_spectrum_payload(
             for _, row in file_audit.iterrows():
                 try:
                     audit_by_mode[int(row["mode"])] = row
-                except Exception:
+                except (TypeError, ValueError):
                     continue
 
         for mode, (freq, intensity) in enumerate(zip(hess.frequencies_cm1, hess.ir_intensities)):
@@ -354,10 +354,34 @@ def build_spectrum_payload(
     }
 
 
+def _three_dmol_script_tag(three_dmol_js_path: str | Path | None = None) -> str:
+    if three_dmol_js_path is None:
+        return '<script src="https://cdn.jsdelivr.net/npm/3dmol@2.4.2/build/3Dmol-min.js"></script>'
+
+    js_path = Path(three_dmol_js_path)
+    if not js_path.exists() or not js_path.is_file():
+        raise FileNotFoundError(f"3Dmol.js asset not found: {js_path}")
+    script_text = js_path.read_text(encoding="utf-8")
+    script_text = script_text.replace("</script", "<\\/script")
+    return f"<script>\n/* Inlined local 3Dmol.js asset: {js_path.name} */\n{script_text}\n</script>"
+
+
+def _json_for_script(value: object) -> str:
+    text = json.dumps(value, ensure_ascii=False)
+    return (
+        text.replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
 def write_interactive_spectrum_viewer(
     payload: Dict[str, object],
     html_path: str | Path,
     json_path: str | Path | None = None,
+    three_dmol_js_path: str | Path | None = None,
 ) -> Path:
     html_path = Path(html_path)
     html_path.parent.mkdir(parents=True, exist_ok=True)
@@ -366,14 +390,15 @@ def write_interactive_spectrum_viewer(
         json_path.parent.mkdir(parents=True, exist_ok=True)
         json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    payload_json = json.dumps(payload, ensure_ascii=False)
+    payload_json = _json_for_script(payload)
+    three_dmol_script_tag = _three_dmol_script_tag(three_dmol_js_path)
     html = f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ORCAVEDA Interactive IR Spectrum</title>
-  <script src="https://cdn.jsdelivr.net/npm/3dmol@2.4.2/build/3Dmol-min.js"></script>
+  {three_dmol_script_tag}
   <style>
     :root {{
       --bg: #f5f2eb;
@@ -740,6 +765,24 @@ def write_interactive_spectrum_viewer(
       border: 0;
       background: transparent;
     }}
+    .molecule-fallback-canvas {{
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 500px;
+    }}
+    .molecule-fallback-note {{
+      position: absolute;
+      left: 12px;
+      bottom: 10px;
+      max-width: calc(100% - 24px);
+      color: #677483;
+      font-size: 12px;
+      background: rgba(255,253,248,0.86);
+      border: 1px solid #e4ddd0;
+      border-radius: 10px;
+      padding: 6px 8px;
+    }}
     .viewer-actions {{
       display: flex;
       align-items: center;
@@ -1045,6 +1088,38 @@ def write_interactive_spectrum_viewer(
     let isPanning = false;
     let panStart = null;
 
+    function clearElement(el) {{
+      while (el.firstChild) el.removeChild(el.firstChild);
+    }}
+
+    function appendCell(row, text, className = "") {{
+      const td = document.createElement("td");
+      if (className) td.className = className;
+      td.textContent = String(text ?? "");
+      row.appendChild(td);
+      return td;
+    }}
+
+    function appendEmptyRow(tbody, colspan, text) {{
+      const tr = document.createElement("tr");
+      const td = appendCell(tr, text);
+      td.colSpan = colspan;
+      td.style.color = "#677483";
+      td.style.padding = "8px";
+      tbody.appendChild(tr);
+    }}
+
+    function appendKv(container, label, value, wide = false) {{
+      const div = document.createElement("div");
+      div.className = wide ? "kv wide" : "kv";
+      const strong = document.createElement("strong");
+      strong.textContent = String(label ?? "");
+      div.appendChild(strong);
+      div.appendChild(document.createTextNode(String(value ?? "")));
+      container.appendChild(div);
+      return div;
+    }}
+
     function resizeChart() {{
       const wrap = canvas.parentElement;
       if (!wrap) return;
@@ -1090,7 +1165,7 @@ def write_interactive_spectrum_viewer(
 
     function populateReferenceOptions() {{
       const refSet = getCurrentReferenceSet();
-      nistReference.innerHTML = "";
+      clearElement(nistReference);
       const noneOpt = document.createElement("option");
       noneOpt.value = "";
       noneOpt.textContent = "None";
@@ -1149,13 +1224,109 @@ def write_interactive_spectrum_viewer(
       }};
     }}
 
+    function elementColor(element) {{
+      return {{
+        H: "#f8fafc",
+        C: "#374151",
+        N: "#2563eb",
+        O: "#dc2626",
+        S: "#ca8a04",
+        P: "#f97316",
+        F: "#16a34a",
+        Cl: "#22c55e",
+        Br: "#92400e",
+        I: "#7c3aed",
+      }}[String(element || "")] || "#64748b";
+    }}
+
+    function renderMoleculeFallback(file) {{
+      clearElement(moleculeViewerHost);
+      moleculeViewerHost.dataset.renderer = "native-fallback";
+      const canvasEl = document.createElement("canvas");
+      canvasEl.className = "molecule-fallback-canvas";
+      const rect = moleculeViewerHost.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.max(420, Math.round((rect.width || 640) * dpr));
+      const height = Math.max(360, Math.round((rect.height || 500) * dpr));
+      canvasEl.width = width;
+      canvasEl.height = height;
+      moleculeViewerHost.appendChild(canvasEl);
+
+      const note = document.createElement("div");
+      note.className = "molecule-fallback-note";
+      note.textContent = "Native 2D projection used because 3Dmol.js is unavailable.";
+      moleculeViewerHost.appendChild(note);
+
+      const g = canvasEl.getContext("2d");
+      g.fillStyle = "#fffdf8";
+      g.fillRect(0, 0, width, height);
+      const atoms = Array.isArray(file?.geometry?.atoms) ? file.geometry.atoms : [];
+      const bonds = Array.isArray(file?.geometry?.bonds) ? file.geometry.bonds : [];
+      if (!atoms.length) {{
+        g.fillStyle = "#677483";
+        g.font = `${{14 * dpr}}px Segoe UI`;
+        g.fillText("No geometry atoms reported.", 24 * dpr, 36 * dpr);
+        return;
+      }}
+
+      const xs = atoms.map(atom => Number(atom.x || 0));
+      const ys = atoms.map(atom => Number(atom.y || 0));
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const spanX = Math.max(1e-6, maxX - minX);
+      const spanY = Math.max(1e-6, maxY - minY);
+      const pad = 52 * dpr;
+      const scale = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY);
+      const projected = atoms.map(atom => ({{
+        x: pad + (Number(atom.x || 0) - minX) * scale,
+        y: height - pad - (Number(atom.y || 0) - minY) * scale,
+        z: Number(atom.z || 0),
+        element: String(atom.element || "X"),
+      }}));
+
+      g.lineCap = "round";
+      g.lineWidth = 4 * dpr;
+      for (const bond of bonds) {{
+        const a = projected[Number(bond.i)];
+        const b = projected[Number(bond.j)];
+        if (!a || !b) continue;
+        g.strokeStyle = "rgba(55, 65, 81, 0.45)";
+        g.beginPath();
+        g.moveTo(a.x, a.y);
+        g.lineTo(b.x, b.y);
+        g.stroke();
+      }}
+
+      const orderedAtoms = projected
+        .map((atom, idx) => ({{ ...atom, idx }}))
+        .sort((a, b) => a.z - b.z);
+      for (const atom of orderedAtoms) {{
+        const radius = (atom.element === "H" ? 10 : 15) * dpr;
+        g.beginPath();
+        g.arc(atom.x, atom.y, radius, 0, Math.PI * 2);
+        g.fillStyle = elementColor(atom.element);
+        g.fill();
+        g.strokeStyle = "rgba(31, 41, 51, 0.42)";
+        g.lineWidth = 1.5 * dpr;
+        g.stroke();
+        g.fillStyle = atom.element === "H" ? "#1f2933" : "#ffffff";
+        g.font = `${{10 * dpr}}px Segoe UI`;
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillText(atom.element, atom.x, atom.y);
+      }}
+    }}
+
     function renderMolecule() {{
       const file = getCurrentFile();
       const viewer = ensureMoleculeViewer();
       if (!viewer) {{
-        moleculeViewerHost.innerHTML = '<div style="padding:18px;color:#677483;font:14px Segoe UI;">3Dmol.js failed to load. Check internet access or vendor a local 3Dmol-min.js file.</div>';
+        renderMoleculeFallback(file);
         return;
       }}
+      moleculeViewerHost.dataset.renderer = "3dmol";
       viewer.clear();
       viewer.addModel(geometryToXyz(file), "xyz");
       viewer.setStyle({{}}, currentMolStyle());
@@ -1337,12 +1508,10 @@ def write_interactive_spectrum_viewer(
     function updateMatchingLayerTable() {{
       const referenceSpectrum = getSelectedReferenceSpectrum();
       const basePayload = referenceSpectrum?.scale_engine_payload || null;
-      matchingLayerTableBody.innerHTML = "";
+      clearElement(matchingLayerTableBody);
       const rows = Array.isArray(basePayload?.matching_layer_overview) ? basePayload.matching_layer_overview : [];
       if (!rows.length) {{
-        const tr = document.createElement("tr");
-        tr.innerHTML = '<td colspan="4" style="color:#677483;padding:8px;">No matching-layer summary is available for the selected NIST reference.</td>';
-        matchingLayerTableBody.appendChild(tr);
+        appendEmptyRow(matchingLayerTableBody, 4, "No matching-layer summary is available for the selected NIST reference.");
         return;
       }}
       const activeLayer = getSelectedMatchingLayer();
@@ -1353,12 +1522,10 @@ def write_interactive_spectrum_viewer(
         const matched = Number(row.matched_count ?? 0);
         const coverage = Number(row.coverage ?? NaN);
         const mean = Number(row.mean_percent_deviation ?? NaN);
-        tr.innerHTML = `
-          <td>${{prettyMatchingLayerName(row.layer)}}</td>
-          <td class="num">${{matched}}/${{total}}</td>
-          <td class="num">${{(coverage * 100).toFixed(1)}}%</td>
-          <td class="num">${{mean.toFixed(2)}}%</td>
-        `;
+        appendCell(tr, prettyMatchingLayerName(row.layer));
+        appendCell(tr, `${{matched}}/${{total}}`, "num");
+        appendCell(tr, `${{(coverage * 100).toFixed(1)}}%`, "num");
+        appendCell(tr, `${{mean.toFixed(2)}}%`, "num");
         tr.addEventListener("click", () => {{
           if (row.layer && matchingLayer.value !== String(row.layer)) {{
             matchingLayer.value = String(row.layer);
@@ -1374,12 +1541,10 @@ def write_interactive_spectrum_viewer(
     function updateEngineLayerMatrix() {{
       const referenceSpectrum = getSelectedReferenceSpectrum();
       const basePayload = referenceSpectrum?.scale_engine_payload || null;
-      engineLayerMatrixBody.innerHTML = "";
+      clearElement(engineLayerMatrixBody);
       const rows = Array.isArray(basePayload?.engine_layer_matrix) ? basePayload.engine_layer_matrix : [];
       if (!rows.length) {{
-        const tr = document.createElement("tr");
-        tr.innerHTML = '<td colspan="4" style="color:#677483;padding:8px;">No engine-by-layer comparison is available for the selected NIST reference.</td>';
-        engineLayerMatrixBody.appendChild(tr);
+        appendEmptyRow(engineLayerMatrixBody, 4, "No engine-by-layer comparison is available for the selected NIST reference.");
         return;
       }}
       const activeEngine = getSelectedScaleEngine();
@@ -1389,12 +1554,10 @@ def write_interactive_spectrum_viewer(
         const nearestMean = Number(row.nearest_mean_percent_deviation ?? NaN);
         const highMean = Number(row.high_confidence_mean_percent_deviation ?? NaN);
         const extMean = Number(row.extended_mean_percent_deviation ?? NaN);
-        tr.innerHTML = `
-          <td>${{prettyEngineName(row.engine)}}</td>
-          <td class="num">${{nearestMean.toFixed(2)}}%</td>
-          <td class="num">${{highMean.toFixed(2)}}%</td>
-          <td class="num">${{extMean.toFixed(2)}}%</td>
-        `;
+        appendCell(tr, prettyEngineName(row.engine));
+        appendCell(tr, `${{nearestMean.toFixed(2)}}%`, "num");
+        appendCell(tr, `${{highMean.toFixed(2)}}%`, "num");
+        appendCell(tr, `${{extMean.toFixed(2)}}%`, "num");
         tr.addEventListener("click", () => {{
           if (row.engine && scaleEngine.value !== String(row.engine)) {{
             scaleEngine.value = String(row.engine);
@@ -1458,26 +1621,22 @@ def write_interactive_spectrum_viewer(
     function updateEngineTable() {{
       const payload = getSelectedScaleEnginePayload();
       const activeEngine = getSelectedScaleEngine();
-      engineTableBody.innerHTML = "";
+      clearElement(engineTableBody);
 
       const rows = Array.isArray(payload?.engine_table) ? payload.engine_table : [];
       if (!rows.length) {{
-        const tr = document.createElement("tr");
-        tr.innerHTML = '<td colspan="5" style="color:#677483;padding:8px;">No engine comparison is available for the selected NIST reference.</td>';
-        engineTableBody.appendChild(tr);
+        appendEmptyRow(engineTableBody, 5, "No engine comparison is available for the selected NIST reference.");
         return;
       }}
 
       for (const row of rows) {{
         const tr = document.createElement("tr");
         if (String(row.engine) === String(activeEngine)) tr.classList.add("active");
-        tr.innerHTML = `
-          <td>${{prettyEngineName(row.engine)}}</td>
-          <td class="num">${{Number(row.mean_percent_deviation ?? NaN).toFixed(2)}}%</td>
-          <td class="num">${{Number(row.rmse_percent_deviation ?? NaN).toFixed(2)}}%</td>
-          <td class="num">${{Number(row.max_percent_deviation ?? NaN).toFixed(2)}}%</td>
-          <td class="num">${{Number(row.matched_count ?? 0)}}</td>
-        `;
+        appendCell(tr, prettyEngineName(row.engine));
+        appendCell(tr, `${{Number(row.mean_percent_deviation ?? NaN).toFixed(2)}}%`, "num");
+        appendCell(tr, `${{Number(row.rmse_percent_deviation ?? NaN).toFixed(2)}}%`, "num");
+        appendCell(tr, `${{Number(row.max_percent_deviation ?? NaN).toFixed(2)}}%`, "num");
+        appendCell(tr, Number(row.matched_count ?? 0), "num");
         tr.addEventListener("click", () => {{
           if (row.engine && scaleEngine.value !== String(row.engine)) {{
             scaleEngine.value = String(row.engine);
@@ -1761,41 +1920,42 @@ def write_interactive_spectrum_viewer(
         ["Fragments", s.fragment_count ?? "n/a"],
         ["Range", s.frequency_min_cm1 != null && s.frequency_max_cm1 != null ? `${{Number(s.frequency_min_cm1).toFixed(1)}} – ${{Number(s.frequency_max_cm1).toFixed(1)}} cm-1` : "n/a"]
       ];
-      summaryGrid.innerHTML = items.map(([k, v]) => `<div class="kv"><strong>${{k}}</strong>${{v}}</div>`).join("");
+      clearElement(summaryGrid);
+      for (const [key, value] of items) appendKv(summaryGrid, key, value);
     }}
 
     function updateModeDetails(file, scale, engineName = getSelectedScaleEngine(), engineFit = getSelectedScaleEngineFit()) {{
       const scaledModes = getScaledModes(file, scale, engineName, engineFit);
       const mode = scaledModes.find(row => row.mode === selectedMode) || scaledModes[0];
+      clearElement(modeDetails);
       if (!mode) {{
-        modeDetails.innerHTML = '<div class="wide">No positive-frequency modes available.</div>';
+        const empty = document.createElement("div");
+        empty.className = "wide";
+        empty.textContent = "No positive-frequency modes available.";
+        modeDetails.appendChild(empty);
         return;
       }}
-      modeDetails.innerHTML = `
-        <div class="kv"><strong>Mode</strong>${{mode.mode}}</div>
-        <div class="kv"><strong>Scaled Frequency</strong>${{mode.scaled.toFixed(2)}} cm-1</div>
-        <div class="kv"><strong>Original Frequency</strong>${{mode.frequency_cm1.toFixed(2)}} cm-1</div>
-        <div class="kv"><strong>IR Intensity</strong>${{Number(mode.intensity).toFixed(4)}}</div>
-        <div class="kv wide"><strong>Final Assignment</strong>${{mode.assignment || "unassigned"}}</div>
-        <div class="kv wide"><strong>Warnings</strong>${{mode.warnings || "none"}}</div>
-        <div class="kv wide"><strong>Supporting Coordinates</strong>${{mode.top_internal_coordinates || "n/a"}}</div>
-      `;
+      appendKv(modeDetails, "Mode", mode.mode);
+      appendKv(modeDetails, "Scaled Frequency", `${{mode.scaled.toFixed(2)}} cm-1`);
+      appendKv(modeDetails, "Original Frequency", `${{mode.frequency_cm1.toFixed(2)}} cm-1`);
+      appendKv(modeDetails, "IR Intensity", Number(mode.intensity).toFixed(4));
+      appendKv(modeDetails, "Final Assignment", mode.assignment || "unassigned", true);
+      appendKv(modeDetails, "Warnings", mode.warnings || "none", true);
+      appendKv(modeDetails, "Supporting Coordinates", mode.top_internal_coordinates || "n/a", true);
     }}
 
     function updatePeakTable(file, scale, x1, x2, engineName = getSelectedScaleEngine(), engineFit = getSelectedScaleEngineFit()) {{
       const rows = getScaledModes(file, scale, engineName, engineFit)
         .filter(mode => mode.scaled >= x1 && mode.scaled <= x2)
         .sort((a, b) => a.scaled - b.scaled);
-      peakTable.innerHTML = "";
+      clearElement(peakTable);
       for (const mode of rows) {{
         const tr = document.createElement("tr");
         if (mode.mode === selectedMode) tr.classList.add("active");
-        tr.innerHTML = `
-          <td>${{mode.mode}}</td>
-          <td>${{mode.scaled.toFixed(1)}}</td>
-          <td>${{Number(mode.intensity).toFixed(3)}}</td>
-          <td>${{mode.assignment || "unassigned"}}</td>
-        `;
+        appendCell(tr, mode.mode);
+        appendCell(tr, mode.scaled.toFixed(1));
+        appendCell(tr, Number(mode.intensity).toFixed(3));
+        appendCell(tr, mode.assignment || "unassigned");
         tr.addEventListener("mouseenter", () => {{
           selectedMode = mode.mode;
           updateModeDetails(file, scale);
@@ -1846,12 +2006,19 @@ def write_interactive_spectrum_viewer(
         chartTooltip.classList.remove("visible");
         return;
       }}
-      chartTooltip.innerHTML = `
-        <strong>Mode ${{mode.mode}}</strong>
-        <div>${{Number(mode.scaled ?? transformFrequencyByEngine(mode.frequency_cm1, currentRender.scale, currentRender.engineName, currentRender.engineFit)).toFixed(1)}} cm-1</div>
-        <div>IR: ${{Number(mode.intensity).toFixed(3)}}</div>
-        <div>${{mode.assignment || "unassigned"}}</div>
-      `;
+      clearElement(chartTooltip);
+      const strong = document.createElement("strong");
+      strong.textContent = `Mode ${{mode.mode}}`;
+      chartTooltip.appendChild(strong);
+      for (const text of [
+        `${{Number(mode.scaled ?? transformFrequencyByEngine(mode.frequency_cm1, currentRender.scale, currentRender.engineName, currentRender.engineFit)).toFixed(1)}} cm-1`,
+        `IR: ${{Number(mode.intensity).toFixed(3)}}`,
+        mode.assignment || "unassigned",
+      ]) {{
+        const div = document.createElement("div");
+        div.textContent = text;
+        chartTooltip.appendChild(div);
+      }}
       const rect = canvas.parentElement.getBoundingClientRect();
       const tooltipWidth = 240;
       const offsetX = 14;

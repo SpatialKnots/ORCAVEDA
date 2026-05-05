@@ -406,6 +406,7 @@ class LegacyChemistryBackend:
 _BACKENDS: Dict[str, ChemistryBackend] = {
     "legacy": LegacyChemistryBackend(),
 }
+_BACKEND_REGISTRATION_WARNINGS: List[str] = []
 _ACTIVE_BACKEND_NAME = "legacy"
 
 
@@ -427,6 +428,10 @@ def get_backend(name: str) -> ChemistryBackend:
 
 def list_backends() -> Tuple[str, ...]:
     return tuple(sorted(_BACKENDS))
+
+
+def backend_registration_warnings() -> Tuple[str, ...]:
+    return tuple(_BACKEND_REGISTRATION_WARNINGS)
 
 
 def get_active_backend() -> ChemistryBackend:
@@ -487,10 +492,8 @@ try:
     from chemistry_rdkit_backend import RDKitChemistryBackend
 except ModuleNotFoundError:
     RDKitChemistryBackend = None  # type: ignore[assignment]
-except Exception:
-    RDKitChemistryBackend = None  # type: ignore[assignment]
 else:
     try:
         register_backend(RDKitChemistryBackend())
-    except Exception:
-        pass
+    except (ImportError, RuntimeError, ValueError) as exc:
+        _BACKEND_REGISTRATION_WARNINGS.append(f"rdkit_backend_registration_failed:{type(exc).__name__}:{exc}")

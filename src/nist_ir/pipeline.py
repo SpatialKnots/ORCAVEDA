@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 from typing import Callable, Dict, List
+from urllib.error import HTTPError, URLError
 
 from orca_parser import read_orca_hess
 
@@ -88,10 +89,12 @@ def nist_ir_from_identifiers(
 
     page = None
     matches = []
+    page_errors: List[str] = []
     for attempt in page_attempts:
         try:
             candidate = attempt()
-        except Exception:
+        except (HTTPError, URLError, LookupError, ValueError, RuntimeError, OSError) as exc:
+            page_errors.append(f"{type(exc).__name__}:{exc}")
             continue
         candidate_matches = find_ir_jcamp_links(candidate["page_url"], candidate["html"])
         if candidate_matches:
@@ -100,7 +103,8 @@ def nist_ir_from_identifiers(
             break
 
     if not matches:
-        raise LookupError("No NIST IR JCAMP links found for this InChI")
+        detail = "; ".join(page_errors) if page_errors else "no lookup errors reported"
+        raise LookupError(f"No NIST IR JCAMP links found for this InChI; attempts={detail}")
 
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
