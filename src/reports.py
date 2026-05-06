@@ -275,6 +275,148 @@ def _ped_method_column(ped_df: pd.DataFrame) -> str:
     return ""
 
 
+def _select_ped_diagnostic_layer(
+    *,
+    wilson_ped_audit: pd.DataFrame | None = None,
+    ped_v2_force_audit: pd.DataFrame | None = None,
+    ped_audit: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, str]:
+    if isinstance(wilson_ped_audit, pd.DataFrame) and not wilson_ped_audit.empty:
+        return wilson_ped_audit, "Wilson GF-style PED audit"
+    if isinstance(ped_v2_force_audit, pd.DataFrame) and not ped_v2_force_audit.empty:
+        return ped_v2_force_audit, "PED v2 force-aware diagnostic"
+    if isinstance(ped_audit, pd.DataFrame) and not ped_audit.empty:
+        return ped_audit, "PED v1 B-matrix projection diagnostic"
+    return pd.DataFrame(), ""
+
+
+def _assignment_semantic_classes(text: object) -> set[str]:
+    value = str(text or "").lower()
+    replacements = {
+        "c=o": "carbonyl co stretch",
+        "c=s": "thiocarbonyl cs stretch",
+        "c#c": "alkyne cc stretch",
+        "c#n": "cn stretch",
+        "s-h": "sh",
+        "o-h": "oh",
+        "n-h": "nh",
+        "c-h": "ch",
+        "c-o": "co",
+        "c-n": "cn",
+        "c-c": "cc",
+        "h-o-h": "hoh",
+        "nh2": "nh2",
+        "ch2": "ch2",
+    }
+    for needle, replacement in replacements.items():
+        value = value.replace(needle, replacement)
+    classes: set[str] = set()
+    checks = {
+        "carbonyl": ["carbonyl", "c=o"],
+        "thiocarbonyl": ["thiocarbonyl", "c=s"],
+        "nitro": ["nitro", "no2", "n-o"],
+        "thiol": ["thiol", "sh", "s-h"],
+        "thioamide": ["thioamide"],
+        "isocyanate": ["isocyanate", "nco", "n=c=o"],
+        "alkyne": ["alkyne", "c#c"],
+        "oh": ["oh", "hydroxyl", "alcohol", "phenolic", "carboxylic"],
+        "sh": ["sh", "thiol"],
+        "nh": ["nh", "amine"],
+        "nh2": ["nh2"],
+        "ch": ["ch", "methyl", "methylene", "methine", "aromatic"],
+        "ch2": ["ch2", "methylene"],
+        "ring": ["ring", "aromatic", "phenyl", "pyridine"],
+        "co": ["co", "carbonyl", "carboxylic", "alcohol"],
+        "cn": ["cn", "amine", "n-c", "c-n"],
+        "cc": ["cc", "ring", "aromatic"],
+        "stretch": ["stretch"],
+        "bend": ["bend", "scissor", "deformation", "umbrella"],
+        "torsion": ["torsion", "out-of-plane", "oop"],
+        "mixed": ["mixed"],
+    }
+    for cls, terms in checks.items():
+        if any(term in value for term in terms):
+            classes.add(cls)
+    return classes
+
+
+def classify_ped_stage3d_agreement(
+    stage3d_assignment: object,
+    ped_assignment: object,
+    ped_top_percent: object,
+    ped_source: str,
+) -> tuple[str, str]:
+    stage3d_text = str(stage3d_assignment or "").strip()
+    ped_text = str(ped_assignment or "").strip()
+    if not ped_text:
+        return "not_available", "ped_not_available"
+    if not stage3d_text or stage3d_text == "unassigned":
+        return "adds_context", "stage3d_missing_or_unassigned"
+
+    try:
+        top_percent = float(ped_top_percent)
+    except (TypeError, ValueError):
+        top_percent = 0.0
+
+    stage3d_classes = _assignment_semantic_classes(stage3d_text)
+    ped_classes = _assignment_semantic_classes(ped_text)
+    overlap = stage3d_classes & ped_classes
+    motion_classes = {"stretch", "bend", "torsion"}
+    stage3d_motion = stage3d_classes & motion_classes
+    ped_motion = ped_classes & motion_classes
+    if stage3d_motion and ped_motion and not (stage3d_motion & ped_motion):
+        overlap = set()
+    warnings = []
+    if top_percent < 25.0:
+        warnings.append("diffuse_ped_contributions")
+    if ped_source:
+        warnings.append("ped_diagnostic_basis")
+
+    if overlap:
+        if top_percent >= 50.0 and ped_classes.issubset(stage3d_classes | {"mixed"}):
+            return "confirms", "; ".join(warnings)
+        return "adds_context", "; ".join(warnings)
+    if top_percent < 25.0:
+        return "diffuse", "; ".join(warnings)
+    warnings.append("ped_stage3d_semantic_disagreement")
+    return "disagrees", "; ".join(warnings)
+
+
+def decide_ped_driven_final_assignment(
+    stage3d_assignment: object,
+    ped_assignment: object,
+    ped_source: object,
+    ped_agreement_status: object,
+    ped_policy_warning: object = "",
+) -> tuple[str, str, str, str]:
+    stage3d_text = str(stage3d_assignment or "").strip()
+    ped_text = str(ped_assignment or "").strip()
+    source = str(ped_source or "").strip()
+    status = str(ped_agreement_status or "").strip()
+    warning = str(ped_policy_warning or "").strip()
+
+    if ped_text and status in {"confirms", "adds_context"}:
+        policy = "ped_confirms_stage3d" if status == "confirms" else "ped_adds_context"
+        return ped_text, source or "PED diagnostic", policy, warning
+    if ped_text and (not stage3d_text or stage3d_text == "unassigned"):
+        return ped_text, source or "PED diagnostic", "ped_used_when_stage3d_unassigned", warning
+
+    final = stage3d_text or ped_text or "unassigned"
+    if status == "disagrees":
+        policy = "stage3d_fallback_due_to_ped_disagreement"
+    elif status == "diffuse":
+        policy = "stage3d_fallback_due_to_diffuse_ped"
+    elif status == "not_available":
+        policy = "stage3d_fallback_ped_not_available"
+    else:
+        policy = "stage3d_fallback"
+    final_warning = warning
+    if ped_text and status in {"disagrees", "diffuse"}:
+        suffix = "final_label_kept_stage3d"
+        final_warning = f"{final_warning}; {suffix}" if final_warning else suffix
+    return final, "Stage 3D assignment audit", policy, final_warning
+
+
 def _build_ped_viewer_mode_summary(ped_df: pd.DataFrame | None, *, top_n: int = 6) -> Dict[tuple[str, int], Dict[str, object]]:
     if not isinstance(ped_df, pd.DataFrame) or ped_df.empty:
         return {}
@@ -331,6 +473,129 @@ def _build_ped_viewer_mode_summary(ped_df: pd.DataFrame | None, *, top_n: int = 
     return summaries
 
 
+def build_ped_stage3d_agreement_table(
+    assignment_audit: pd.DataFrame | None,
+    *,
+    wilson_ped_audit: pd.DataFrame | None = None,
+    ped_v2_force_audit: pd.DataFrame | None = None,
+    ped_audit: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    audit_df = assignment_audit if isinstance(assignment_audit, pd.DataFrame) else pd.DataFrame()
+    columns = [
+        "Source",
+        "Filename",
+        "mode",
+        "frequency_cm-1",
+        "stage3d_assignment",
+        "ped_assignment",
+        "ped_source",
+        "ped_top_family",
+        "ped_top_percent",
+        "ped_agreement_status",
+        "ped_policy_warning",
+        "ped_top_contributors",
+    ]
+    if audit_df.empty or "Filename" not in audit_df.columns or "mode" not in audit_df.columns:
+        return pd.DataFrame(columns=columns)
+
+    ped_df, ped_source_label = _select_ped_diagnostic_layer(
+        wilson_ped_audit=wilson_ped_audit,
+        ped_v2_force_audit=ped_v2_force_audit,
+        ped_audit=ped_audit,
+    )
+    ped_by_mode = _build_ped_viewer_mode_summary(ped_df)
+    rows = []
+    for _, audit_row in audit_df.iterrows():
+        try:
+            mode = int(audit_row.get("mode"))
+        except (TypeError, ValueError):
+            continue
+        filename = str(audit_row.get("Filename", "") or "")
+        ped_row = ped_by_mode.get((filename, mode), {})
+        stage3d_assignment = str(audit_row.get("functional_group_assignment", "") or "")
+        ped_assignment = str(ped_row.get("ped_assignment", "") or "")
+        ped_top_percent = float(ped_row.get("ped_top_percent", 0.0) or 0.0)
+        ped_source = ped_source_label if ped_assignment else ""
+        status, warning = classify_ped_stage3d_agreement(
+            stage3d_assignment,
+            ped_assignment,
+            ped_top_percent,
+            ped_source,
+        )
+        rows.append(
+            {
+                "Source": audit_row.get("Source", ""),
+                "Filename": filename,
+                "mode": mode,
+                "frequency_cm-1": audit_row.get("frequency_cm-1", ""),
+                "stage3d_assignment": stage3d_assignment,
+                "ped_assignment": ped_assignment,
+                "ped_source": ped_source,
+                "ped_top_family": str(ped_row.get("ped_top_family", "") or ""),
+                "ped_top_percent": ped_top_percent,
+                "ped_agreement_status": status,
+                "ped_policy_warning": warning,
+                "ped_top_contributors": str(ped_row.get("ped_top_contributors", "") or ""),
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
+def build_ped_driven_final_assignment_table(agreement_table: pd.DataFrame | None) -> pd.DataFrame:
+    agreement_df = agreement_table if isinstance(agreement_table, pd.DataFrame) else pd.DataFrame()
+    columns = [
+        "Source",
+        "Filename",
+        "mode",
+        "frequency_cm-1",
+        "final_assignment",
+        "final_assignment_source",
+        "final_assignment_policy",
+        "final_assignment_warning",
+        "stage3d_assignment",
+        "ped_assignment",
+        "ped_source",
+        "ped_agreement_status",
+        "ped_policy_warning",
+        "ped_top_family",
+        "ped_top_percent",
+        "ped_top_contributors",
+    ]
+    if agreement_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    for _, row in agreement_df.iterrows():
+        final_assignment, final_source, final_policy, final_warning = decide_ped_driven_final_assignment(
+            row.get("stage3d_assignment", ""),
+            row.get("ped_assignment", ""),
+            row.get("ped_source", ""),
+            row.get("ped_agreement_status", ""),
+            row.get("ped_policy_warning", ""),
+        )
+        rows.append(
+            {
+                "Source": row.get("Source", ""),
+                "Filename": row.get("Filename", ""),
+                "mode": row.get("mode", ""),
+                "frequency_cm-1": row.get("frequency_cm-1", ""),
+                "final_assignment": final_assignment,
+                "final_assignment_source": final_source,
+                "final_assignment_policy": final_policy,
+                "final_assignment_warning": final_warning,
+                "stage3d_assignment": row.get("stage3d_assignment", ""),
+                "ped_assignment": row.get("ped_assignment", ""),
+                "ped_source": row.get("ped_source", ""),
+                "ped_agreement_status": row.get("ped_agreement_status", ""),
+                "ped_policy_warning": row.get("ped_policy_warning", ""),
+                "ped_top_family": row.get("ped_top_family", ""),
+                "ped_top_percent": row.get("ped_top_percent", ""),
+                "ped_top_contributors": row.get("ped_top_contributors", ""),
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
 def build_spectrum_payload(
     hess_list,
     assignment_audit: pd.DataFrame | None = None,
@@ -348,17 +613,11 @@ def build_spectrum_payload(
     )
 
     audit_df = assignment_audit if isinstance(assignment_audit, pd.DataFrame) else pd.DataFrame()
-    ped_source_label = ""
-    ped_df = pd.DataFrame()
-    if isinstance(wilson_ped_audit, pd.DataFrame) and not wilson_ped_audit.empty:
-        ped_df = wilson_ped_audit
-        ped_source_label = "Wilson PED"
-    elif isinstance(ped_v2_force_audit, pd.DataFrame) and not ped_v2_force_audit.empty:
-        ped_df = ped_v2_force_audit
-        ped_source_label = "PED v2 force-aware"
-    elif isinstance(ped_audit, pd.DataFrame) and not ped_audit.empty:
-        ped_df = ped_audit
-        ped_source_label = "PED v1"
+    ped_df, ped_source_label = _select_ped_diagnostic_layer(
+        wilson_ped_audit=wilson_ped_audit,
+        ped_v2_force_audit=ped_v2_force_audit,
+        ped_audit=ped_audit,
+    )
     ped_by_mode = _build_ped_viewer_mode_summary(ped_df)
     files = []
 
@@ -380,18 +639,37 @@ def build_spectrum_payload(
             ped_row = ped_by_mode.get((str(hess.filename), int(mode)), {})
             stage3d_assignment = str(audit_row.get("functional_group_assignment", "")) if audit_row is not None else ""
             ped_assignment = str(ped_row.get("ped_assignment", "") or "")
-            viewer_assignment = ped_assignment or stage3d_assignment
+            ped_source = ped_source_label if ped_assignment else ""
+            ped_agreement_status, ped_policy_warning = classify_ped_stage3d_agreement(
+                stage3d_assignment,
+                ped_assignment,
+                float(ped_row.get("ped_top_percent", 0.0) or 0.0),
+                ped_source,
+            )
+            final_assignment, final_source, final_policy, final_warning = decide_ped_driven_final_assignment(
+                stage3d_assignment,
+                ped_assignment,
+                ped_source,
+                ped_agreement_status,
+                ped_policy_warning,
+            )
             rows.append(
                 {
                     "mode": int(mode),
                     "frequency_cm1": float(freq),
                     "intensity": float(intensity),
-                    "assignment": viewer_assignment,
+                    "assignment": final_assignment,
+                    "final_assignment": final_assignment,
+                    "final_assignment_source": final_source,
+                    "final_assignment_policy": final_policy,
+                    "final_assignment_warning": final_warning,
                     "stage3d_assignment": stage3d_assignment,
                     "ped_assignment": ped_assignment,
-                    "ped_source": ped_source_label if ped_assignment else "",
+                    "ped_source": ped_source,
                     "ped_top_family": str(ped_row.get("ped_top_family", "") or ""),
                     "ped_top_percent": float(ped_row.get("ped_top_percent", 0.0) or 0.0),
+                    "ped_agreement_status": ped_agreement_status,
+                    "ped_policy_warning": ped_policy_warning,
                     "ped_top_contributors": str(ped_row.get("ped_top_contributors", "") or ""),
                     "ped_method": str(ped_row.get("ped_method", "") or ""),
                     "top_internal_coordinates": str(audit_row.get("top_internal_coordinates", "")) if audit_row is not None else "",
@@ -1135,7 +1413,7 @@ def write_interactive_spectrum_viewer(
                   <th>Mode</th>
                   <th>Scaled Frequency</th>
                   <th>IR Intensity</th>
-                  <th>PED Assignment</th>
+                  <th>Mode Interpretation</th>
                 </tr>
               </thead>
               <tbody id="peakTable"></tbody>
@@ -2038,9 +2316,14 @@ def write_interactive_spectrum_viewer(
       appendKv(modeDetails, "Scaled Frequency", `${{mode.scaled.toFixed(2)}} cm-1`);
       appendKv(modeDetails, "Original Frequency", `${{mode.frequency_cm1.toFixed(2)}} cm-1`);
       appendKv(modeDetails, "IR Intensity", Number(mode.intensity).toFixed(4));
-      appendKv(modeDetails, "PED Assignment", mode.assignment || "unassigned", true);
-      appendKv(modeDetails, "PED Source", mode.ped_source || "Stage 3D");
+      appendKv(modeDetails, "Final Assignment", mode.final_assignment || mode.assignment || "unassigned", true);
+      appendKv(modeDetails, "Final Assignment Source", mode.final_assignment_source || "Stage 3D assignment audit");
+      appendKv(modeDetails, "Final Assignment Policy", mode.final_assignment_policy || "n/a", true);
+      appendKv(modeDetails, "Final Assignment Warning", mode.final_assignment_warning || "n/a", true);
       appendKv(modeDetails, "Stage 3D Assignment", mode.stage3d_assignment || "n/a", true);
+      appendKv(modeDetails, "PED Diagnostic Interpretation", mode.ped_assignment || "n/a", true);
+      appendKv(modeDetails, "PED Agreement Status", mode.ped_agreement_status || "n/a", true);
+      appendKv(modeDetails, "PED Policy Warning", mode.ped_policy_warning || "n/a", true);
       appendKv(modeDetails, "PED Top Contributor", mode.ped_top_family ? `${{mode.ped_top_family}} (${{Number(mode.ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
       appendKv(modeDetails, "PED Contributors", mode.ped_top_contributors || "n/a", true);
       appendKv(modeDetails, "PED Method", mode.ped_method || "n/a", true);

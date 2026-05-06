@@ -172,6 +172,34 @@ def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
         return "aryl ether C-O stretch"
     if "aryl_ether_oc_stretch" in name or "aryl_ether_oc_stretch" in kind:
         return "aryl ether O-C stretch"
+    if "nitro_no_stretch" in name or "nitro_no_stretch" in kind:
+        return "nitro N-O stretch"
+    if "nitro_cn_stretch" in name or "nitro_cn_stretch" in kind:
+        return "nitro C-N stretch"
+    if "nitro_ono_bend" in name or "nitro_ono_bend" in kind:
+        return "nitro O-N-O bend"
+    if "thiol_sh_stretch" in name or "thiol_sh_stretch" in kind:
+        return "thiol S-H stretch"
+    if "thiol_cs_stretch" in name or "thiol_cs_stretch" in kind:
+        return "thiol C-S stretch"
+    if "thiol_csh_bend" in name or "thiol_csh_bend" in kind:
+        return "thiol C-S-H bend"
+    if "thiocarbonyl_cs_stretch" in name or "thiocarbonyl_cs_stretch" in kind:
+        return "thiocarbonyl C=S stretch"
+    if "thioamide_cn_stretch" in name or "thioamide_cn_stretch" in kind:
+        return "thioamide C-N stretch"
+    if "thioamide_ncs_bend" in name or "thioamide_ncs_bend" in kind:
+        return "thioamide N-C-S bend"
+    if "isocyanate_nc_stretch" in name or "isocyanate_nc_stretch" in kind:
+        return "isocyanate N=C stretch"
+    if "isocyanate_co_stretch" in name or "isocyanate_co_stretch" in kind:
+        return "isocyanate C=O stretch"
+    if "isocyanate_nco_bend" in name or "isocyanate_nco_bend" in kind:
+        return "isocyanate N-C-O bend"
+    if "terminal_alkyne_ch_stretch" in name or "terminal_alkyne_ch_stretch" in kind:
+        return "terminal alkyne C-H stretch"
+    if "alkyne_cc_stretch" in name or "alkyne_cc_stretch" in kind:
+        return "alkyne C#C stretch"
     if "peroxide_oo_stretch" in name or "peroxide_oo_stretch" in kind:
         return "O-O stretch"
     if "peroxide_ooh_bend" in name or "peroxide_ooh_bend" in kind:
@@ -646,8 +674,17 @@ def _stage3d_frequency_region_priority(freq: float, ic: InternalCoordinate) -> f
         elif cls == "torsion":
             weight *= 0.04
 
-        if fam in ("O-H stretch", "N-H stretch", "C-H stretch"):
+        if fam in ("O-H stretch", "N-H stretch", "C-H stretch", "thiol S-H stretch", "terminal alkyne C-H stretch"):
             weight *= 2.0
+
+    if 800.0 <= freq <= 2400.0 and fam in {
+        "nitro N-O stretch",
+        "thiocarbonyl C=S stretch",
+        "isocyanate N=C stretch",
+        "isocyanate C=O stretch",
+        "alkyne C#C stretch",
+    }:
+        weight *= 3.0
 
     # Mid-frequency heteroatom diagnostic stretches.
     if 1500.0 <= freq <= 2300.0 and fam in ("C=O stretch", "C≡N stretch", "S=O stretch"):
@@ -690,6 +727,24 @@ def _stage3d_assignment_from_weighted_terms(
     diagnostic_stretches = {"C-O stretch", "C=O stretch", "C≡N stretch", "S=O stretch"}
     if (
         800.0 <= float(freq) <= 2400.0
+        and top1_family
+        in {
+            "nitro N-O stretch",
+            "thiol C-S stretch",
+            "thiocarbonyl C=S stretch",
+            "thioamide C-N stretch",
+            "isocyanate N=C stretch",
+            "isocyanate C=O stretch",
+            "alkyne C#C stretch",
+        }
+        and float(top1_pct) >= 30.0
+        and primary == "angle bend"
+    ):
+        secondary = primary
+        return f"{top1_family} mixed with {secondary}"
+
+    if (
+        800.0 <= float(freq) <= 2400.0
         and top1_family in diagnostic_stretches
         and float(top1_pct) >= 30.0
         and primary == "angle bend"
@@ -710,6 +765,8 @@ def _stage3d_assignment_from_weighted_terms(
             "aryl amine N-H stretch",
             "secondary aryl amine N-H stretch",
             "aromatic C-H stretch",
+            "thiol S-H stretch",
+            "terminal alkyne C-H stretch",
         }
         xh = [(fam, val) for fam, val in ordered if fam in xh_families]
         if xh and totals.get("stretch", 0.0) >= 8.0:

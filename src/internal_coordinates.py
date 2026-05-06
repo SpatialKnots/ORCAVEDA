@@ -171,6 +171,35 @@ def build_internal_coordinates(
                 c_ar, o, c_other = group.atoms0[:3]
                 coords.append(InternalCoordinate(f"FG_aryl_ether_CO_stretch({atoms[c_ar]}{c_ar+1}-{atoms[o]}{o+1})", "fg_aryl_ether_CO_stretch", (c_ar, o), 7, distance_fn(c_ar, o), "functional_group_template"))
                 coords.append(InternalCoordinate(f"FG_aryl_ether_OC_stretch({atoms[o]}{o+1}-{atoms[c_other]}{c_other+1})", "fg_aryl_ether_OC_stretch", (o, c_other), 8, distance_fn(o, c_other), "functional_group_template"))
+            elif group.group == "nitro":
+                n, o1, o2, c = group.atoms0[:4]
+                coords.append(InternalCoordinate(f"FG_nitro_NO_stretch({atoms[n]}{n+1}-{atoms[o1]}{o1+1})", "fg_nitro_NO_stretch", (n, o1), 5, distance_fn(n, o1), "functional_group_template"))
+                coords.append(InternalCoordinate(f"FG_nitro_NO_stretch({atoms[n]}{n+1}-{atoms[o2]}{o2+1})", "fg_nitro_NO_stretch", (n, o2), 5, distance_fn(n, o2), "functional_group_template"))
+                coords.append(InternalCoordinate(f"FG_nitro_CN_stretch({atoms[c]}{c+1}-{atoms[n]}{n+1})", "fg_nitro_CN_stretch", (c, n), 9, distance_fn(c, n), "functional_group_template"))
+                coords.append(InternalCoordinate(f"FG_nitro_ONO_bend({atoms[o1]}{o1+1}-{atoms[n]}{n+1}-{atoms[o2]}{o2+1})", "fg_nitro_ONO_bend", (o1, n, o2), 15, angle_fn(o1, n, o2), "functional_group_template"))
+            elif group.group == "thiol":
+                s, h, c = group.atoms0[:3]
+                coords.append(InternalCoordinate(f"FG_thiol_SH_stretch({atoms[s]}{s+1}-{atoms[h]}{h+1})", "fg_thiol_SH_stretch", (s, h), 5, distance_fn(s, h), "functional_group_template"))
+                coords.append(InternalCoordinate(f"FG_thiol_CS_stretch({atoms[c]}{c+1}-{atoms[s]}{s+1})", "fg_thiol_CS_stretch", (c, s), 8, distance_fn(c, s), "functional_group_template"))
+                coords.append(InternalCoordinate(f"FG_thiol_CSH_bend({atoms[c]}{c+1}-{atoms[s]}{s+1}-{atoms[h]}{h+1})", "fg_thiol_CSH_bend", (c, s, h), 20, angle_fn(c, s, h), "functional_group_template"))
+            elif group.group in ("thiocarbonyl_C=S", "thioamide"):
+                c, s = group.atoms0[:2]
+                coords.append(InternalCoordinate(f"FG_thiocarbonyl_CS_stretch({atoms[c]}{c+1}={atoms[s]}{s+1})", "fg_thiocarbonyl_CS_stretch", (c, s), 4, distance_fn(c, s), "functional_group_template"))
+                if group.group == "thioamide" and len(group.atoms0) >= 3:
+                    n = group.atoms0[2]
+                    coords.append(InternalCoordinate(f"FG_thioamide_CN_stretch({atoms[c]}{c+1}-{atoms[n]}{n+1})", "fg_thioamide_CN_stretch", (c, n), 8, distance_fn(c, n), "functional_group_template"))
+                    coords.append(InternalCoordinate(f"FG_thioamide_NCS_bend({atoms[n]}{n+1}-{atoms[c]}{c+1}-{atoms[s]}{s+1})", "fg_thioamide_NCS_bend", (n, c, s), 15, angle_fn(n, c, s), "functional_group_template"))
+            elif group.group == "isocyanate_NCO":
+                n, c, o = group.atoms0[:3]
+                coords.append(InternalCoordinate(f"FG_isocyanate_NC_stretch({atoms[n]}{n+1}={atoms[c]}{c+1})", "fg_isocyanate_NC_stretch", (n, c), 5, distance_fn(n, c), "functional_group_template"))
+                coords.append(InternalCoordinate(f"FG_isocyanate_CO_stretch({atoms[c]}{c+1}={atoms[o]}{o+1})", "fg_isocyanate_CO_stretch", (c, o), 5, distance_fn(c, o), "functional_group_template"))
+                coords.append(InternalCoordinate(f"FG_isocyanate_NCO_bend({atoms[n]}{n+1}-{atoms[c]}{c+1}-{atoms[o]}{o+1})", "fg_isocyanate_NCO_bend", (n, c, o), 14, angle_fn(n, c, o), "functional_group_template"))
+            elif group.group in ("alkyne_C#C", "terminal_alkyne_C#C-H"):
+                c1, c2 = group.atoms0[:2]
+                coords.append(InternalCoordinate(f"FG_alkyne_CC_stretch({atoms[c1]}{c1+1}#{atoms[c2]}{c2+1})", "fg_alkyne_CC_stretch", (c1, c2), 5, distance_fn(c1, c2), "functional_group_template"))
+                if group.group == "terminal_alkyne_C#C-H" and len(group.atoms0) >= 3:
+                    h = group.atoms0[2]
+                    coords.append(InternalCoordinate(f"FG_terminal_alkyne_CH_stretch({atoms[c1]}{c1+1}-{atoms[h]}{h+1})", "fg_terminal_alkyne_CH_stretch", (c1, h), 5, distance_fn(c1, h), "functional_group_template"))
             elif group.group == "heteroaromatic_N":
                 n, c = group.atoms0[:2]
                 coords.append(InternalCoordinate(f"FG_heteroaromatic_CN_stretch({atoms[n]}{n+1}-{atoms[c]}{c+1})", "fg_heteroaromatic_CN_stretch", (n, c), 9, distance_fn(n, c), "functional_group_template"))

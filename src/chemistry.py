@@ -215,6 +215,8 @@ def detect_functional_groups(atoms, coords_A, bonds) -> List[FunctionalGroup]:
         if key not in {(existing.group, tuple(sorted(existing.atoms0))) for existing in groups}:
             groups.append(FunctionalGroup(group, tuple(atoms0), desc, conf, evidence))
 
+    isocyanate_carbons = set()
+
     for o, el in enumerate(atoms):
         if el != "O":
             continue
@@ -247,6 +249,11 @@ def detect_functional_groups(atoms, coords_A, bonds) -> List[FunctionalGroup]:
             c_ns = [n for n in adj[c] if atoms[n] == "C"]
             h_ns = [n for n in adj[c] if atoms[n] == "H"]
             o_single = [n for n in adj[c] if atoms[n] == "O" and n != o]
+            double_n = [n for n in n_ns if (bond_distance(bonds, c, n) or 9) < 1.30]
+            if double_n:
+                isocyanate_carbons.add(c)
+                add("isocyanate_NCO", (double_n[0], c, o), "short N-C-O chain assigned as isocyanate", "high", "short C=O and C=N distances")
+                continue
             add("carbonyl_C=O", (c, o), "short C-O bond assigned as carbonyl candidate", "high", f"C-O distance={bond_distance(bonds, c, o):.3f} A")
             if n_ns:
                 ring_flag = any(c in ring and any(n in ring for n in n_ns) for ring in rings)
@@ -265,8 +272,20 @@ def detect_functional_groups(atoms, coords_A, bonds) -> List[FunctionalGroup]:
     for c, el in enumerate(atoms):
         if el != "C":
             continue
+        for c2 in [n for n in adj[c] if atoms[n] == "C" and n > c]:
+            distance = bond_distance(bonds, c, c2)
+            if distance is not None and distance < 1.24:
+                add("alkyne_C#C", (c, c2), "short C-C bond assigned as alkyne", "high", f"C-C distance={distance:.3f} A")
+                h_ns = [n for n in adj[c] if atoms[n] == "H"]
+                h2_ns = [n for n in adj[c2] if atoms[n] == "H"]
+                if h_ns:
+                    add("terminal_alkyne_C#C-H", (c, c2, h_ns[0]), "terminal alkyne C#C-H context", "high", "C#C carbon bonded to H")
+                if h2_ns:
+                    add("terminal_alkyne_C#C-H", (c2, c, h2_ns[0]), "terminal alkyne C#C-H context", "high", "C#C carbon bonded to H")
         for n in adj[c]:
             if atoms[n] == "N":
+                if c in isocyanate_carbons:
+                    continue
                 distance = bond_distance(bonds, c, n)
                 if distance is not None and distance < 1.22:
                     add("nitrile_C≡N", (c, n), "short terminal C-N bond assigned as nitrile", "high", f"C-N distance={distance:.3f} A")
@@ -277,7 +296,13 @@ def detect_functional_groups(atoms, coords_A, bonds) -> List[FunctionalGroup]:
         ns = sorted(adj[n])
         h_ns = [x for x in ns if atoms[x] == "H"]
         c_ns = [x for x in ns if atoms[x] == "C"]
+        o_ns = [x for x in ns if atoms[x] == "O"]
+        if len(o_ns) >= 2 and c_ns:
+            add("nitro", (n, o_ns[0], o_ns[1], c_ns[0]), "N bonded to two oxygens and carbon", "high", "NO2 context in connectivity graph")
+            continue
         if any(c in carbonyl_C for c in c_ns):
+            continue
+        if any(c in isocyanate_carbons for c in c_ns):
             continue
         if h_ns and c_ns:
             if len(h_ns) == 2:
@@ -294,6 +319,16 @@ def detect_functional_groups(atoms, coords_A, bonds) -> List[FunctionalGroup]:
             continue
         o_short = [n for n in adj[s] if atoms[n] == "O" and (bond_distance(bonds, s, n) or 9) < 1.62]
         c_ns = [n for n in adj[s] if atoms[n] == "C"]
+        h_ns = [n for n in adj[s] if atoms[n] == "H"]
+        if h_ns and c_ns:
+            add("thiol", (s, h_ns[0], c_ns[0]), "S-H bonded to carbon-bearing S", "high", "S bonded to H and C")
+        for c in c_ns:
+            distance = bond_distance(bonds, s, c)
+            if distance is not None and distance < 1.72:
+                n_ns = [n for n in adj[c] if atoms[n] == "N"]
+                add("thiocarbonyl_C=S", (c, s), "short C-S bond assigned as thiocarbonyl", "high", f"C-S distance={distance:.3f} A")
+                if n_ns:
+                    add("thioamide", (c, s, n_ns[0]), "C=S carbon bonded to N", "high", "thiocarbonyl carbon bonded to N")
         if o_short and len(c_ns) >= 2:
             add("sulfoxide", (s, o_short[0], *c_ns[:2]), "S=O with two carbon substituents", "high", "short S-O and two S-C bonds")
 

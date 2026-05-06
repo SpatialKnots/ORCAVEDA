@@ -16,7 +16,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from orca_parser import read_orca_hess  # noqa: E402
-from reports import build_spectrum_payload, write_interactive_spectrum_viewer  # noqa: E402
+from reports import build_ped_driven_final_assignment_table, build_ped_stage3d_agreement_table, build_spectrum_payload, write_interactive_spectrum_viewer  # noqa: E402
 from reports import attach_nist_reference_set, classify_reference_suitability  # noqa: E402
 
 
@@ -57,13 +57,19 @@ def test_interactive_spectrum_viewer_artifacts():
 
     payload = build_spectrum_payload([hess], assignment_audit, wilson_ped_audit=wilson_ped)
     target_mode = next(mode for mode in payload["files"][0]["modes"] if mode["mode"] == positive_mode)
-    assert target_mode["assignment"] == "H-O-H bend"
+    assert target_mode["assignment"] == "O-H stretch"
+    assert target_mode["final_assignment"] == "O-H stretch"
+    assert target_mode["final_assignment_source"] == "Stage 3D assignment audit"
+    assert target_mode["final_assignment_policy"] == "stage3d_fallback_due_to_ped_disagreement"
     assert target_mode["stage3d_assignment"] == "O-H stretch"
-    assert target_mode["ped_source"] == "Wilson PED"
+    assert target_mode["ped_source"] == "Wilson GF-style PED audit"
     assert target_mode["ped_top_percent"] == 99.9
+    assert target_mode["ped_agreement_status"] == "disagrees"
+    assert "ped_stage3d_semantic_disagreement" in target_mode["ped_policy_warning"]
     fallback_mode = next(mode for mode in payload["files"][0]["modes"] if mode["mode"] != positive_mode)
     assert fallback_mode["ped_source"] == ""
     assert fallback_mode["stage3d_assignment"] == ""
+    assert fallback_mode["ped_agreement_status"] == "not_available"
 
     outdir = ROOT / "outputs" / "pytest_interactive_spectrum_viewer"
     if outdir.exists():
@@ -79,7 +85,12 @@ def test_interactive_spectrum_viewer_artifacts():
     html_text = html_path.read_text(encoding="utf-8")
     assert "Interactive IR Spectrum" in html_text
     assert "3D Molecule Viewer" in html_text
-    assert "PED Assignment" in html_text
+    assert "Mode Interpretation" in html_text
+    assert "Final Assignment" in html_text
+    assert "Final Assignment Policy" in html_text
+    assert "PED Diagnostic Interpretation" in html_text
+    assert "PED Agreement Status" in html_text
+    assert "PED Policy Warning" in html_text
     assert "Stage 3D Assignment" in html_text
     assert "PED Contributors" in html_text
     assert "moleculeViewer" in html_text
@@ -89,12 +100,91 @@ def test_interactive_spectrum_viewer_artifacts():
     json_text = json_path.read_text(encoding="utf-8")
     assert "frequency_cm1" in json_text
     assert hess.filename in json_text
-    assert "H-O-H bend" in json_text
+    assert "final_assignment" in json_text
+    assert "stage3d_fallback_due_to_ped_disagreement" in json_text
     assert "stage3d_assignment" in json_text
+    assert "ped_agreement_status" in json_text
+    assert "ped_policy_warning" in json_text
     assert "O-H stretch" in json_text
     assert "\"geometry\"" in json_text
     assert "\"atoms\"" in json_text
     assert "\"bonds\"" in json_text
+
+
+def test_ped_stage3d_agreement_table_policy_statuses():
+    assignment_audit = pd.DataFrame(
+        [
+            {
+                "Source": "[1]",
+                "Filename": "synthetic.hess",
+                "mode": 1,
+                "frequency_cm-1": 1700.0,
+                "functional_group_assignment": "C=O stretch",
+            },
+            {
+                "Source": "[1]",
+                "Filename": "synthetic.hess",
+                "mode": 2,
+                "frequency_cm-1": 1000.0,
+                "functional_group_assignment": "O-H stretch",
+            },
+            {
+                "Source": "[1]",
+                "Filename": "synthetic.hess",
+                "mode": 3,
+                "frequency_cm-1": 900.0,
+                "functional_group_assignment": "C-C-H bend",
+            },
+        ]
+    )
+    wilson_ped = pd.DataFrame(
+        [
+            {
+                "Filename": "synthetic.hess",
+                "mode": 1,
+                "frequency_cm-1": 1700.0,
+                "wilson_rank": 1,
+                "coordinate_family": "C=O stretch",
+                "internal_coordinate": "carbonyl_CO_stretch(C1=O2)",
+                "contribution_percent": 72.0,
+            },
+            {
+                "Filename": "synthetic.hess",
+                "mode": 2,
+                "frequency_cm-1": 1000.0,
+                "wilson_rank": 1,
+                "coordinate_family": "C-C bend",
+                "internal_coordinate": "ang(C1-C2-C3)",
+                "contribution_percent": 60.0,
+            },
+            {
+                "Filename": "synthetic.hess",
+                "mode": 3,
+                "frequency_cm-1": 900.0,
+                "wilson_rank": 1,
+                "coordinate_family": "C-C-H bend",
+                "internal_coordinate": "ang(C1-C2-H3)",
+                "contribution_percent": 18.0,
+            },
+        ]
+    )
+
+    agreement = build_ped_stage3d_agreement_table(assignment_audit, wilson_ped_audit=wilson_ped)
+    final = build_ped_driven_final_assignment_table(agreement)
+
+    by_mode = {int(row["mode"]): row for _, row in agreement.iterrows()}
+    assert by_mode[1]["ped_agreement_status"] == "confirms"
+    assert by_mode[2]["ped_agreement_status"] == "disagrees"
+    assert "ped_stage3d_semantic_disagreement" in by_mode[2]["ped_policy_warning"]
+    assert by_mode[3]["ped_agreement_status"] == "adds_context"
+    assert "diffuse_ped_contributions" in by_mode[3]["ped_policy_warning"]
+    final_by_mode = {int(row["mode"]): row for _, row in final.iterrows()}
+    assert final_by_mode[1]["final_assignment"] == "C=O stretch"
+    assert final_by_mode[1]["final_assignment_policy"] == "ped_confirms_stage3d"
+    assert final_by_mode[2]["final_assignment"] == "O-H stretch"
+    assert final_by_mode[2]["final_assignment_policy"] == "stage3d_fallback_due_to_ped_disagreement"
+    assert final_by_mode[3]["final_assignment"] == "C-C-H bend"
+    assert final_by_mode[3]["final_assignment_policy"] == "ped_adds_context"
 
 
 def test_interactive_spectrum_viewer_with_nist_reference():

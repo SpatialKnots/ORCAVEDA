@@ -123,15 +123,38 @@ def test_pipeline_writes_separate_ped_audit_for_water():
     assert "ped_audit" in tables
     assert "ped_v2_force_audit" in tables
     assert "wilson_ped_audit" in tables
+    assert "ped_stage3d_agreement" in tables
+    assert "ped_final_assignment" in tables
     ped_audit = tables["ped_audit"]
     ped_v2 = tables["ped_v2_force_audit"]
     wilson_ped = tables["wilson_ped_audit"]
+    agreement = tables["ped_stage3d_agreement"]
+    final_assignment = tables["ped_final_assignment"]
     assert not ped_audit.empty
     assert not ped_v2.empty
     assert not wilson_ped.empty
+    assert not agreement.empty
+    assert not final_assignment.empty
     assert next(outdir.glob("*__ped_audit.csv")).is_file()
     assert next(outdir.glob("*__ped_v2_force_audit.csv")).is_file()
     assert next(outdir.glob("*__wilson_ped_audit.csv")).is_file()
+    assert next(outdir.glob("*__ped_stage3d_agreement.csv")).is_file()
+    assert next(outdir.glob("*__ped_final_assignment.csv")).is_file()
+    assert {
+        "stage3d_assignment",
+        "ped_assignment",
+        "ped_source",
+        "ped_agreement_status",
+        "ped_policy_warning",
+    }.issubset(set(agreement.columns))
+    assert set(agreement["ped_agreement_status"]).issubset({"confirms", "adds_context", "disagrees", "diffuse", "not_available"})
+    assert {
+        "final_assignment",
+        "final_assignment_source",
+        "final_assignment_policy",
+        "final_assignment_warning",
+    }.issubset(set(final_assignment.columns))
+    assert final_assignment["final_assignment"].astype(str).str.len().gt(0).all()
 
     positive = ped_audit[ped_audit["frequency_cm-1"] > 0.0].copy()
     assert positive["coordinate_family"].astype(str).str.contains("O-H stretch", regex=False).any()

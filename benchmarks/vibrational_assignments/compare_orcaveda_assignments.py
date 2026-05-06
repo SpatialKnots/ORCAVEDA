@@ -51,6 +51,12 @@ def classes_from_text(*parts: object) -> set[str]:
     classes: set[str] = set()
     if re.search(r"\bo[- ]?h\b", text) or "phenolic" in text:
         classes.add("oh")
+    if "carboxylic acid" in text or "carboxylic" in text or "cooh" in text:
+        classes.add("carboxylic_acid")
+        classes.add("acid_context")
+    if "carboxylic o-h" in text or "carboxylic oh" in text or "o-h torsion" in text or "o-h bend" in text:
+        classes.add("carboxylic_oh_context")
+        classes.add("acid_context")
     if re.search(r"\bn[- ]?h2?\b", text) or "amido" in text or "amine" in text:
         classes.add("nh")
     if re.search(r"\bc[- ]?c[- ]?h\b|\bc[- ]?h\b|\bch3\b", text) or "methyl" in text:
@@ -59,8 +65,14 @@ def classes_from_text(*parts: object) -> set[str]:
         classes.add("methyl")
     if "c=o" in text or "carbonyl" in text or "ketone" in text:
         classes.add("carbonyl")
+    if "carboxylic c=o" in text or "carboxylic_co" in text:
+        classes.add("carboxyl_carbonyl")
+        classes.add("acid_context")
     if re.search(r"\bc[- ]?o\b", text) or "phenolic c-o" in text or "carboxylic" in text:
         classes.add("co")
+    if "c-c-o bend" in text or "o-c-o bend" in text or "c-o-o" in text or "carboxyl" in text:
+        classes.add("carboxyl_deformation")
+        classes.add("acid_context")
     if re.search(r"\bc[- ]?n\b", text) or "pyridine" in text or "heteroaromatic" in text:
         classes.add("cn")
     if re.search(r"\bc[- ]?c\b", text):
@@ -94,6 +106,10 @@ def semantic_status(expected: set[str], actual: set[str]) -> tuple[str, str]:
         return "FAIL", "motion_family_mismatch"
     if "carbonyl" in expected and "carbonyl" not in actual:
         return "FAIL", "missing_carbonyl"
+    acid_oh_expected = "oh" in expected and "carboxylic_acid" in expected
+    if acid_oh_expected and "oh" not in actual and "acid_context" in actual:
+        if "mixed" in expected or "carbonyl" in expected or "aromatic_ring" in expected:
+            return "WARN", "acid_context_without_explicit_oh"
     if "oh" in expected and "oh" not in actual:
         return "FAIL", "missing_oh"
     if "nh" in expected and "nh" not in actual:
@@ -273,6 +289,86 @@ def ped_mode_summaries(ped_audit: pd.DataFrame, *, top_n: int = 4) -> pd.DataFra
     return pd.DataFrame(rows)
 
 
+def audit_from_ped_final_assignment(final_assignment: pd.DataFrame) -> pd.DataFrame:
+    """Adapt ped_final_assignment.csv to the legacy comparator audit schema."""
+    final = final_assignment.copy()
+    if "frequency_cm-1" not in final.columns and "frequency_cm1" in final.columns:
+        final["frequency_cm-1"] = final["frequency_cm1"]
+    adapted = pd.DataFrame(
+        {
+            "Source": final.get("Source", ""),
+            "Filename": final.get("Filename", ""),
+            "mode": final.get("mode", ""),
+            "frequency_cm-1": final.get("frequency_cm-1", ""),
+            "functional_group_assignment": final.get("final_assignment", ""),
+            "assignment_confidence": final.get("final_assignment_policy", ""),
+            "top_internal_coordinates": final.get("ped_top_contributors", ""),
+            "top1_coord": final.get("ped_top_family", ""),
+            "final_assignment_source": final.get("final_assignment_source", ""),
+            "final_assignment_policy": final.get("final_assignment_policy", ""),
+            "final_assignment_warning": final.get("final_assignment_warning", ""),
+            "stage3d_assignment": final.get("stage3d_assignment", ""),
+            "ped_assignment": final.get("ped_assignment", ""),
+            "ped_source": final.get("ped_source", ""),
+            "ped_agreement_status": final.get("ped_agreement_status", ""),
+            "ped_policy_warning": final.get("ped_policy_warning", ""),
+            "ped_top_family": final.get("ped_top_family", ""),
+            "ped_top_percent": final.get("ped_top_percent", 0.0),
+            "ped_top_contributors": final.get("ped_top_contributors", ""),
+        }
+    )
+    return adapted
+
+
+def ped_coverage_audit(final_assignment: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    final = final_assignment.copy()
+    if final.empty:
+        columns = [
+            "molecule",
+            "Filename",
+            "modes",
+            "ped_final",
+            "stage3d_fallback",
+            "disagrees",
+            "diffuse",
+            "not_available",
+            "ped_final_fraction",
+            "stage3d_fallback_fraction",
+        ]
+        return pd.DataFrame(columns=columns), pd.DataFrame()
+
+    final["mode"] = pd.to_numeric(final.get("mode", 0), errors="coerce")
+    final["frequency_cm-1"] = pd.to_numeric(final.get("frequency_cm-1", 0.0), errors="coerce")
+    final = final[final["frequency_cm-1"] > 0.0].copy()
+    final["final_assignment_policy"] = final.get("final_assignment_policy", "").fillna("").astype(str)
+    final["ped_agreement_status"] = final.get("ped_agreement_status", "").fillna("").astype(str)
+    final["Filename"] = final.get("Filename", "").fillna("").astype(str)
+    final["molecule"] = final["Filename"].str.replace(r"_freq\.hess$|\.hess$", "", regex=True)
+
+    final["is_ped_final"] = final["final_assignment_policy"].str.startswith("ped_")
+    final["is_stage3d_fallback"] = final["final_assignment_policy"].str.startswith("stage3d_fallback")
+    rows: list[dict[str, object]] = []
+    for (molecule, filename), group in final.groupby(["molecule", "Filename"], dropna=False):
+        modes = int(len(group))
+        ped_final = int(group["is_ped_final"].sum())
+        stage3d_fallback = int(group["is_stage3d_fallback"].sum())
+        rows.append(
+            {
+                "molecule": molecule,
+                "Filename": filename,
+                "modes": modes,
+                "ped_final": ped_final,
+                "stage3d_fallback": stage3d_fallback,
+                "disagrees": int((group["ped_agreement_status"] == "disagrees").sum()),
+                "diffuse": int((group["ped_agreement_status"] == "diffuse").sum()),
+                "not_available": int((group["ped_agreement_status"] == "not_available").sum()),
+                "ped_final_fraction": ped_final / modes if modes else 0.0,
+                "stage3d_fallback_fraction": stage3d_fallback / modes if modes else 0.0,
+            }
+        )
+    return pd.DataFrame(rows), final
+
+
 def ped_diagnostic(
     expected: set[str],
     stage3d_classes: set[str],
@@ -372,9 +468,13 @@ def compare(
     scale_factor: float,
     primary_frequency: str,
     ped_audit_csv: Path | None = None,
+    ped_final_assignment_csv: Path | None = None,
 ) -> pd.DataFrame:
     benchmark = pd.read_csv(benchmark_csv)
-    audit = pd.read_csv(audit_csv)
+    if ped_final_assignment_csv is not None:
+        audit = audit_from_ped_final_assignment(pd.read_csv(ped_final_assignment_csv))
+    else:
+        audit = pd.read_csv(audit_csv)
     audit = audit[pd.to_numeric(audit["frequency_cm-1"], errors="coerce") > 0.0].copy()
     audit["frequency_cm-1"] = pd.to_numeric(audit["frequency_cm-1"], errors="coerce")
     audit["raw_frequency_cm-1"] = audit["frequency_cm-1"]
@@ -470,6 +570,13 @@ def compare(
             "benchmark_functional_group": bench.get("functional_group", ""),
             "orcaveda_assignment": assignment,
             "orcaveda_confidence": chosen.get("assignment_confidence", ""),
+            "final_assignment_source": chosen.get("final_assignment_source", ""),
+            "final_assignment_policy": chosen.get("final_assignment_policy", ""),
+            "final_assignment_warning": chosen.get("final_assignment_warning", ""),
+            "stage3d_assignment": chosen.get("stage3d_assignment", ""),
+            "ped_assignment": chosen.get("ped_assignment", ""),
+            "ped_agreement_status": chosen.get("ped_agreement_status", ""),
+            "ped_policy_warning": chosen.get("ped_policy_warning", ""),
             "expected_classes": "|".join(sorted(expected)),
             "actual_classes": "|".join(sorted(actual)),
             "ped_top_contributors": chosen.get("ped_top_contributors", ""),
@@ -537,6 +644,9 @@ def main() -> int:
     parser.add_argument("--scale-factor", type=float, default=1.0, help="Constant scale factor applied to ORCAVEDA frequencies for scaled diagnostics")
     parser.add_argument("--primary-frequency", choices=("raw", "scaled"), default="raw", help="Frequency axis used for legacy status columns")
     parser.add_argument("--ped-audit", type=Path, default=None, help="Optional ORCAVEDA ped_audit CSV to add PED-aware diagnostics")
+    parser.add_argument("--ped-final-assignment", type=Path, default=None, help="Optional ORCAVEDA ped_final_assignment CSV; when set, benchmark labels are compared against PED-driven final labels")
+    parser.add_argument("--coverage-out", type=Path, default=None, help="Optional CSV path for PED final-label coverage by molecule")
+    parser.add_argument("--coverage-detail-out", type=Path, default=None, help="Optional CSV path for per-mode PED final-label coverage detail")
     args = parser.parse_args()
 
     windows = [float(part.strip()) for part in str(args.windows_cm1).split(",") if part.strip()]
@@ -549,7 +659,15 @@ def main() -> int:
         scale_factor=args.scale_factor,
         primary_frequency=args.primary_frequency,
         ped_audit_csv=args.ped_audit,
+        ped_final_assignment_csv=args.ped_final_assignment,
     )
+    if args.ped_final_assignment is not None and args.coverage_out is not None:
+        coverage, detail = ped_coverage_audit(pd.read_csv(args.ped_final_assignment))
+        args.coverage_out.parent.mkdir(parents=True, exist_ok=True)
+        coverage.to_csv(args.coverage_out, index=False)
+        if args.coverage_detail_out is not None:
+            args.coverage_detail_out.parent.mkdir(parents=True, exist_ok=True)
+            detail.to_csv(args.coverage_detail_out, index=False)
     print(f"wrote {args.out}")
     print(result.groupby("status").size().to_string())
     print()

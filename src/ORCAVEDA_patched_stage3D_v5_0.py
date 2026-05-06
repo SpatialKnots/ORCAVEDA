@@ -83,6 +83,8 @@ from orca_parser import (
     split_orca_hess_sections as parser_split_orca_hess_sections,
 )
 from reports import (
+    build_ped_driven_final_assignment_table as reports_build_ped_driven_final_assignment_table,
+    build_ped_stage3d_agreement_table as reports_build_ped_stage3d_agreement_table,
     build_spectrum_payload as reports_build_spectrum_payload,
     normalize_sheet_name as reports_normalize_sheet_name,
     output_prefix_for_hess_paths as reports_output_prefix_for_hess_paths,
@@ -1895,6 +1897,13 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
         "redundant_basis": pd.DataFrame(basis_rows),
         "independent_basis": pd.DataFrame(selected_rows),
     }
+    tables["ped_stage3d_agreement"] = reports_build_ped_stage3d_agreement_table(
+        tables["assignment_audit"],
+        wilson_ped_audit=tables["wilson_ped_audit"],
+        ped_v2_force_audit=tables["ped_v2_force_audit"],
+        ped_audit=tables["ped_audit"],
+    )
+    tables["ped_final_assignment"] = reports_build_ped_driven_final_assignment_table(tables["ped_stage3d_agreement"])
 
     for name, df in tables.items():
         df.to_csv(outdir / f"{output_prefix}__{name}.csv", index=False)
@@ -1907,6 +1916,8 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             "ped_audit": "PED v1 normalized B-matrix projection table generated separately from Stage 3D assignment audit",
             "ped_v2_force_audit": "PED v2 force-aware B-matrix/Hessian projection table generated when ORCA $hessian is available; not full Wilson GF PED",
             "wilson_ped_audit": "Wilson GF-style PED table generated when ORCA $hessian is available; includes G/F rank and condition diagnostics",
+            "ped_stage3d_agreement": "PED-first diagnostic policy table comparing Stage 3D assignment and strongest available PED interpretation; does not rewrite assignment_audit labels",
+            "ped_final_assignment": "PED-driven final assignment table; uses PED when policy confirms/adds context and Stage 3D fallback when PED is unavailable, diffuse, or contradictory",
             "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
         }, indent=2),
         encoding="utf-8"
@@ -2470,6 +2481,8 @@ def analyze_orca_ped_like(paths: Sequence[str | Path], outdir: str | Path, out_p
         "ped_audit": "prefixed ped_audit table generated; PED v1 is normalized B-matrix projection and not force-constant Wilson GF PED",
         "ped_v2_force_audit": "prefixed ped_v2_force_audit table generated when ORCA $hessian is available; force-aware diagnostic, not full Wilson GF PED",
         "wilson_ped_audit": "prefixed wilson_ped_audit table generated when ORCA $hessian is available; includes G = B M^-1 B^T and reconstructed internal F diagnostics",
+        "ped_stage3d_agreement": "prefixed ped_stage3d_agreement table generated; compares Stage 3D labels to strongest available PED diagnostic without rewriting assignment_audit",
+        "ped_final_assignment": "prefixed ped_final_assignment table generated; PED-driven final labels with Stage 3D fallback policy",
         "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
     }
     (outdir / f"{output_prefix}__integration_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

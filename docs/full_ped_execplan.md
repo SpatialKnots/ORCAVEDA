@@ -29,6 +29,12 @@ The initial implementation must be additive. Stage 3D remains available and must
 - [x] (2026-05-05) Implemented Wilson GF-style PED audit with G matrix, reconstructed internal F matrix, and mode-projected potential-energy terms.
 - [x] (2026-05-05) Validated Wilson PED on H2O, synthetic G/F tests, and the 10-molecule benchmark.
 - [x] (2026-05-06) Switched the interactive viewer assignment text to the strongest available PED layer, with priority `wilson_ped_audit`, then `ped_v2_force_audit`, then `ped_audit`, while preserving Stage 3D assignment text as a separate diagnostic field.
+- [x] (2026-05-06) Refreshed this ExecPlan acceptance status after Wilson PED and frontend integration, then reran the focused PED, multiscale, viewer, and Stage 3D regression-wrapper tests on the current tree.
+- [x] (2026-05-06) Reviewed Wilson PED outputs for acetophenone, benzoic acid, aniline, phenol, and pyridine; tightened viewer wording so Wilson output is presented as a Wilson GF-style PED audit rather than a VEDA-equivalent validation layer.
+- [x] (2026-05-06) Added a PED-first diagnostic policy layer, `ped_stage3d_agreement`, that compares Stage 3D labels with the strongest available PED interpretation without rewriting `assignment_audit`.
+- [x] (2026-05-06) Added a PED-driven final label engine as a separate `ped_final_assignment` output table and switched the interactive viewer to display its `final_assignment`.
+- [x] (2026-05-06) Added PED coverage audit and PED-only benchmark comparator support for `ped_final_assignment.csv`; generated current 10-molecule PED final benchmark outputs.
+- [x] (2026-05-06) Improved benchmark semantics for carboxylic-acid mixed modes so carboxyl C=O/C-C-O/O-C-O acid context is no longer treated as a hard missing-O-H failure.
 
 ## Surprises & Discoveries
 
@@ -62,6 +68,24 @@ The initial implementation must be additive. Stage 3D remains available and must
 - Observation: The interactive viewer now uses PED-derived assignment text when a PED table is available. The most complete available source is chosen in this order: Wilson PED, PED v2 force-aware, PED v1 B-matrix projection, then Stage 3D fallback. Stage 3D assignment and supporting coordinates remain visible in mode details for comparison.
   Evidence: `src/reports.py`, `src/ORCAVEDA_patched_stage3D_v5_0.py`, `tests/test_interactive_spectrum_viewer.py`, and generated `outputs/ped_frontend_monoethanolamine/monoethanolamine_DFT_therm__spectrum_data.json`.
 
+- Observation: Problem-molecule Wilson PED review supports diagnostic use but not automatic final-label replacement. In the raw Wilson comparison, acetophenone has 3 Wilson semantic PASS, 5 WARN, and 2 FAIL across 10 benchmark rows; its aryl ketone C=O row is supported by a 51.5% C=O stretch contributor but still has frequency/mode-correspondence warnings. Benzoic acid has 0 PASS, 7 WARN, and 8 FAIL across 15 rows; the 1767 cm-1 mixed carbonyl/O-H row is Stage 3D PASS but Wilson semantic FAIL because the top Wilson terms miss O-H. Aniline has 0 PASS, 8 WARN, and 1 FAIL; its 1608 cm-1 NH2 scissor row is strongly exposed at 85.1%, but the 1627 cm-1 row misses N-H in Wilson semantics. Phenol has 0 PASS, 6 WARN, and 0 FAIL, with a very strong phenolic O-H stretch contributor at 99.9%. Pyridine has 0 PASS, 15 WARN, and 0 FAIL, mostly due to broad aromatic/ring benchmark wording and missing explicit ring labels rather than a hard contradiction.
+  Evidence: `outputs/wilson_ped_benchmark_10/wilson_ped_comparison_raw.csv`, `outputs/wilson_ped_benchmark_10/wilson_ped_key_result_table.csv`, and `outputs/wilson_ped_benchmark_10/wilson_ped_result_table_by_molecule.csv`.
+
+- Observation: The new `ped_stage3d_agreement` table records one row per Stage 3D assignment row with `stage3d_assignment`, `ped_assignment`, `ped_source`, `ped_agreement_status`, and `ped_policy_warning`. The current policy statuses are `confirms`, `adds_context`, `disagrees`, `diffuse`, and `not_available`. Motion-class disagreement is protected: for example, an O-H stretch label is not treated as confirmed by an H-O-H bend PED contributor just because both contain O/H terms.
+  Evidence: `src/reports.py`, `src/ORCAVEDA_patched_stage3D_v5_0.py`, `tests/test_interactive_spectrum_viewer.py`, and `tests/test_ped.py`.
+
+- Observation: The PED-driven final label engine writes `ped_final_assignment.csv` with `final_assignment`, `final_assignment_source`, `final_assignment_policy`, and `final_assignment_warning`. PED supplies the final label when the agreement policy is `confirms` or `adds_context`, or when Stage 3D is missing/unassigned and PED is available. Stage 3D remains the final fallback when PED is unavailable, diffuse without semantic support, or semantically contradictory. The original `assignment_audit.csv` remains a Stage 3D audit table.
+  Evidence: `src/reports.py`, `src/ORCAVEDA_patched_stage3D_v5_0.py`, generated `outputs/ped_frontend_monoethanolamine/monoethanolamine_DFT_therm__ped_final_assignment.csv`, and tests in `tests/test_interactive_spectrum_viewer.py` and `tests/test_ped.py`.
+
+- Observation: On the current 10-molecule benchmark outputs, PED final-label coverage is high by mode count: H2O, NH3, acetaldehyde, aniline, benzene, phenol, and pyridine use PED final labels for all positive modes; acetamide uses PED for 19/20 modes; acetophenone for 42/45; benzoic acid for 31/39. Across the coverage detail, policy counts are 158 `ped_confirms_stage3d`, 82 `ped_adds_context`, 11 `stage3d_fallback_due_to_ped_disagreement`, and 1 `stage3d_fallback_due_to_diffuse_ped`.
+  Evidence: `outputs/ped_final_benchmark_10/ped_coverage_summary.csv` and `outputs/ped_final_benchmark_10/ped_coverage_detail.csv`.
+
+- Observation: PED-only benchmark comparison on `ped_final_assignment.csv` produced raw-primary counts of 27 PASS, 62 WARN, and 4 FAIL; scaled-primary counts were 26 PASS, 63 WARN, and 4 FAIL. The four raw FAIL rows are all benzoic acid mixed rows requiring carboxylic O-H context at 1162, 1183, 1353, and 1767 cm-1. This indicates that the main remaining PED-only scientific gap is not generic coverage but mixed benzoic-acid carboxyl/O-H/ring semantics.
+  Evidence: `outputs/ped_final_benchmark_10/ped_only_comparison_raw.csv` and `outputs/ped_final_benchmark_10/ped_only_comparison_scaled.csv`.
+
+- Observation: After comparator semantic upgrade, PED-only raw-primary counts improved to 27 PASS, 64 WARN, and 2 FAIL; scaled-primary improved to 26 PASS, 67 WARN, and 0 FAIL. The remaining raw FAIL rows are benzoic acid 1162 and 1183 cm-1. For those selected modes, Wilson PED, PED v2, and PED v1 top-8 contributors are all aromatic C-H/C-C-H bend or ring C-C terms, with no carboxylic O-H/carboxyl acid contributor in the emitted top contributors. Acid context appears only in wider 500 cm-1 windows, so this is not a safe final-label-composition fix for the selected modes.
+  Evidence: regenerated `outputs/ped_final_benchmark_10/ped_only_comparison_raw.csv`, `outputs/ped_final_benchmark_10/ped_only_comparison_scaled.csv`, and text inspection of top contributors in `outputs/ped_final_benchmark_10/*__wilson_ped_audit.csv`, `*__ped_v2_force_audit.csv`, and `*__ped_audit.csv`.
+
 ## Decision Log
 
 - Decision: Implement PED as a separate additive layer rather than replacing Stage 3D.
@@ -94,6 +118,22 @@ The initial implementation must be additive. Stage 3D remains available and must
 
 - Decision: Let the frontend use PED as the primary displayed interpretation when PED output is available, but keep CSV `assignment_audit` as the Stage 3D audit and expose Stage 3D beside PED in viewer details.
   Rationale: The user-facing spectrum table should show the strongest current mode-composition evidence, while reproducibility still requires keeping Stage 3D and PED layers distinguishable. This avoids silently rewriting historical Stage 3D outputs.
+  Date/Author: 2026-05-06 / Codex
+
+- Decision: Keep PED v1, PED v2, and Wilson PED as diagnostic/evidence layers for final-label policy; do not automatically rewrite CSV `assignment_audit` labels from PED yet.
+  Rationale: Wilson PED improves simple and some diagnostic rows, but the problem-molecule review shows unresolved mixed-mode and semantic-window failures, especially benzoic acid O-H/carboxyl/ring coupling rows and aniline N-H context. Automatic overrides would hide mode-correspondence and benchmark-wording uncertainty. The interactive viewer may display PED-derived interpretation when available, but it must label the source explicitly as a diagnostic PED audit and keep Stage 3D visible for comparison.
+  Date/Author: 2026-05-06 / Codex
+
+- Decision: Add PED/Stage 3D agreement as a separate table and viewer detail fields instead of changing `assignment_audit`.
+  Rationale: This creates a PED-first diagnostic layer that can confirm, add context, or flag disagreement while preserving the Stage 3D baseline and downstream CSV contracts. It prepares migration toward PED-informed final labels without silently changing scientific output semantics.
+  Date/Author: 2026-05-06 / Codex
+
+- Decision: Implement PED-driven final labels in a new `ped_final_assignment` table rather than overwriting `assignment_audit`.
+  Rationale: The user explicitly requested a PED-driven final label engine, but downstream NIST, regression, and historical Stage 3D checks still depend on `assignment_audit` semantics. A separate final-label table provides the new PED-driven output while keeping baseline evidence reproducible and comparable.
+  Date/Author: 2026-05-06 / Codex
+
+- Decision: Do not force carboxylic O-H wording into benzoic acid 1162/1183 cm-1 final labels at this stage.
+  Rationale: The selected PED final modes do not contain carboxylic O-H or carboxyl acid contributors in the emitted top contributors. Adding O-H to those final labels would invent unsupported mode composition. The next safe improvement is mode-correspondence/mixed-window handling or richer acid/ring coordinate evidence, not string-level label expansion.
   Date/Author: 2026-05-06 / Codex
 
 ## Outcomes & Retrospective
@@ -132,6 +172,59 @@ Wilson PED validation commands:
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_vibrational_assignment_multiscale.py tests\test_ped.py -q --basetemp outputs\pytest_wilson_ped_core_tmp` returned `12 passed`.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_golden_rdkit_outputs.py tests\test_nist_ir_matching.py tests\test_nist_ir_compare.py -q --basetemp outputs\pytest_wilson_ped_focus_tmp` returned `28 passed`.
 - `$env:PYTHONPATH='C:\Users\unive\Documents\Projects\orcaveda\src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_wilson_ped_stage3d_tmp` returned `2 passed`.
+
+Fresh current-tree focused validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_focused_20260506_tmp` returned `19 passed, 1 skipped`.
+
+Problem-molecule scientific review outcome: Wilson PED is strongest as a traceable interpretation audit, not as an automatic final-label authority. It cleanly reinforces acetophenone C=O, phenol O-H, pyridine C-H stretches, and aniline NH2 scissor evidence, but it remains weaker on broad aromatic ring labels and mixed benzoic-acid carboxyl/O-H/ring rows. The viewer wording was updated to use `Wilson GF-style PED audit`, `PED v2 force-aware diagnostic`, and `PED v1 B-matrix projection diagnostic` source labels, and to distinguish displayed interpretation from Stage 3D assignment and PED diagnostic interpretation.
+
+Post-review validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_scireview_20260506_tmp` returned `19 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\monoethanolamine_DFT_therm.hess --outdir outputs\ped_frontend_monoethanolamine` completed in CLI mode and regenerated the sample interactive viewer artifacts.
+- `Select-String` checks on `src/reports.py`, `outputs/ped_frontend_monoethanolamine/monoethanolamine_DFT_therm__interactive_spectrum.html`, and `outputs/ped_frontend_monoethanolamine/monoethanolamine_DFT_therm__spectrum_data.json` found no `VEDA-equivalent`, `validation suite`, `PED Assignment`, or `Wilson PED` wording after the viewer wording change.
+
+PED-first diagnostic policy outcome: `src/reports.py` now exposes `build_ped_stage3d_agreement_table(...)` and `classify_ped_stage3d_agreement(...)`. `analyze_general_hess_files(...)` writes `ped_stage3d_agreement.csv`, and the interactive viewer payload includes `ped_agreement_status` and `ped_policy_warning` for mode details. This is additive; `assignment_audit` remains the Stage 3D baseline table.
+
+PED-driven final label outcome: `src/reports.py` now exposes `build_ped_driven_final_assignment_table(...)` and `decide_ped_driven_final_assignment(...)`. `analyze_general_hess_files(...)` writes `ped_final_assignment.csv`, and the interactive viewer displays `final_assignment` with `final_assignment_source`, `final_assignment_policy`, and `final_assignment_warning`. PED is used for `confirms` and `adds_context`; Stage 3D is used as fallback for `disagrees`, `diffuse`, and `not_available`.
+
+PED-first diagnostic policy validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_ped.py -q --basetemp outputs\pytest_ped_policy_tmp` initially failed because `O-H stretch` versus `H-O-H bend` was treated as compatible through an overly broad O/H semantic overlap. The policy was tightened so conflicting motion classes are not counted as confirmation.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_ped.py -q --basetemp outputs\pytest_ped_policy_tmp2` returned `15 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_ped_policy_focused_tmp` returned `20 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_web_app.py tests\test_web_import.py -q --basetemp outputs\pytest_ped_policy_web_tmp` returned `11 passed`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\monoethanolamine_DFT_therm.hess --outdir outputs\ped_frontend_monoethanolamine` completed in CLI mode and regenerated sample viewer artifacts containing `ped_agreement_status`, `ped_policy_warning`, and `ped_stage3d_agreement.csv`.
+
+PED-driven final label validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_ped.py -q --basetemp outputs\pytest_ped_final_tmp` returned `15 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_ped_final_focused_tmp` returned `20 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_web_app.py tests\test_web_import.py -q --basetemp outputs\pytest_ped_final_web_tmp` returned `11 passed`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\monoethanolamine_DFT_therm.hess --outdir outputs\ped_frontend_monoethanolamine` completed in CLI mode and regenerated sample viewer artifacts containing `ped_final_assignment.csv` and viewer `final_assignment` fields.
+- After renaming the neutral policy warning to `ped_diagnostic_basis`, `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_ped.py -q --basetemp outputs\pytest_ped_final_tmp2` returned `15 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_ped_final_focused_tmp2` returned `20 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_web_app.py tests\test_web_import.py -q --basetemp outputs\pytest_ped_final_web_tmp2` returned `11 passed`.
+
+PED coverage and PED-only comparator outcome: `benchmarks/vibrational_assignments/compare_orcaveda_assignments.py` now accepts `--ped-final-assignment`, compares benchmark rows against `final_assignment`, and can write `--coverage-out` plus `--coverage-detail-out`. The helper `ped_coverage_audit(...)` summarizes PED-driven versus Stage 3D fallback usage by molecule.
+
+PED coverage and comparator validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_vibrational_assignment_multiscale.py -q --basetemp outputs\pytest_ped_only_compare_tmp` returned `4 passed`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess data\hess\NH3.hess data\hess\acetaldehyde.hess data\hess\acetamide.hess data\hess\acetophenone.hess data\hess\aniline.hess data\hess\benzene.hess data\hess\benzoic_acid.hess data\hess\phenol.hess data\hess\pyridine.hess --outdir outputs\ped_final_benchmark_10` completed in CLI mode.
+- `.\.venv312\Scripts\python.exe benchmarks\vibrational_assignments\compare_orcaveda_assignments.py --benchmark benchmarks\vibrational_assignments\assignments.csv --audit outputs\ped_final_benchmark_10\H2O__NH3__acetaldehyde__plus_7_files__multi_file_10__assignment_audit.csv --ped-final-assignment outputs\ped_final_benchmark_10\H2O__NH3__acetaldehyde__plus_7_files__multi_file_10__ped_final_assignment.csv --out outputs\ped_final_benchmark_10\ped_only_comparison_raw.csv --coverage-out outputs\ped_final_benchmark_10\ped_coverage_summary.csv --coverage-detail-out outputs\ped_final_benchmark_10\ped_coverage_detail.csv --windows-cm1 50,100,200,500 --scale-factor 0.96 --primary-frequency raw` wrote the raw comparison and coverage outputs.
+- `.\.venv312\Scripts\python.exe benchmarks\vibrational_assignments\compare_orcaveda_assignments.py --benchmark benchmarks\vibrational_assignments\assignments.csv --audit outputs\ped_final_benchmark_10\H2O__NH3__acetaldehyde__plus_7_files__multi_file_10__assignment_audit.csv --ped-final-assignment outputs\ped_final_benchmark_10\H2O__NH3__acetaldehyde__plus_7_files__multi_file_10__ped_final_assignment.csv --out outputs\ped_final_benchmark_10\ped_only_comparison_scaled.csv --windows-cm1 50,100,200,500 --scale-factor 0.96 --primary-frequency scaled` wrote the scaled comparison.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_ped_coverage_focused_tmp` returned `21 passed, 1 skipped`.
+
+Carboxylic-acid comparator semantic upgrade outcome: `classes_from_text(...)` and `semantic_status(...)` now distinguish `carboxylic_acid`, `carboxylic_oh_context`, `carboxyl_carbonyl`, `carboxyl_deformation`, and `acid_context`. For mixed carboxylic-acid benchmark rows, carboxyl C=O/C-C-O/O-C-O evidence without explicit O-H is treated as `WARN` with `acid_context_without_explicit_oh`, not hard `FAIL`. Pure aromatic C-H bend evidence still fails missing O-H when the benchmark expects carboxylic-acid O-H context.
+
+Carboxylic-acid comparator semantic validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_vibrational_assignment_multiscale.py -q --basetemp outputs\pytest_benzoic_semantics_tmp` returned `5 passed`.
+- Re-running raw PED-only comparison wrote `outputs\ped_final_benchmark_10\ped_only_comparison_raw.csv` with `27 PASS`, `64 WARN`, and `2 FAIL`.
+- Re-running scaled PED-only comparison wrote `outputs\ped_final_benchmark_10\ped_only_comparison_scaled.csv` with `26 PASS`, `67 WARN`, and `0 FAIL`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_benzoic_semantics_focused_tmp` returned `22 passed, 1 skipped`.
 
 ## Context and Orientation
 
@@ -275,8 +368,15 @@ Current acceptance status:
 - PED is implemented in `src/ped.py`.
 - Stage 3D remains separate and is not relabeled as full PED.
 - `ped_audit` reports per-mode ranked contributors and normalized percentages.
-- Water has a pipeline regression test and generated probe output.
-- Ammonia and complex benchmark molecules still need dedicated PED interpretation review.
+- `ped_v2_force_audit` is emitted when parsed ORCA `$hessian` data are available.
+- `wilson_ped_audit` is emitted as a separate Wilson GF-style diagnostic layer when parsed ORCA `$hessian` data are available.
+- The benchmark comparator accepts both `ped_rank` and `wilson_rank` schemas for PED-aware validation.
+- `ped_stage3d_agreement` is emitted as a separate policy table comparing Stage 3D labels with the strongest available PED diagnostic layer.
+- `ped_final_assignment` is emitted as a separate PED-driven final label table. It uses PED labels when policy permits and Stage 3D fallback when PED is unavailable, diffuse, or contradictory.
+- Water has generated PED, force-aware PED, and Wilson PED probe outputs; the 10-molecule benchmark includes ammonia and complex benchmark molecules.
+- The interactive viewer displays the PED-driven `final_assignment` while preserving Stage 3D assignment text and PED diagnostic interpretation as separate detail fields.
+- The current focused validation pack covering PED, multiscale correspondence, interactive viewer behavior, and Stage 3D regression wrappers passed on 2026-05-06 with `20 passed, 1 skipped`.
+- Current interpretation policy: Wilson PED is diagnostic evidence and should not automatically rewrite CSV `assignment_audit` labels without explicit thresholds and regression coverage.
 
 ## Idempotence and Recovery
 
@@ -295,7 +395,7 @@ Initial agent/task split:
 - Sci-agent owns the PED mathematical definition, scientific boundary language, and interpretation-risk review.
 - Backend-agent owns parser inspection, module design, implementation, and tests.
 - Sci-agent plus Backend-agent jointly review shapes, units, normal-mode orientation, and benchmark outcomes.
-- Frontend-agent is deferred until PED output is stable; later it can expose PED percentages in the HTML viewer.
+- Frontend-agent has integrated stable PED output into the interactive viewer. It now owns visual and interaction checks for PED-derived table text, mode details, and the side-by-side Stage 3D/PED diagnostic presentation.
 
 Initial expected output artifacts:
 
@@ -346,12 +446,11 @@ Generated PED frontend artifacts:
 - `outputs/ped_frontend_monoethanolamine/monoethanolamine_DFT_therm__spectrum_data.json`
 - `outputs/ped_frontend_monoethanolamine/monoethanolamine_DFT_therm__wilson_ped_audit.csv`
 
-Open scientific questions for the first implementation pass:
+Remaining scientific questions after the first implementation pass:
 
 - Are ORCA normal modes in the current parser Cartesian displacements, mass-weighted displacements, or already normalized in a way requiring conversion?
-- Does the `.hess` parser expose enough Hessian/force-constant data for force-constant PED, or should v1 deliberately avoid that claim?
+- The `.hess` parser now exposes parsed Cartesian Hessian data as `HessData.cartesian_hessian`; continued validation is still needed for how broadly Wilson PED should influence final assignment wording.
 - Which internal-coordinate set gives the most stable and chemically interpretable decomposition without excessive redundancy?
-- Should torsions be included in v1 or introduced after bond/angle/out-of-plane validation?
 - What threshold should separate primary, secondary, and minor PED contributors in assignment wording?
 
 ## Interfaces and Dependencies
