@@ -51,6 +51,7 @@ from chemistry import (
 )
 from b_matrix import (
     finite_difference_B as bmatrix_finite_difference_B,
+    optimize_independent_coordinates_for_ped as bmatrix_optimize_independent_coordinates_for_ped,
     select_independent_coordinates as bmatrix_select_independent_coordinates,
     svd_rank_condition as bmatrix_svd_rank_condition,
 )
@@ -429,6 +430,7 @@ build_internal_coordinates = internal_build_internal_coordinates
 finite_difference_B = bmatrix_finite_difference_B
 svd_rank_condition = bmatrix_svd_rank_condition
 select_independent_coordinates = bmatrix_select_independent_coordinates
+optimize_independent_coordinates_for_ped = bmatrix_optimize_independent_coordinates_for_ped
 safe_output_stem = reports_safe_output_stem
 output_prefix_for_hess_paths = reports_output_prefix_for_hess_paths
 normalize_sheet_name = reports_normalize_sheet_name
@@ -1699,7 +1701,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             out_map[stem] = p
 
     source_rows, summary_rows, group_rows, atom_rows = [], [], [], []
-    hbond_rows, mode_frames, assignment_frames, ped_frames, ped_v2_frames, wilson_ped_frames, basis_rows, selected_rows = [], [], [], [], [], [], [], []
+    hbond_rows, mode_frames, assignment_frames, ped_frames, ped_v2_frames, wilson_ped_frames, basis_rows, selected_rows, optimized_ped_rows = [], [], [], [], [], [], [], [], []
     sanity_rows = []
 
     for source_index, hpath in enumerate(hess_paths, start=1):
@@ -1723,6 +1725,15 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
         B = finite_difference_B(hess.coords_A, internals)
         rank_red, cond_red, _ = svd_rank_condition(B)
         selected_idx, rank_ind, cond_ind, _ = select_independent_coordinates(B, internals, expected_rank)
+        positive_mode_indices = [idx for idx, freq in enumerate(hess.frequencies_cm1) if float(freq) > 0.0]
+        ped_selected_idx, ped_basis_report = optimize_independent_coordinates_for_ped(
+            B,
+            internals,
+            selected_idx,
+            hess.normal_modes,
+            positive_mode_indices,
+            target_rank=rank_ind,
+        )
 
         mode_df = mode_level_warnings(hess, fragments, hbonds)
         mode_df.insert(0, "Filename", hess.filename)
@@ -1744,7 +1755,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             hess,
             internals,
             B,
-            selected_idx,
+            ped_selected_idx,
             source_label=f"[{source_index}]",
             top_n=8,
         )
@@ -1754,7 +1765,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
                 hess,
                 internals,
                 B,
-                selected_idx,
+                ped_selected_idx,
                 source_label=f"[{source_index}]",
                 top_n=8,
             )
@@ -1763,7 +1774,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
                 hess,
                 internals,
                 B,
-                selected_idx,
+                ped_selected_idx,
                 source_label=f"[{source_index}]",
                 top_n=8,
             )
@@ -1832,6 +1843,12 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             "rank_B_independent": rank_ind,
             "condition_B_independent": cond_ind,
             "selected_independent_coordinates": len(selected_idx),
+            "ped_basis_optimized": bool(ped_basis_report.get("changed", False)),
+            "ped_basis_swaps": int(ped_basis_report.get("swaps", 0)),
+            "ped_basis_initial_mean_top_percent": ped_basis_report.get("initial_mean_top_percent", ""),
+            "ped_basis_optimized_mean_top_percent": ped_basis_report.get("optimized_mean_top_percent", ""),
+            "ped_basis_initial_diffuse_mode_fraction": ped_basis_report.get("initial_diffuse_mode_fraction", ""),
+            "ped_basis_optimized_diffuse_mode_fraction": ped_basis_report.get("optimized_diffuse_mode_fraction", ""),
             "negative_freq_count_after_first_6": int(np.sum(hess.frequencies_cm1[6:] < -1.0)),
             "near_degenerate_modes_count": int(mode_df["warnings"].str.contains("near_degenerate", regex=False).sum()),
             "confidence_score_0_100": confidence,
@@ -1881,6 +1898,24 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
                 "atoms_1based": "-".join(str(a+1) for a in ic.atoms0),
                 "priority": ic.priority, "source": ic.source,
             })
+        for order, idx in enumerate(ped_selected_idx, start=1):
+            ic = internals[idx]
+            optimized_ped_rows.append({
+                "Source": f"[{source_index}]", "Filename": hess.filename, "selection_order": order,
+                "coord_index_redundant": idx, "name": ic.name, "kind": ic.kind,
+                "atoms_1based": "-".join(str(a+1) for a in ic.atoms0),
+                "priority": ic.priority, "source": ic.source,
+                "ped_basis_changed": bool(ped_basis_report.get("changed", False)),
+                "ped_basis_swaps": int(ped_basis_report.get("swaps", 0)),
+                "ped_basis_initial_rank": int(ped_basis_report.get("initial_rank", 0)),
+                "ped_basis_optimized_rank": int(ped_basis_report.get("rank", 0)),
+                "ped_basis_initial_condition": ped_basis_report.get("initial_condition", ""),
+                "ped_basis_optimized_condition": ped_basis_report.get("condition", ""),
+                "ped_basis_initial_localization_score": ped_basis_report.get("initial_localization_score", ""),
+                "ped_basis_optimized_localization_score": ped_basis_report.get("optimized_localization_score", ""),
+                "ped_basis_initial_mean_top_percent": ped_basis_report.get("initial_mean_top_percent", ""),
+                "ped_basis_optimized_mean_top_percent": ped_basis_report.get("optimized_mean_top_percent", ""),
+            })
 
     tables = {
         "source_map": pd.DataFrame(source_rows),
@@ -1896,6 +1931,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
         "sanity_check": pd.DataFrame(sanity_rows),
         "redundant_basis": pd.DataFrame(basis_rows),
         "independent_basis": pd.DataFrame(selected_rows),
+        "optimized_ped_basis": pd.DataFrame(optimized_ped_rows),
     }
     tables["ped_stage3d_agreement"] = reports_build_ped_stage3d_agreement_table(
         tables["assignment_audit"],
@@ -1916,6 +1952,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             "ped_audit": "PED v1 normalized B-matrix projection table generated separately from Stage 3D assignment audit",
             "ped_v2_force_audit": "PED v2 force-aware B-matrix/Hessian projection table generated when ORCA $hessian is available; not full Wilson GF PED",
             "wilson_ped_audit": "Wilson GF-style PED table generated when ORCA $hessian is available; includes G/F rank and condition diagnostics",
+            "optimized_ped_basis": "EPM-like independent-coordinate basis selected for PED/Wilson diagnostics; Stage 3D assignment_audit keeps the original rank/priority independent basis",
             "ped_stage3d_agreement": "PED-first diagnostic policy table comparing Stage 3D assignment and strongest available PED interpretation; does not rewrite assignment_audit labels",
             "ped_final_assignment": "PED-driven final assignment table; uses PED when policy confirms/adds context and Stage 3D fallback when PED is unavailable, diffuse, or contradictory",
             "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
@@ -2400,6 +2437,7 @@ build_internal_coordinates = internal_build_internal_coordinates
 finite_difference_B = bmatrix_finite_difference_B
 svd_rank_condition = bmatrix_svd_rank_condition
 select_independent_coordinates = bmatrix_select_independent_coordinates
+optimize_independent_coordinates_for_ped = bmatrix_optimize_independent_coordinates_for_ped
 safe_output_stem = reports_safe_output_stem
 output_prefix_for_hess_paths = reports_output_prefix_for_hess_paths
 normalize_sheet_name = reports_normalize_sheet_name

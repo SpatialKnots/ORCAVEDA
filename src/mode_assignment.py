@@ -200,6 +200,60 @@ def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
         return "terminal alkyne C-H stretch"
     if "alkyne_cc_stretch" in name or "alkyne_cc_stretch" in kind:
         return "alkyne C#C stretch"
+    if "vinylic_ch_stretch" in name or "vinylic_ch_stretch" in kind:
+        return "vinylic C-H stretch"
+    if "vinylic_ch_bend" in name or "vinylic_ch_bend" in kind:
+        return "vinylic C-H bend"
+    if "alkene_cc_stretch" in name or "alkene_cc_stretch" in kind:
+        return "alkene C=C stretch"
+    if "sulfone_so_stretch" in name or "sulfone_so_stretch" in kind:
+        return "sulfone S=O stretch"
+    if "sulfone_oso_bend" in name or "sulfone_oso_bend" in kind:
+        return "sulfone O=S=O bend"
+    if "sulfone_cs_stretch" in name or "sulfone_cs_stretch" in kind:
+        return "sulfone C-S stretch"
+    if "thioether_cs_stretch" in name or "thioether_cs_stretch" in kind:
+        return "thioether C-S stretch"
+    if "thioether_csc_bend" in name or "thioether_csc_bend" in kind:
+        return "thioether C-S-C bend"
+    if "imine_cn_stretch" in name or "imine_cn_stretch" in kind:
+        return "imine C=N stretch"
+    if "imine_nh_stretch" in name or "imine_nh_stretch" in kind:
+        return "imine N-H stretch"
+    if "oxime_cn_stretch" in name or "oxime_cn_stretch" in kind:
+        return "oxime C=N stretch"
+    if "oxime_no_stretch" in name or "oxime_no_stretch" in kind:
+        return "oxime N-O stretch"
+    if "oxime_oh_stretch" in name or "oxime_oh_stretch" in kind:
+        return "oxime O-H stretch"
+    if "oxime_noh_bend" in name or "oxime_noh_bend" in kind:
+        return "oxime O-H bend"
+    if "acyl_chloride_co_stretch" in name or "acyl_chloride_co_stretch" in kind:
+        return "acyl chloride C=O stretch"
+    if "acyl_chloride_ccl_stretch" in name or "acyl_chloride_ccl_stretch" in kind:
+        return "acyl chloride C-Cl stretch"
+    if "lactone_co_stretch" in name or "lactone_co_stretch" in kind:
+        return "lactone C=O stretch"
+    if "lactone_co_single_stretch" in name or "lactone_co_single_stretch" in kind:
+        return "lactone C-O stretch"
+    if "carbonate_ester_co_stretch" in name or "carbonate_ester_co_stretch" in kind:
+        return "carbonate C=O stretch"
+    if "carbonate_ester_co_single_stretch" in name or "carbonate_ester_co_single_stretch" in kind:
+        return "carbonate C-O stretch"
+    if "anhydride_co_stretch" in name or "anhydride_co_stretch" in kind:
+        return "anhydride C=O stretch"
+    if "anhydride_cobridge_stretch" in name or "anhydride_cobridge_stretch" in kind:
+        return "anhydride C-O stretch"
+    if "anhydride_coc_bend" in name or "anhydride_coc_bend" in kind:
+        return "anhydride C-O-C bend"
+    if "epoxide_ring_stretch" in name or "epoxide_ring_stretch" in kind:
+        return "epoxide ring stretch"
+    if "epoxide_ring_bend" in name or "epoxide_ring_bend" in kind:
+        return "epoxide ring bend"
+    if "cyclic_acetal_ring_stretch" in name or "cyclic_acetal_ring_stretch" in kind:
+        return "cyclic acetal ring stretch"
+    if "cyclic_acetal_ring_bend" in name or "cyclic_acetal_ring_bend" in kind:
+        return "cyclic acetal ring bend"
     if "peroxide_oo_stretch" in name or "peroxide_oo_stretch" in kind:
         return "O-O stretch"
     if "peroxide_ooh_bend" in name or "peroxide_ooh_bend" in kind:
@@ -674,7 +728,16 @@ def _stage3d_frequency_region_priority(freq: float, ic: InternalCoordinate) -> f
         elif cls == "torsion":
             weight *= 0.04
 
-        if fam in ("O-H stretch", "N-H stretch", "C-H stretch", "thiol S-H stretch", "terminal alkyne C-H stretch"):
+        if fam in (
+            "O-H stretch",
+            "N-H stretch",
+            "C-H stretch",
+            "thiol S-H stretch",
+            "terminal alkyne C-H stretch",
+            "vinylic C-H stretch",
+            "imine N-H stretch",
+            "oxime O-H stretch",
+        ):
             weight *= 2.0
 
     if 800.0 <= freq <= 2400.0 and fam in {
@@ -683,6 +746,15 @@ def _stage3d_frequency_region_priority(freq: float, ic: InternalCoordinate) -> f
         "isocyanate N=C stretch",
         "isocyanate C=O stretch",
         "alkyne C#C stretch",
+        "alkene C=C stretch",
+        "sulfone S=O stretch",
+        "imine C=N stretch",
+        "oxime C=N stretch",
+        "oxime N-O stretch",
+        "acyl chloride C=O stretch",
+        "lactone C=O stretch",
+        "carbonate C=O stretch",
+        "anhydride C=O stretch",
     }:
         weight *= 3.0
 
@@ -736,6 +808,15 @@ def _stage3d_assignment_from_weighted_terms(
             "isocyanate N=C stretch",
             "isocyanate C=O stretch",
             "alkyne C#C stretch",
+            "alkene C=C stretch",
+            "sulfone S=O stretch",
+            "imine C=N stretch",
+            "oxime C=N stretch",
+            "oxime N-O stretch",
+            "acyl chloride C=O stretch",
+            "lactone C=O stretch",
+            "carbonate C=O stretch",
+            "anhydride C=O stretch",
         }
         and float(top1_pct) >= 30.0
         and primary == "angle bend"
@@ -767,6 +848,9 @@ def _stage3d_assignment_from_weighted_terms(
             "aromatic C-H stretch",
             "thiol S-H stretch",
             "terminal alkyne C-H stretch",
+            "vinylic C-H stretch",
+            "imine N-H stretch",
+            "oxime O-H stretch",
         }
         xh = [(fam, val) for fam, val in ordered if fam in xh_families]
         if xh and totals.get("stretch", 0.0) >= 8.0:

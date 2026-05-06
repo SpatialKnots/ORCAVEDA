@@ -296,7 +296,9 @@ def _assignment_semantic_classes(text: object) -> set[str]:
         "c=o": "carbonyl co stretch",
         "c=s": "thiocarbonyl cs stretch",
         "c#c": "alkyne cc stretch",
+        "c=c": "alkene cc stretch",
         "c#n": "cn stretch",
+        "c=n": "imine cn stretch",
         "s-h": "sh",
         "o-h": "oh",
         "n-h": "nh",
@@ -319,6 +321,17 @@ def _assignment_semantic_classes(text: object) -> set[str]:
         "thioamide": ["thioamide"],
         "isocyanate": ["isocyanate", "nco", "n=c=o"],
         "alkyne": ["alkyne", "c#c"],
+        "alkene": ["alkene", "vinylic", "c=c"],
+        "sulfone": ["sulfone", "o=s=o"],
+        "thioether": ["thioether"],
+        "imine": ["imine", "c=n"],
+        "oxime": ["oxime"],
+        "acyl_chloride": ["acyl chloride", "c-cl"],
+        "lactone": ["lactone"],
+        "carbonate": ["carbonate"],
+        "anhydride": ["anhydride"],
+        "epoxide": ["epoxide"],
+        "acetal": ["acetal"],
         "oh": ["oh", "hydroxyl", "alcohol", "phenolic", "carboxylic"],
         "sh": ["sh", "thiol"],
         "nh": ["nh", "amine"],
@@ -388,18 +401,34 @@ def decide_ped_driven_final_assignment(
     ped_source: object,
     ped_agreement_status: object,
     ped_policy_warning: object = "",
+    ped_top_percent: object = 0.0,
 ) -> tuple[str, str, str, str]:
     stage3d_text = str(stage3d_assignment or "").strip()
     ped_text = str(ped_assignment or "").strip()
     source = str(ped_source or "").strip()
     status = str(ped_agreement_status or "").strip()
     warning = str(ped_policy_warning or "").strip()
+    try:
+        top_percent = float(ped_top_percent)
+    except (TypeError, ValueError):
+        top_percent = 0.0
 
     if ped_text and status in {"confirms", "adds_context"}:
         policy = "ped_confirms_stage3d" if status == "confirms" else "ped_adds_context"
         return ped_text, source or "PED diagnostic", policy, warning
     if ped_text and (not stage3d_text or stage3d_text == "unassigned"):
         return ped_text, source or "PED diagnostic", "ped_used_when_stage3d_unassigned", warning
+    if (
+        ped_text
+        and status == "disagrees"
+        and top_percent >= 60.0
+        and "diffuse_ped_contributions" not in warning
+        and "torsion" in _assignment_semantic_classes(stage3d_text)
+        and "bend" in _assignment_semantic_classes(ped_text)
+    ):
+        calibrated_warning = "stage3d_torsion_reclassified_by_high_confidence_ped_bend"
+        final_warning = f"{warning}; {calibrated_warning}" if warning else calibrated_warning
+        return ped_text, source or "PED diagnostic", "ped_reclassifies_stage3d_torsion", final_warning
 
     final = stage3d_text or ped_text or "unassigned"
     if status == "disagrees":
@@ -572,6 +601,7 @@ def build_ped_driven_final_assignment_table(agreement_table: pd.DataFrame | None
             row.get("ped_source", ""),
             row.get("ped_agreement_status", ""),
             row.get("ped_policy_warning", ""),
+            row.get("ped_top_percent", 0.0),
         )
         rows.append(
             {
@@ -652,6 +682,7 @@ def build_spectrum_payload(
                 ped_source,
                 ped_agreement_status,
                 ped_policy_warning,
+                float(ped_row.get("ped_top_percent", 0.0) or 0.0),
             )
             rows.append(
                 {

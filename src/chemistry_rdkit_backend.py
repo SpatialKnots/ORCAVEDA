@@ -132,6 +132,7 @@ class RDKitChemistryBackend:
             if mol.GetAtomWithIdx(idx).GetSymbol() == "N"
         }
         isocyanate_carbon_indices: set[int] = set()
+        imine_nitrogen_indices: set[int] = set()
 
         for bond in mol.GetBonds():
             begin = bond.GetBeginAtom()
@@ -162,6 +163,7 @@ class RDKitChemistryBackend:
                 c_neighbors = [nbr for nbr in c_atom.GetNeighbors() if nbr.GetIdx() != o_idx and nbr.GetSymbol() == "C"]
                 h_neighbors = [nbr for nbr in c_atom.GetNeighbors() if nbr.GetIdx() != o_idx and nbr.GetSymbol() == "H"]
                 o_neighbors = [nbr for nbr in c_atom.GetNeighbors() if nbr.GetIdx() != o_idx and nbr.GetSymbol() == "O"]
+                cl_neighbors = [nbr for nbr in c_atom.GetNeighbors() if nbr.GetIdx() != o_idx and nbr.GetSymbol() == "Cl"]
 
                 if n_neighbors:
                     n_idx = int(n_neighbors[0].GetIdx())
@@ -182,11 +184,38 @@ class RDKitChemistryBackend:
                         self._add_group(groups, "carboxylic_acid", (c_idx, o_idx, int(o2.GetIdx())), "RDKit carboxylic acid context", "high", "C=O and C-OH in same carbon")
                     elif any(nbr.GetSymbol() == "C" and int(nbr.GetIdx()) != c_idx for nbr in o2.GetNeighbors()):
                         self._add_group(groups, "ester", (c_idx, o_idx, int(o2.GetIdx())), "RDKit ester context", "high", "C=O and C-OR in same carbon")
+                    if len(o_neighbors) >= 2:
+                        external_c = [
+                            int(nbr2.GetIdx())
+                            for o2 in o_neighbors
+                            for nbr2 in o2.GetNeighbors()
+                            if nbr2.GetSymbol() == "C" and int(nbr2.GetIdx()) != c_idx
+                        ]
+                        if len(external_c) >= 2:
+                            self._add_group(groups, "carbonate_ester", (c_idx, o_idx, int(o_neighbors[0].GetIdx()), int(o_neighbors[1].GetIdx())), "RDKit carbonate ester context", "high", "C=O carbon bonded to two alkoxy oxygens")
+                    if any(c_idx in ring and int(o2.GetIdx()) in ring for ring in ring_info.AtomRings() for o2 in o_neighbors):
+                        self._add_group(groups, "lactone", (c_idx, o_idx, int(o_neighbors[0].GetIdx())), "RDKit lactone context", "high", "Ester carbonyl and alkoxy oxygen in same ring")
+                if cl_neighbors:
+                    self._add_group(groups, "acyl_chloride", (c_idx, o_idx, int(cl_neighbors[0].GetIdx())), "RDKit acyl chloride context", "high", "C=O carbon bonded to Cl")
 
             if symbols == {"C", "N"} and bond.GetBondTypeAsDouble() >= 2.5:
                 c_atom = begin if begin.GetSymbol() == "C" else end
                 n_atom = end if c_atom is begin else begin
                 self._add_group(groups, "nitrile_C≡N", (int(c_atom.GetIdx()), int(n_atom.GetIdx())), "RDKit nitrile bond perception", "high", "RDKit C#N bond order")
+
+            if symbols == {"C", "N"} and 1.5 <= bond.GetBondTypeAsDouble() < 2.5:
+                c_atom = begin if begin.GetSymbol() == "C" else end
+                n_atom = end if c_atom is begin else begin
+                c_idx = int(c_atom.GetIdx())
+                n_idx = int(n_atom.GetIdx())
+                imine_nitrogen_indices.add(n_idx)
+                self._add_group(groups, "imine_C=N", (c_idx, n_idx), "RDKit imine C=N bond perception", "high", "RDKit C=N bond order")
+                o_neighbors = [int(nbr.GetIdx()) for nbr in n_atom.GetNeighbors() if nbr.GetSymbol() == "O"]
+                h_neighbors = [int(nbr.GetIdx()) for nbr in n_atom.GetNeighbors() if nbr.GetSymbol() == "H"]
+                if o_neighbors:
+                    o_idx = o_neighbors[0]
+                    if any(nbr.GetSymbol() == "H" for nbr in mol.GetAtomWithIdx(o_idx).GetNeighbors()):
+                        self._add_group(groups, "oxime", (c_idx, n_idx, o_idx), "RDKit oxime C=N-OH context", "high", "C=N nitrogen bonded to O-H")
 
             if symbols == {"S", "O"} and bond.GetBondTypeAsDouble() >= 1.5:
                 s_atom = begin if begin.GetSymbol() == "S" else end
@@ -201,6 +230,14 @@ class RDKitChemistryBackend:
                     h_neighbors = [int(nbr.GetIdx()) for nbr in c_atom.GetNeighbors() if nbr.GetSymbol() == "H"]
                     if h_neighbors:
                         self._add_group(groups, "terminal_alkyne_C#C-H", (int(c_atom.GetIdx()), other_idx, h_neighbors[0]), "RDKit terminal alkyne C#C-H context", "high", "C#C carbon bonded to H")
+
+            if symbols == {"C"} and not bond.GetIsAromatic() and 1.5 <= bond.GetBondTypeAsDouble() < 2.5:
+                c1_idx = int(begin.GetIdx())
+                c2_idx = int(end.GetIdx())
+                self._add_group(groups, "alkene_C=C", (c1_idx, c2_idx), "RDKit alkene C=C bond perception", "high", "RDKit C=C bond order")
+                for c_atom, other_idx in ((begin, c2_idx), (end, c1_idx)):
+                    for h_idx in [int(nbr.GetIdx()) for nbr in c_atom.GetNeighbors() if nbr.GetSymbol() == "H"]:
+                        self._add_group(groups, "vinylic_C-H", (int(c_atom.GetIdx()), h_idx, other_idx), "RDKit vinylic C-H context", "high", "C=C carbon bonded to H")
 
             if symbols == {"C", "S"} and bond.GetBondTypeAsDouble() >= 1.5:
                 c_atom = begin if begin.GetSymbol() == "C" else end
@@ -230,6 +267,29 @@ class RDKitChemistryBackend:
             d2 = self._bond_length(mol, c_idx, o_pair[1])
             if not o_has_h and max(d1, d2) <= 1.32 and abs(d1 - d2) <= 0.08:
                 self._add_group(groups, "carboxylate", (c_idx, o_pair[0], o_pair[1]), "RDKit carboxylate resonance context", "high", f"Two short C-O bonds with |Δ|={abs(d1-d2):.3f} A")
+
+        for atom in mol.GetAtoms():
+            if atom.GetSymbol() != "O":
+                continue
+            o_idx = int(atom.GetIdx())
+            carbon_neighbors = [nbr for nbr in atom.GetNeighbors() if nbr.GetSymbol() == "C"]
+            carbonyl_neighbors = []
+            for c_atom in carbon_neighbors:
+                c_idx = int(c_atom.GetIdx())
+                oxygens = [
+                    int(nbr.GetIdx())
+                    for nbr in c_atom.GetNeighbors()
+                    if nbr.GetSymbol() == "O"
+                    and int(nbr.GetIdx()) != o_idx
+                    and mol.GetBondBetweenAtoms(c_idx, int(nbr.GetIdx())) is not None
+                    and mol.GetBondBetweenAtoms(c_idx, int(nbr.GetIdx())).GetBondTypeAsDouble() >= 1.5
+                ]
+                if oxygens:
+                    carbonyl_neighbors.append((c_idx, oxygens[0]))
+            if len(carbonyl_neighbors) >= 2:
+                c1, o1 = carbonyl_neighbors[0]
+                c2, o2 = carbonyl_neighbors[1]
+                self._add_group(groups, "acid_anhydride", (o_idx, c1, o1, c2, o2), "RDKit acid anhydride context", "high", "O bridge bonded to two carbonyl carbons")
 
         for ring in aromatic_rings:
             self._add_group(groups, "aromatic_ring", ring, f"{len(ring)}-membered aromatic ring from RDKit aromaticity", "high", "RDKit aromatic ring perception")
@@ -261,6 +321,8 @@ class RDKitChemistryBackend:
                         self._add_group(groups, "phenol", (idx, h_idx, aromatic_c), "RDKit phenol SMARTS context", "high", "O-H bonded to aromatic carbon")
                 if len(carbon_neighbors) >= 2:
                     self._add_group(groups, "ether", (idx, int(carbon_neighbors[0].GetIdx()), int(carbon_neighbors[1].GetIdx())), "RDKit ether context", "high", "O bonded to two carbons")
+                    if any(idx in ring and all(int(cnbr.GetIdx()) in ring for cnbr in carbon_neighbors[:2]) and len(ring) == 3 for ring in ring_info.AtomRings()):
+                        self._add_group(groups, "epoxide", (idx, int(carbon_neighbors[0].GetIdx()), int(carbon_neighbors[1].GetIdx())), "RDKit epoxide context", "high", "Three-membered cyclic ether")
                 if len(carbon_neighbors) >= 2 and any(int(cnbr.GetIdx()) in aromatic_carbon_indices for cnbr in carbon_neighbors):
                     aromatic_c = next(int(cnbr.GetIdx()) for cnbr in carbon_neighbors if int(cnbr.GetIdx()) in aromatic_carbon_indices)
                     other_c = next(int(cnbr.GetIdx()) for cnbr in carbon_neighbors if int(cnbr.GetIdx()) != aromatic_c)
@@ -271,8 +333,20 @@ class RDKitChemistryBackend:
                         self._add_group(groups, "sulfoxide", (int(sulfur_neighbors[0].GetIdx()), idx, carbon_substituents[0], carbon_substituents[1]), "RDKit sulfoxide context", "high", "S=O with carbon substituents")
 
             if symbol == "S":
+                oxygen_double_neighbors = [
+                    int(nbr.GetIdx())
+                    for nbr in neighbors
+                    if nbr.GetSymbol() == "O"
+                    and mol.GetBondBetweenAtoms(idx, int(nbr.GetIdx())) is not None
+                    and mol.GetBondBetweenAtoms(idx, int(nbr.GetIdx())).GetBondTypeAsDouble() >= 1.5
+                ]
+                if len(oxygen_double_neighbors) >= 2 and carbon_neighbors:
+                    carbon_ids = [int(nbr.GetIdx()) for nbr in carbon_neighbors[:2]]
+                    self._add_group(groups, "sulfone", (idx, oxygen_double_neighbors[0], oxygen_double_neighbors[1], *carbon_ids), "RDKit sulfone context", "high", "S double-bonded to two oxygens")
                 if hydrogen_neighbors and carbon_neighbors:
                     self._add_group(groups, "thiol", (idx, int(hydrogen_neighbors[0].GetIdx()), int(carbon_neighbors[0].GetIdx())), "RDKit thiol context", "high", "S bonded to H and C")
+                if len(carbon_neighbors) >= 2 and not oxygen_double_neighbors:
+                    self._add_group(groups, "thioether", (idx, int(carbon_neighbors[0].GetIdx()), int(carbon_neighbors[1].GetIdx())), "RDKit thioether context", "high", "S bonded to two carbons")
 
             if symbol == "N":
                 carbon_neighbors = [nbr for nbr in neighbors if nbr.GetSymbol() == "C"]
@@ -285,7 +359,7 @@ class RDKitChemistryBackend:
                     continue
                 is_amide_n = any(group.group in {"amide", "lactam_amide"} and idx in group.atoms0 for group in groups)
                 is_isocyanate_n = any(group.group == "isocyanate_NCO" and idx in group.atoms0 for group in groups)
-                if is_isocyanate_n:
+                if is_isocyanate_n or idx in imine_nitrogen_indices:
                     continue
                 if idx in aromatic_nitrogen_indices:
                     for nbr in carbon_neighbors[:2]:
@@ -316,6 +390,9 @@ class RDKitChemistryBackend:
             if symbol == "C":
                 if idx in isocyanate_carbon_indices:
                     continue
+                oxygen_neighbors = [int(nbr.GetIdx()) for nbr in neighbors if nbr.GetSymbol() == "O"]
+                if len(oxygen_neighbors) >= 2 and any(idx in ring and all(o_idx in ring for o_idx in oxygen_neighbors[:2]) for ring in ring_info.AtomRings()):
+                    self._add_group(groups, "cyclic_acetal", (idx, oxygen_neighbors[0], oxygen_neighbors[1]), "RDKit cyclic acetal context", "medium", "Carbon bonded to two ring oxygens")
                 if len(hydrogen_neighbors) == 3:
                     self._add_group(groups, "methyl", (idx, *[int(nbr.GetIdx()) for nbr in hydrogen_neighbors]), "RDKit CH3 context", "high", "C bonded to three H")
                 elif len(hydrogen_neighbors) == 2:
@@ -340,6 +417,18 @@ class RDKitChemistryBackend:
                 group
                 for group in groups
                 if not (group.group.startswith("nitrile") and any(int(atom_idx) in isocyanate_atoms for atom_idx in group.atoms0))
+            ]
+        sulfone_atoms = {
+            int(atom_idx)
+            for group in groups
+            if group.group == "sulfone"
+            for atom_idx in group.atoms0
+        }
+        if sulfone_atoms:
+            groups = [
+                group
+                for group in groups
+                if not (group.group in {"sulfoxide", "sulfoxide_S=O"} and any(int(atom_idx) in sulfone_atoms for atom_idx in group.atoms0))
             ]
 
         return groups
@@ -506,6 +595,17 @@ class RDKitChemistryBackend:
             if group.group == "isocyanate_NCO"
             for atom in group.atoms0
         }
+        sulfone_atoms = {
+            int(atom)
+            for group in list(primary) + list(fallback)
+            if group.group == "sulfone"
+            for atom in group.atoms0
+        }
+        imine_n_atoms = {
+            int(group.atoms0[1])
+            for group in list(primary) + list(fallback)
+            if group.group in {"imine_C=N", "oxime"} and len(group.atoms0) >= 2
+        }
 
         filtered: List[FunctionalGroup] = []
         for group in fallback:
@@ -521,6 +621,14 @@ class RDKitChemistryBackend:
 
             if isocyanate_atoms and group.group != "isocyanate_NCO":
                 if (group.group.startswith("nitrile") or group.group in {"carbonyl_C=O", "amide", "lactam_amide"}) and atom_set & isocyanate_atoms:
+                    continue
+
+            if sulfone_atoms and group.group in {"sulfoxide", "sulfoxide_S=O"}:
+                if atom_set & sulfone_atoms:
+                    continue
+
+            if imine_n_atoms and group.group in {"secondary_amine", "secondary_aryl_amine", "dialkyl_amide_N_or_amine_N"}:
+                if atom_set & imine_n_atoms:
                     continue
 
             filtered.append(group)
@@ -541,9 +649,26 @@ class RDKitChemistryBackend:
             if group.group == "isocyanate_NCO"
             for atom in group.atoms0
         }
+        sulfone_atoms = {
+            int(atom)
+            for group in combined
+            if group.group == "sulfone"
+            for atom in group.atoms0
+        }
+        imine_n_atoms = {
+            int(group.atoms0[1])
+            for group in combined
+            if group.group in {"imine_C=N", "oxime"} and len(group.atoms0) >= 2
+        }
         for group in combined:
             if isocyanate_atoms and group.group.startswith("nitrile"):
                 if any(int(atom) in isocyanate_atoms for atom in group.atoms0):
+                    continue
+            if sulfone_atoms and group.group in {"sulfoxide", "sulfoxide_S=O"}:
+                if any(int(atom) in sulfone_atoms for atom in group.atoms0):
+                    continue
+            if imine_n_atoms and group.group in {"secondary_amine", "secondary_aryl_amine", "dialkyl_amide_N_or_amine_N"}:
+                if any(int(atom) in imine_n_atoms for atom in group.atoms0):
                     continue
             key = (group.group, tuple(sorted(int(a) for a in group.atoms0)))
             if key in seen:

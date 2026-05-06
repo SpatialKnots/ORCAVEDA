@@ -11,7 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from b_matrix import finite_difference_B  # noqa: E402
+from b_matrix import finite_difference_B, optimize_independent_coordinates_for_ped, ped_basis_localization_metrics, svd_rank_condition  # noqa: E402
 from ORCAVEDA_patched_stage3D_v5_0 import analyze_orca_ped_like  # noqa: E402
 from orca_parser import read_orca_hess  # noqa: E402
 from orcaveda_models import HessData, InternalCoordinate  # noqa: E402
@@ -28,6 +28,7 @@ from ped import (  # noqa: E402
     reconstruct_internal_force_matrix,
 )
 from internal_coordinates import angle_fn, distance_fn  # noqa: E402
+from reports import decide_ped_driven_final_assignment  # noqa: E402
 
 
 def _hess_with_mode(atoms, coords, mode_vec, freq=3650.0):
@@ -123,21 +124,25 @@ def test_pipeline_writes_separate_ped_audit_for_water():
     assert "ped_audit" in tables
     assert "ped_v2_force_audit" in tables
     assert "wilson_ped_audit" in tables
+    assert "optimized_ped_basis" in tables
     assert "ped_stage3d_agreement" in tables
     assert "ped_final_assignment" in tables
     ped_audit = tables["ped_audit"]
     ped_v2 = tables["ped_v2_force_audit"]
     wilson_ped = tables["wilson_ped_audit"]
+    optimized_ped_basis = tables["optimized_ped_basis"]
     agreement = tables["ped_stage3d_agreement"]
     final_assignment = tables["ped_final_assignment"]
     assert not ped_audit.empty
     assert not ped_v2.empty
     assert not wilson_ped.empty
+    assert not optimized_ped_basis.empty
     assert not agreement.empty
     assert not final_assignment.empty
     assert next(outdir.glob("*__ped_audit.csv")).is_file()
     assert next(outdir.glob("*__ped_v2_force_audit.csv")).is_file()
     assert next(outdir.glob("*__wilson_ped_audit.csv")).is_file()
+    assert next(outdir.glob("*__optimized_ped_basis.csv")).is_file()
     assert next(outdir.glob("*__ped_stage3d_agreement.csv")).is_file()
     assert next(outdir.glob("*__ped_final_assignment.csv")).is_file()
     assert {
@@ -159,6 +164,84 @@ def test_pipeline_writes_separate_ped_audit_for_water():
     positive = ped_audit[ped_audit["frequency_cm-1"] > 0.0].copy()
     assert positive["coordinate_family"].astype(str).str.contains("O-H stretch", regex=False).any()
     assert positive["coordinate_family"].astype(str).str.contains("H-O-H bend", regex=False).any()
+
+
+def test_ped_basis_optimizer_improves_localization_without_losing_rank():
+    def dummy_coord(_xyz):
+        return 0.0
+
+    internals = [
+        InternalCoordinate("mixed_a", "stretch", (0, 1), 10, dummy_coord),
+        InternalCoordinate("mixed_b", "stretch", (0, 2), 10, dummy_coord),
+        InternalCoordinate("localized_x", "stretch", (0, 3), 20, dummy_coord),
+    ]
+    B = np.array(
+        [
+            [1.0, 1.0],
+            [1.0, -1.0],
+            [1.0, 0.0],
+        ],
+        dtype=float,
+    )
+    normal_modes = np.eye(2, dtype=float)
+    selected = [0, 1]
+
+    initial = ped_basis_localization_metrics(B, normal_modes, selected, [0])
+    optimized, report = optimize_independent_coordinates_for_ped(
+        B,
+        internals,
+        selected,
+        normal_modes,
+        [0],
+        target_rank=2,
+    )
+    final = ped_basis_localization_metrics(B, normal_modes, optimized, [0])
+    rank, _, _ = svd_rank_condition(B[optimized, :])
+
+    assert report["changed"] is True
+    assert rank == 2
+    assert final["localization_score"] > initial["localization_score"]
+    assert 2 in optimized
+
+
+def test_ped_final_policy_reclassifies_high_confidence_stage3d_torsion_bend_conflict():
+    final, source, policy, warning = decide_ped_driven_final_assignment(
+        "C-H torsion",
+        "C-C-H bend",
+        "Wilson GF-style PED audit",
+        "disagrees",
+        "ped_diagnostic_basis; ped_stage3d_semantic_disagreement",
+        91.2,
+    )
+
+    assert final == "C-C-H bend"
+    assert source == "Wilson GF-style PED audit"
+    assert policy == "ped_reclassifies_stage3d_torsion"
+    assert "stage3d_torsion_reclassified_by_high_confidence_ped_bend" in warning
+
+
+def test_ped_final_policy_keeps_stage3d_for_diffuse_or_low_confidence_torsion_bend_conflict():
+    low_confidence = decide_ped_driven_final_assignment(
+        "C-C-C torsion",
+        "aromatic C-H bend mixed with aromatic ring deformation",
+        "Wilson GF-style PED audit",
+        "disagrees",
+        "ped_diagnostic_basis; ped_stage3d_semantic_disagreement",
+        31.6,
+    )
+    diffuse = decide_ped_driven_final_assignment(
+        "C-C-C torsion",
+        "N-C-C bend mixed with aromatic ring deformation",
+        "Wilson GF-style PED audit",
+        "disagrees",
+        "diffuse_ped_contributions; ped_diagnostic_basis; ped_stage3d_semantic_disagreement",
+        75.0,
+    )
+
+    assert low_confidence[0] == "C-C-C torsion"
+    assert low_confidence[2] == "stage3d_fallback_due_to_ped_disagreement"
+    assert diffuse[0] == "C-C-C torsion"
+    assert diffuse[2] == "stage3d_fallback_due_to_ped_disagreement"
 
 
 def test_orca_parser_reads_cartesian_hessian_block():
