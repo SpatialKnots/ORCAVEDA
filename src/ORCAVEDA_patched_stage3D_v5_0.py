@@ -50,15 +50,18 @@ from chemistry import (
     split_fragments as chemistry_split_fragments,
 )
 from b_matrix import (
+    build_composed_candidate_b_matrix as bmatrix_build_composed_candidate_b_matrix,
     finite_difference_B as bmatrix_finite_difference_B,
     optimize_independent_coordinates_for_ped as bmatrix_optimize_independent_coordinates_for_ped,
     select_independent_coordinates as bmatrix_select_independent_coordinates,
+    select_rank_preserving_composed_ped_basis as bmatrix_select_rank_preserving_composed_ped_basis,
     svd_rank_condition as bmatrix_svd_rank_condition,
 )
 from internal_coordinates import (
     angle_deg_from_vectors as internal_angle_deg_from_vectors,
     angle_fn as internal_angle_fn,
     build_internal_coordinates as internal_build_internal_coordinates,
+    build_xh_pair_composed_stretch_candidates as internal_build_xh_pair_composed_stretch_candidates,
     dihedral_rad as internal_dihedral_rad,
     distance_fn as internal_distance_fn,
     torsion_fn as internal_torsion_fn,
@@ -431,6 +434,9 @@ finite_difference_B = bmatrix_finite_difference_B
 svd_rank_condition = bmatrix_svd_rank_condition
 select_independent_coordinates = bmatrix_select_independent_coordinates
 optimize_independent_coordinates_for_ped = bmatrix_optimize_independent_coordinates_for_ped
+build_composed_candidate_b_matrix = bmatrix_build_composed_candidate_b_matrix
+select_rank_preserving_composed_ped_basis = bmatrix_select_rank_preserving_composed_ped_basis
+build_xh_pair_composed_stretch_candidates = internal_build_xh_pair_composed_stretch_candidates
 safe_output_stem = reports_safe_output_stem
 output_prefix_for_hess_paths = reports_output_prefix_for_hess_paths
 normalize_sheet_name = reports_normalize_sheet_name
@@ -1702,6 +1708,8 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
 
     source_rows, summary_rows, group_rows, atom_rows = [], [], [], []
     hbond_rows, mode_frames, assignment_frames, ped_frames, ped_v2_frames, wilson_ped_frames, basis_rows, selected_rows, optimized_ped_rows = [], [], [], [], [], [], [], [], []
+    composed_ped_frames, composed_ped_v2_frames, composed_wilson_ped_frames = [], [], []
+    composed_ped_basis_rows, composed_ped_diagnostic_rows = [], []
     sanity_rows = []
 
     for source_index, hpath in enumerate(hess_paths, start=1):
@@ -1734,6 +1742,19 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             positive_mode_indices,
             target_rank=rank_ind,
         )
+        composed_candidates = build_xh_pair_composed_stretch_candidates(hess.atoms, internals)
+        composed_candidate_internals, B_composed_candidates, composed_candidate_report = build_composed_candidate_b_matrix(
+            B,
+            internals,
+            composed_candidates,
+        )
+        composed_ped_selected_idx, composed_ped_basis_report = select_rank_preserving_composed_ped_basis(
+            B_composed_candidates,
+            composed_candidate_internals,
+            selected_idx,
+            hess.normal_modes,
+            positive_mode_indices,
+        )
 
         mode_df = mode_level_warnings(hess, fragments, hbonds)
         mode_df.insert(0, "Filename", hess.filename)
@@ -1760,6 +1781,15 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             top_n=8,
         )
         ped_frames.append(ped_df)
+        composed_ped_df = ped_build_ped_audit_dataframe(
+            hess,
+            composed_candidate_internals,
+            B_composed_candidates,
+            composed_ped_selected_idx,
+            source_label=f"[{source_index}]",
+            top_n=8,
+        )
+        composed_ped_frames.append(composed_ped_df)
         if hess.cartesian_hessian is not None:
             ped_v2_df = ped_build_ped_v2_force_audit_dataframe(
                 hess,
@@ -1770,6 +1800,15 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
                 top_n=8,
             )
             ped_v2_frames.append(ped_v2_df)
+            composed_ped_v2_df = ped_build_ped_v2_force_audit_dataframe(
+                hess,
+                composed_candidate_internals,
+                B_composed_candidates,
+                composed_ped_selected_idx,
+                source_label=f"[{source_index}]",
+                top_n=8,
+            )
+            composed_ped_v2_frames.append(composed_ped_v2_df)
             wilson_ped_df = ped_build_wilson_ped_audit_dataframe(
                 hess,
                 internals,
@@ -1779,6 +1818,15 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
                 top_n=8,
             )
             wilson_ped_frames.append(wilson_ped_df)
+            composed_wilson_ped_df = ped_build_wilson_ped_audit_dataframe(
+                hess,
+                composed_candidate_internals,
+                B_composed_candidates,
+                composed_ped_selected_idx,
+                source_label=f"[{source_index}]",
+                top_n=8,
+            )
+            composed_wilson_ped_frames.append(composed_wilson_ped_df)
 
         sanity_df = build_sanity_check_monoethanolamine_monomer(
             hess,
@@ -1916,6 +1964,50 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
                 "ped_basis_initial_mean_top_percent": ped_basis_report.get("initial_mean_top_percent", ""),
                 "ped_basis_optimized_mean_top_percent": ped_basis_report.get("optimized_mean_top_percent", ""),
             })
+        composed_ped_diagnostic_rows.append({
+            "Source": f"[{source_index}]",
+            "Filename": hess.filename,
+            "primitive_count": composed_candidate_report.get("primitive_count", len(internals)),
+            "composed_candidate_count": composed_candidate_report.get("composed_count", 0),
+            "candidate_count": composed_candidate_report.get("candidate_count", len(composed_candidate_internals)),
+            "generation_rule_counts": json.dumps(composed_candidate_report.get("generation_rule_counts", {}), sort_keys=True),
+            "starting_rank": composed_ped_basis_report.get("starting_rank", ""),
+            "required_rank": composed_ped_basis_report.get("required_rank", ""),
+            "optimized_rank": composed_ped_basis_report.get("optimized_rank", ""),
+            "rank_preserved": bool(composed_ped_basis_report.get("rank_preserved", False)),
+            "starting_condition": composed_ped_basis_report.get("starting_condition", ""),
+            "optimized_condition": composed_ped_basis_report.get("optimized_condition", ""),
+            "changed": bool(composed_ped_basis_report.get("changed", False)),
+            "swaps": int(composed_ped_basis_report.get("swaps", 0)),
+            "composed_selected_count": int(composed_ped_basis_report.get("composed_selected_count", 0)),
+            "selected_composed_indices": ";".join(str(i) for i in composed_ped_basis_report.get("selected_composed_indices", [])),
+            "initial_localization_score": composed_ped_basis_report.get("initial_localization_score", ""),
+            "optimized_localization_score": composed_ped_basis_report.get("optimized_localization_score", ""),
+            "initial_mean_top_percent": composed_ped_basis_report.get("initial_mean_top_percent", ""),
+            "optimized_mean_top_percent": composed_ped_basis_report.get("optimized_mean_top_percent", ""),
+            "initial_diffuse_mode_fraction": composed_ped_basis_report.get("initial_diffuse_mode_fraction", ""),
+            "optimized_diffuse_mode_fraction": composed_ped_basis_report.get("optimized_diffuse_mode_fraction", ""),
+            "ped_basis_scope": "experimental_ped_only_not_used_for_assignment_audit",
+        })
+        for order, idx in enumerate(composed_ped_selected_idx, start=1):
+            ic = composed_candidate_internals[idx]
+            composed_ped_basis_rows.append({
+                "Source": f"[{source_index}]",
+                "Filename": hess.filename,
+                "selection_order": order,
+                "candidate_index": idx,
+                "name": ic.name,
+                "kind": ic.kind,
+                "atoms_1based": "-".join(str(a+1) for a in ic.atoms0),
+                "priority": ic.priority,
+                "source": ic.source,
+                "composition": ";".join(f"{term.coordinate_index}:{term.coefficient:g}" for term in ic.composition),
+                "composition_category": ic.composition_category,
+                "generation_rule": ic.generation_rule,
+                "rank_preserved": bool(composed_ped_basis_report.get("rank_preserved", False)),
+                "composed_selected_count": int(composed_ped_basis_report.get("composed_selected_count", 0)),
+                "ped_basis_scope": "experimental_ped_only_not_used_for_assignment_audit",
+            })
 
     tables = {
         "source_map": pd.DataFrame(source_rows),
@@ -1928,10 +2020,15 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
         "ped_audit": pd.concat(ped_frames, ignore_index=True) if ped_frames else pd.DataFrame(),
         "ped_v2_force_audit": pd.concat(ped_v2_frames, ignore_index=True) if ped_v2_frames else pd.DataFrame(),
         "wilson_ped_audit": pd.concat(wilson_ped_frames, ignore_index=True) if wilson_ped_frames else pd.DataFrame(),
+        "composed_ped_audit": pd.concat(composed_ped_frames, ignore_index=True) if composed_ped_frames else pd.DataFrame(),
+        "composed_ped_v2_force_audit": pd.concat(composed_ped_v2_frames, ignore_index=True) if composed_ped_v2_frames else pd.DataFrame(),
+        "composed_wilson_ped_audit": pd.concat(composed_wilson_ped_frames, ignore_index=True) if composed_wilson_ped_frames else pd.DataFrame(),
         "sanity_check": pd.DataFrame(sanity_rows),
         "redundant_basis": pd.DataFrame(basis_rows),
         "independent_basis": pd.DataFrame(selected_rows),
         "optimized_ped_basis": pd.DataFrame(optimized_ped_rows),
+        "composed_ped_basis_diagnostics": pd.DataFrame(composed_ped_diagnostic_rows),
+        "composed_ped_basis": pd.DataFrame(composed_ped_basis_rows),
     }
     tables["ped_stage3d_agreement"] = reports_build_ped_stage3d_agreement_table(
         tables["assignment_audit"],
@@ -1952,7 +2049,12 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             "ped_audit": "PED v1 normalized B-matrix projection table generated separately from Stage 3D assignment audit",
             "ped_v2_force_audit": "PED v2 force-aware B-matrix/Hessian projection table generated when ORCA $hessian is available; not full Wilson GF PED",
             "wilson_ped_audit": "Wilson GF-style PED table generated when ORCA $hessian is available; includes G/F rank and condition diagnostics",
+            "composed_ped_audit": "Experimental PED-only composed-coordinate PED v1 audit; not used for Stage 3D assignment_audit labels",
+            "composed_ped_v2_force_audit": "Experimental PED-only composed-coordinate PED v2 force-aware audit; not used for Stage 3D assignment_audit labels",
+            "composed_wilson_ped_audit": "Experimental PED-only composed-coordinate Wilson GF-style PED audit; not used for Stage 3D assignment_audit labels",
             "optimized_ped_basis": "EPM-like independent-coordinate basis selected for PED/Wilson diagnostics; Stage 3D assignment_audit keeps the original rank/priority independent basis",
+            "composed_ped_basis_diagnostics": "Experimental PED-only composed-coordinate basis diagnostics; not used for Stage 3D assignment_audit labels",
+            "composed_ped_basis": "Experimental PED-only rank-preserving composed-coordinate basis selection; not used for Stage 3D assignment_audit labels",
             "ped_stage3d_agreement": "PED-first diagnostic policy table comparing Stage 3D assignment and strongest available PED interpretation; does not rewrite assignment_audit labels",
             "ped_final_assignment": "PED-driven final assignment table; uses PED when policy confirms/adds context and Stage 3D fallback when PED is unavailable, diffuse, or contradictory",
             "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
@@ -2499,6 +2601,9 @@ def analyze_orca_ped_like(paths: Sequence[str | Path], outdir: str | Path, out_p
         wilson_ped_audit=tables.get("wilson_ped_audit"),
         ped_v2_force_audit=tables.get("ped_v2_force_audit"),
         ped_audit=tables.get("ped_audit"),
+        composed_wilson_ped_audit=tables.get("composed_wilson_ped_audit"),
+        composed_ped_v2_force_audit=tables.get("composed_ped_v2_force_audit"),
+        composed_ped_audit=tables.get("composed_ped_audit"),
     )
     spectrum_json_path = outdir / f"{output_prefix}__spectrum_data.json"
     spectrum_html_path = reports_write_interactive_spectrum_viewer(

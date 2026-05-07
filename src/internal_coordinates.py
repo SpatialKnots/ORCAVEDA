@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import math
-from typing import Callable, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from chemistry import adjacency
-from orcaveda_models import FunctionalGroup, InternalCoordinate
+from orcaveda_models import ComposedCoordinateTerm, FunctionalGroup, InternalCoordinate
 
 
 def angle_deg_from_vectors(v1: np.ndarray, v2: np.ndarray) -> float:
@@ -43,6 +43,153 @@ def dihedral_rad(p0, p1, p2, p3) -> float:
 
 def torsion_fn(i: int, j: int, k: int, l: int) -> Callable[[np.ndarray], float]:
     return lambda xyz: dihedral_rad(xyz[i], xyz[j], xyz[k], xyz[l])
+
+
+def make_composed_internal_coordinate(
+    name: str,
+    kind: str,
+    primitive_internals: Sequence[InternalCoordinate],
+    components: Sequence[ComposedCoordinateTerm | tuple[int, float]],
+    *,
+    priority: int = 12,
+    category: str = "",
+    generation_rule: str = "manual_composed_coordinate",
+) -> InternalCoordinate:
+    if kind == "torsion":
+        raise ValueError("composed torsion coordinates are not supported in the first composed-coordinate patch")
+    if not components:
+        raise ValueError("components must contain at least one primitive coordinate")
+
+    terms: List[ComposedCoordinateTerm] = []
+    atom_union = set()
+    for component in components:
+        if isinstance(component, ComposedCoordinateTerm):
+            term = component
+        else:
+            term = ComposedCoordinateTerm(int(component[0]), float(component[1]))
+        idx = int(term.coordinate_index)
+        if idx < 0 or idx >= len(primitive_internals):
+            raise ValueError("component coordinate_index is out of range for primitive_internals")
+        if not np.isfinite(float(term.coefficient)):
+            raise ValueError("component coefficient must be finite")
+        primitive = primitive_internals[idx]
+        if primitive.kind == "torsion":
+            raise ValueError("composed torsion components are not supported in the first composed-coordinate patch")
+        terms.append(ComposedCoordinateTerm(idx, float(term.coefficient)))
+        atom_union.update(primitive.atoms0)
+
+    def composed_fn(xyz: np.ndarray) -> float:
+        return float(sum(term.coefficient * primitive_internals[term.coordinate_index].fn(xyz) for term in terms))
+
+    return InternalCoordinate(
+        name,
+        kind,
+        tuple(sorted(atom_union)),
+        int(priority),
+        composed_fn,
+        "composed_coordinate",
+        tuple(terms),
+        category,
+        generation_rule,
+    )
+
+
+def classify_coordinate_optimization_group(atoms: Sequence[str], internal: InternalCoordinate) -> str:
+    """
+    Classify coordinates for conservative composed-coordinate generation.
+
+    `XH_like` means the coordinate contains at least one hydrogen atom, including
+    C-H, O-H, N-H, and other X-H coordinates. This avoids labeling O-H or N-H
+    coordinates as C-H while still keeping hydrogen-involving motions separate
+    from heavy-atom-only motions for the first optimizer pass.
+    """
+    if not internal.atoms0:
+        return "other_unknown"
+    if any(idx < 0 or idx >= len(atoms) for idx in internal.atoms0):
+        raise ValueError("internal coordinate atom index is out of range for atoms")
+
+    kind = internal.kind.lower()
+    if "stretch" in kind or kind in {"bond", "distance", "interfragment_distance"} or kind.endswith("_ha") or kind.endswith("_da"):
+        motion = "stretch"
+    elif "torsion" in kind or kind.startswith("tor"):
+        motion = "torsion"
+    elif "bend" in kind or "angle" in kind or "deformation" in kind or kind.startswith("ang"):
+        motion = "bend"
+    else:
+        motion = "other"
+
+    hydrogen_class = "XH_like" if any(atoms[idx] == "H" for idx in internal.atoms0) else "heavy"
+    return f"{motion}_{hydrogen_class}"
+
+
+def build_xh_pair_composed_stretch_candidates(
+    atoms: Sequence[str],
+    primitive_internals: Sequence[InternalCoordinate],
+) -> List[InternalCoordinate]:
+    """
+    Build first-wave symmetric/asymmetric X-H stretch candidates.
+
+    This generator is deliberately narrow: it only combines two X-H stretch
+    coordinates that share the same heavy atom and have distinct hydrogens. It
+    returns candidates for later PED-only use and does not mutate the primitive
+    coordinate list used by Stage 3D.
+    """
+    unique_xh_stretches: Dict[Tuple[int, int], int] = {}
+    for idx, internal in enumerate(primitive_internals):
+        if classify_coordinate_optimization_group(atoms, internal) != "stretch_XH_like":
+            continue
+        if len(internal.atoms0) != 2:
+            continue
+        h_atoms = [atom_idx for atom_idx in internal.atoms0 if atoms[atom_idx] == "H"]
+        heavy_atoms = [atom_idx for atom_idx in internal.atoms0 if atoms[atom_idx] != "H"]
+        if len(h_atoms) != 1 or len(heavy_atoms) != 1:
+            continue
+        key = (heavy_atoms[0], h_atoms[0])
+        previous = unique_xh_stretches.get(key)
+        if previous is None:
+            unique_xh_stretches[key] = idx
+            continue
+        previous_internal = primitive_internals[previous]
+        if (internal.priority, internal.name, idx) < (previous_internal.priority, previous_internal.name, previous):
+            unique_xh_stretches[key] = idx
+
+    by_heavy: Dict[int, List[Tuple[int, int]]] = {}
+    for (heavy_idx, h_idx), primitive_idx in unique_xh_stretches.items():
+        by_heavy.setdefault(heavy_idx, []).append((h_idx, primitive_idx))
+
+    candidates: List[InternalCoordinate] = []
+    for heavy_idx in sorted(by_heavy):
+        stretches = sorted(by_heavy[heavy_idx])
+        if len(stretches) < 2:
+            continue
+        for left_pos in range(len(stretches) - 1):
+            h_left, idx_left = stretches[left_pos]
+            for h_right, idx_right in stretches[left_pos + 1:]:
+                center = f"{atoms[heavy_idx]}{heavy_idx + 1}"
+                h_pair = f"{atoms[h_left]}{h_left + 1},{atoms[h_right]}{h_right + 1}"
+                candidates.append(
+                    make_composed_internal_coordinate(
+                        f"composed_symmetric_XH_stretch({center}:{h_pair})",
+                        "composed_XH_stretch",
+                        primitive_internals,
+                        ((idx_left, 1.0), (idx_right, 1.0)),
+                        priority=8,
+                        category="stretch_XH_like",
+                        generation_rule="xh_pair_sum_difference",
+                    )
+                )
+                candidates.append(
+                    make_composed_internal_coordinate(
+                        f"composed_asymmetric_XH_stretch({center}:{h_pair})",
+                        "composed_XH_stretch",
+                        primitive_internals,
+                        ((idx_left, 1.0), (idx_right, -1.0)),
+                        priority=8,
+                        category="stretch_XH_like",
+                        generation_rule="xh_pair_sum_difference",
+                    )
+                )
+    return candidates
 
 
 def build_internal_coordinates(

@@ -633,6 +633,9 @@ def build_spectrum_payload(
     wilson_ped_audit: pd.DataFrame | None = None,
     ped_v2_force_audit: pd.DataFrame | None = None,
     ped_audit: pd.DataFrame | None = None,
+    composed_wilson_ped_audit: pd.DataFrame | None = None,
+    composed_ped_v2_force_audit: pd.DataFrame | None = None,
+    composed_ped_audit: pd.DataFrame | None = None,
     nist_reference_sets: Dict[str, object] | None = None,
 ) -> Dict[str, object]:
     from chemistry import (
@@ -648,7 +651,15 @@ def build_spectrum_payload(
         ped_v2_force_audit=ped_v2_force_audit,
         ped_audit=ped_audit,
     )
+    composed_ped_df, composed_ped_source_label = _select_ped_diagnostic_layer(
+        wilson_ped_audit=composed_wilson_ped_audit,
+        ped_v2_force_audit=composed_ped_v2_force_audit,
+        ped_audit=composed_ped_audit,
+    )
+    if composed_ped_source_label:
+        composed_ped_source_label = f"Composed-coordinate {composed_ped_source_label}"
     ped_by_mode = _build_ped_viewer_mode_summary(ped_df)
+    composed_ped_by_mode = _build_ped_viewer_mode_summary(composed_ped_df)
     files = []
 
     for hess in hess_list:
@@ -667,9 +678,12 @@ def build_spectrum_payload(
                 continue
             audit_row = audit_by_mode.get(mode)
             ped_row = ped_by_mode.get((str(hess.filename), int(mode)), {})
+            composed_ped_row = composed_ped_by_mode.get((str(hess.filename), int(mode)), {})
             stage3d_assignment = str(audit_row.get("functional_group_assignment", "")) if audit_row is not None else ""
             ped_assignment = str(ped_row.get("ped_assignment", "") or "")
             ped_source = ped_source_label if ped_assignment else ""
+            composed_ped_assignment = str(composed_ped_row.get("ped_assignment", "") or "")
+            composed_ped_source = composed_ped_source_label if composed_ped_assignment else ""
             ped_agreement_status, ped_policy_warning = classify_ped_stage3d_agreement(
                 stage3d_assignment,
                 ped_assignment,
@@ -703,6 +717,12 @@ def build_spectrum_payload(
                     "ped_policy_warning": ped_policy_warning,
                     "ped_top_contributors": str(ped_row.get("ped_top_contributors", "") or ""),
                     "ped_method": str(ped_row.get("ped_method", "") or ""),
+                    "composed_ped_assignment": composed_ped_assignment,
+                    "composed_ped_source": composed_ped_source,
+                    "composed_ped_top_family": str(composed_ped_row.get("ped_top_family", "") or ""),
+                    "composed_ped_top_percent": float(composed_ped_row.get("ped_top_percent", 0.0) or 0.0),
+                    "composed_ped_top_contributors": str(composed_ped_row.get("ped_top_contributors", "") or ""),
+                    "composed_ped_method": str(composed_ped_row.get("ped_method", "") or ""),
                     "top_internal_coordinates": str(audit_row.get("top_internal_coordinates", "")) if audit_row is not None else "",
                     "warnings": str(audit_row.get("warnings", "")) if audit_row is not None else "",
                 }
@@ -757,6 +777,7 @@ def build_spectrum_payload(
         "default_scale_factor": 1.0,
         "default_lorentz_hwhm": 12.0,
         "viewer_assignment_source": ped_source_label or "Stage 3D",
+        "viewer_composed_evidence_source": composed_ped_source_label,
         "files": files,
         "nist_reference_sets": nist_reference_sets or {},
     }
@@ -1410,6 +1431,13 @@ def write_interactive_spectrum_viewer(
             <div id="summaryGrid" class="summary-grid"></div>
             <div class="mode-card">
               <h3>Selected Mode</h3>
+              <label class="control compact-control">
+                <span>Evidence Layer</span>
+                <select id="evidenceLayer">
+                  <option value="baseline" selected>Baseline PED</option>
+                  <option value="composed">Composed PED</option>
+                </select>
+              </label>
               <div id="modeDetails" class="mode-grid"></div>
             </div>
           </div>
@@ -1477,6 +1505,7 @@ def write_interactive_spectrum_viewer(
     const scaleValue = document.getElementById("scaleValue");
     const hwhmValue = document.getElementById("hwhmValue");
     const summaryGrid = document.getElementById("summaryGrid");
+    const evidenceLayer = document.getElementById("evidenceLayer");
     const modeDetails = document.getElementById("modeDetails");
     const peakTable = document.getElementById("peakTable");
     const canvas = document.getElementById("chart");
@@ -2352,12 +2381,33 @@ def write_interactive_spectrum_viewer(
       appendKv(modeDetails, "Final Assignment Policy", mode.final_assignment_policy || "n/a", true);
       appendKv(modeDetails, "Final Assignment Warning", mode.final_assignment_warning || "n/a", true);
       appendKv(modeDetails, "Stage 3D Assignment", mode.stage3d_assignment || "n/a", true);
+      const selectedEvidence = evidenceLayer ? String(evidenceLayer.value || "baseline") : "baseline";
+      if (selectedEvidence === "composed") {{
+        appendKv(modeDetails, "Selected Evidence Layer", "Composed PED", true);
+        appendKv(modeDetails, "Selected Evidence Interpretation", mode.composed_ped_assignment || "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Source", mode.composed_ped_source || "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Top Contributor", mode.composed_ped_top_family ? `${{mode.composed_ped_top_family}} (${{Number(mode.composed_ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Contributors", mode.composed_ped_top_contributors || "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Method", mode.composed_ped_method || "n/a", true);
+      }} else {{
+        appendKv(modeDetails, "Selected Evidence Layer", "Baseline PED", true);
+        appendKv(modeDetails, "Selected Evidence Interpretation", mode.ped_assignment || "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Source", mode.ped_source || "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Top Contributor", mode.ped_top_family ? `${{mode.ped_top_family}} (${{Number(mode.ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Contributors", mode.ped_top_contributors || "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Method", mode.ped_method || "n/a", true);
+      }}
       appendKv(modeDetails, "PED Diagnostic Interpretation", mode.ped_assignment || "n/a", true);
       appendKv(modeDetails, "PED Agreement Status", mode.ped_agreement_status || "n/a", true);
       appendKv(modeDetails, "PED Policy Warning", mode.ped_policy_warning || "n/a", true);
       appendKv(modeDetails, "PED Top Contributor", mode.ped_top_family ? `${{mode.ped_top_family}} (${{Number(mode.ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
       appendKv(modeDetails, "PED Contributors", mode.ped_top_contributors || "n/a", true);
       appendKv(modeDetails, "PED Method", mode.ped_method || "n/a", true);
+      appendKv(modeDetails, "Composed PED Interpretation", mode.composed_ped_assignment || "n/a", true);
+      appendKv(modeDetails, "Composed PED Source", mode.composed_ped_source || "n/a", true);
+      appendKv(modeDetails, "Composed PED Top Contributor", mode.composed_ped_top_family ? `${{mode.composed_ped_top_family}} (${{Number(mode.composed_ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
+      appendKv(modeDetails, "Composed PED Contributors", mode.composed_ped_top_contributors || "n/a", true);
+      appendKv(modeDetails, "Composed PED Method", mode.composed_ped_method || "n/a", true);
       appendKv(modeDetails, "Warnings", mode.warnings || "none", true);
       appendKv(modeDetails, "Stage 3D Supporting Coordinates", mode.top_internal_coordinates || "n/a", true);
     }}
@@ -2689,6 +2739,10 @@ def write_interactive_spectrum_viewer(
       drawSpectrum(false);
     }});
     autoFitScale.addEventListener("click", autoFitScaleAgainstReference);
+    evidenceLayer.addEventListener("input", () => {{
+      const file = payload.files[currentIndex];
+      updateModeDetails(file, Number(scaleFactor.value || payload.default_scale_factor || 1.0));
+    }});
 
     molStyle.addEventListener("input", renderMolecule);
     fileSelect.addEventListener("input", () => {{

@@ -54,8 +54,29 @@ def test_interactive_spectrum_viewer_artifacts():
             }
         ]
     )
+    composed_wilson_ped = pd.DataFrame(
+        [
+            {
+                "Filename": hess.filename,
+                "mode": positive_mode,
+                "frequency_cm-1": float(hess.frequencies_cm1[positive_mode]),
+                "wilson_rank": 1,
+                "coordinate_family": "composed O-H stretch",
+                "internal_coordinate": "composed_symmetric_XH_stretch(O1:H2,H3)",
+                "coordinate_class": "stretch",
+                "contribution_percent": 99.8,
+                "source": "composed_coordinate",
+                "wilson_ped_method": "Composed Wilson GF PED test method",
+            }
+        ]
+    )
 
-    payload = build_spectrum_payload([hess], assignment_audit, wilson_ped_audit=wilson_ped)
+    payload = build_spectrum_payload(
+        [hess],
+        assignment_audit,
+        wilson_ped_audit=wilson_ped,
+        composed_wilson_ped_audit=composed_wilson_ped,
+    )
     target_mode = next(mode for mode in payload["files"][0]["modes"] if mode["mode"] == positive_mode)
     assert target_mode["assignment"] == "O-H stretch"
     assert target_mode["final_assignment"] == "O-H stretch"
@@ -64,10 +85,15 @@ def test_interactive_spectrum_viewer_artifacts():
     assert target_mode["stage3d_assignment"] == "O-H stretch"
     assert target_mode["ped_source"] == "Wilson GF-style PED audit"
     assert target_mode["ped_top_percent"] == 99.9
+    assert target_mode["composed_ped_source"] == "Composed-coordinate Wilson GF-style PED audit"
+    assert target_mode["composed_ped_assignment"] == "composed O-H stretch"
+    assert target_mode["composed_ped_top_percent"] == 99.8
+    assert "composed_symmetric_XH_stretch" in target_mode["composed_ped_top_contributors"]
     assert target_mode["ped_agreement_status"] == "disagrees"
     assert "ped_stage3d_semantic_disagreement" in target_mode["ped_policy_warning"]
     fallback_mode = next(mode for mode in payload["files"][0]["modes"] if mode["mode"] != positive_mode)
     assert fallback_mode["ped_source"] == ""
+    assert fallback_mode["composed_ped_source"] == ""
     assert fallback_mode["stage3d_assignment"] == ""
     assert fallback_mode["ped_agreement_status"] == "not_available"
 
@@ -93,6 +119,10 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "PED Policy Warning" in html_text
     assert "Stage 3D Assignment" in html_text
     assert "PED Contributors" in html_text
+    assert "Evidence Layer" in html_text
+    assert "Selected Evidence Interpretation" in html_text
+    assert "Composed PED Interpretation" in html_text
+    assert "Composed PED Contributors" in html_text
     assert "moleculeViewer" in html_text
     assert "3Dmol-min.js" in html_text
     assert "molStyle" in html_text
@@ -105,6 +135,9 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "stage3d_assignment" in json_text
     assert "ped_agreement_status" in json_text
     assert "ped_policy_warning" in json_text
+    assert "composed_ped_assignment" in json_text
+    assert "Composed-coordinate Wilson GF-style PED audit" in json_text
+    assert "composed_symmetric_XH_stretch" in json_text
     assert "O-H stretch" in json_text
     assert "\"geometry\"" in json_text
     assert "\"atoms\"" in json_text

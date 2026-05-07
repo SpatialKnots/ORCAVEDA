@@ -289,6 +289,21 @@ def ped_mode_summaries(ped_audit: pd.DataFrame, *, top_n: int = 4) -> pd.DataFra
     return pd.DataFrame(rows)
 
 
+def rename_ped_summary(summary: pd.DataFrame, *, prefix: str) -> pd.DataFrame:
+    """Rename PED summary columns so alternate evidence stays diagnostic-only."""
+    renamed = summary.copy()
+    renamed = renamed.rename(
+        columns={
+            "ped_top_contributors": f"{prefix}_top_contributors",
+            "ped_top_family": f"{prefix}_top_family",
+            "ped_top_percent": f"{prefix}_top_percent",
+            "ped_classes": f"{prefix}_classes",
+            "ped_warnings": f"{prefix}_warnings",
+        }
+    )
+    return renamed
+
+
 def audit_from_ped_final_assignment(final_assignment: pd.DataFrame) -> pd.DataFrame:
     """Adapt ped_final_assignment.csv to the legacy comparator audit schema."""
     final = final_assignment.copy()
@@ -407,6 +422,33 @@ def ped_diagnostic(
     return ped_status, ped_reason, overlap, "; ".join([agreement, *warnings])
 
 
+def semantic_rank(status: object) -> int:
+    text = "" if pd.isna(status) else str(status)
+    return {"FAIL": 0, "WARN": 1, "PASS": 2}.get(text, 1)
+
+
+def composed_policy_hint(
+    *,
+    ped_status: str,
+    ped_reason: str,
+    composed_status: str,
+    ped_top_percent: float,
+    composed_top_percent: float,
+) -> str:
+    """Summarize possible use of composed evidence without changing assignments."""
+    ped_rank = semantic_rank(ped_status)
+    composed_rank = semantic_rank(composed_status)
+    if composed_rank > ped_rank:
+        if float(ped_top_percent) < 25.0 or str(ped_reason) == "no_ped_classes":
+            return "fallback_candidate_when_baseline_ped_diffuse_or_unavailable"
+        return "warning_or_confirmation_layer_candidate"
+    if composed_rank == ped_rank and composed_status == "PASS":
+        return "confirmation_layer_candidate"
+    if float(composed_top_percent) > float(ped_top_percent) + 10.0:
+        return "localization_gain_without_semantic_improvement"
+    return "viewer_evidence_only"
+
+
 def multiscale_ped_summary(
     molecule_audit: pd.DataFrame,
     freq: float,
@@ -469,6 +511,7 @@ def compare(
     primary_frequency: str,
     ped_audit_csv: Path | None = None,
     ped_final_assignment_csv: Path | None = None,
+    composed_ped_audit_csv: Path | None = None,
 ) -> pd.DataFrame:
     benchmark = pd.read_csv(benchmark_csv)
     if ped_final_assignment_csv is not None:
@@ -482,6 +525,12 @@ def compare(
     if ped_audit_csv is not None:
         ped_summary = ped_mode_summaries(pd.read_csv(ped_audit_csv))
         audit = audit.merge(ped_summary, on=["Filename", "mode"], how="left")
+    if composed_ped_audit_csv is not None:
+        composed_summary = rename_ped_summary(
+            ped_mode_summaries(pd.read_csv(composed_ped_audit_csv)),
+            prefix="composed_ped",
+        )
+        audit = audit.merge(composed_summary, on=["Filename", "mode"], how="left")
     for column in ("ped_top_contributors", "ped_top_family", "ped_classes", "ped_warnings"):
         if column not in audit.columns:
             audit[column] = ""
@@ -489,6 +538,13 @@ def compare(
     if "ped_top_percent" not in audit.columns:
         audit["ped_top_percent"] = 0.0
     audit["ped_top_percent"] = pd.to_numeric(audit["ped_top_percent"], errors="coerce").fillna(0.0)
+    for column in ("composed_ped_top_contributors", "composed_ped_top_family", "composed_ped_classes", "composed_ped_warnings"):
+        if column not in audit.columns:
+            audit[column] = ""
+        audit[column] = audit[column].fillna("")
+    if "composed_ped_top_percent" not in audit.columns:
+        audit["composed_ped_top_percent"] = 0.0
+    audit["composed_ped_top_percent"] = pd.to_numeric(audit["composed_ped_top_percent"], errors="coerce").fillna(0.0)
     primary_column = "scaled_frequency_cm-1" if primary_frequency == "scaled" else "raw_frequency_cm-1"
 
     rows: list[dict[str, object]] = []
@@ -546,6 +602,35 @@ def compare(
             delta_cm1=delta,
             max_delta_cm1=max_delta_cm1,
         )
+        composed_ped_classes = classes_from_text(
+            chosen.get("composed_ped_top_contributors", ""),
+            chosen.get("composed_ped_top_family", ""),
+            chosen.get("composed_ped_classes", ""),
+        )
+        (
+            composed_ped_status,
+            composed_ped_reason,
+            stage3d_composed_ped_overlap,
+            stage3d_composed_ped_warning,
+        ) = ped_diagnostic(
+            expected,
+            actual,
+            composed_ped_classes,
+            stage3d_status=status,
+            ped_top_percent=float(chosen.get("composed_ped_top_percent", 0.0) or 0.0),
+            match_strategy=match_strategy,
+            delta_cm1=delta,
+            max_delta_cm1=max_delta_cm1,
+        )
+        semantic_delta = semantic_rank(composed_ped_status) - semantic_rank(ped_status)
+        if semantic_delta > 0:
+            composed_vs_baseline = "improves_semantic_match"
+        elif semantic_delta < 0:
+            composed_vs_baseline = "worsens_semantic_match"
+        elif float(chosen.get("composed_ped_top_percent", 0.0) or 0.0) > float(chosen.get("ped_top_percent", 0.0) or 0.0) + 10.0:
+            composed_vs_baseline = "localization_gain_without_semantic_improvement"
+        else:
+            composed_vs_baseline = "same_semantic_match"
 
         row = {
             "benchmark_row": idx,
@@ -587,6 +672,24 @@ def compare(
             "ped_semantic_reason": ped_reason,
             "stage3d_ped_overlap_classes": stage3d_ped_overlap,
             "stage3d_ped_warning": stage3d_ped_warning,
+            "composed_ped_top_contributors": chosen.get("composed_ped_top_contributors", ""),
+            "composed_ped_top_family": chosen.get("composed_ped_top_family", ""),
+            "composed_ped_top_percent": float(chosen.get("composed_ped_top_percent", 0.0) or 0.0),
+            "composed_ped_classes": "|".join(sorted(composed_ped_classes)),
+            "composed_ped_semantic_status": composed_ped_status,
+            "composed_ped_semantic_reason": composed_ped_reason,
+            "stage3d_composed_ped_overlap_classes": stage3d_composed_ped_overlap,
+            "stage3d_composed_ped_warning": stage3d_composed_ped_warning,
+            "composed_vs_baseline_ped_status": composed_vs_baseline,
+            "composed_ped_localization_delta_percent": float(chosen.get("composed_ped_top_percent", 0.0) or 0.0)
+            - float(chosen.get("ped_top_percent", 0.0) or 0.0),
+            "composed_ped_policy_hint": composed_policy_hint(
+                ped_status=ped_status,
+                ped_reason=ped_reason,
+                composed_status=composed_ped_status,
+                ped_top_percent=float(chosen.get("ped_top_percent", 0.0) or 0.0),
+                composed_top_percent=float(chosen.get("composed_ped_top_percent", 0.0) or 0.0),
+            ),
             "status": status,
             "reason": reason,
         }
@@ -645,6 +748,7 @@ def main() -> int:
     parser.add_argument("--primary-frequency", choices=("raw", "scaled"), default="raw", help="Frequency axis used for legacy status columns")
     parser.add_argument("--ped-audit", type=Path, default=None, help="Optional ORCAVEDA ped_audit CSV to add PED-aware diagnostics")
     parser.add_argument("--ped-final-assignment", type=Path, default=None, help="Optional ORCAVEDA ped_final_assignment CSV; when set, benchmark labels are compared against PED-driven final labels")
+    parser.add_argument("--composed-ped-audit", type=Path, default=None, help="Optional composed-coordinate PED audit CSV; adds separate diagnostic evidence columns only")
     parser.add_argument("--coverage-out", type=Path, default=None, help="Optional CSV path for PED final-label coverage by molecule")
     parser.add_argument("--coverage-detail-out", type=Path, default=None, help="Optional CSV path for per-mode PED final-label coverage detail")
     args = parser.parse_args()
@@ -660,6 +764,7 @@ def main() -> int:
         primary_frequency=args.primary_frequency,
         ped_audit_csv=args.ped_audit,
         ped_final_assignment_csv=args.ped_final_assignment,
+        composed_ped_audit_csv=args.composed_ped_audit,
     )
     if args.ped_final_assignment is not None and args.coverage_out is not None:
         coverage, detail = ped_coverage_audit(pd.read_csv(args.ped_final_assignment))

@@ -5,7 +5,7 @@ from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
-from orcaveda_models import InternalCoordinate
+from orcaveda_models import ComposedCoordinateTerm, InternalCoordinate
 
 
 EPS_FD_A = 1.0e-4
@@ -32,6 +32,80 @@ def finite_difference_B(coords_A: np.ndarray, internals: Sequence[InternalCoordi
                 B[r, c] = (vp - vm) / (2 * eps)
     B[~np.isfinite(B)] = 0.0
     return B
+
+
+def compose_b_row(B: np.ndarray, components: Sequence[ComposedCoordinateTerm | tuple[int, float]]) -> np.ndarray:
+    """
+    Build a composed-coordinate B row from already-computed primitive rows.
+
+    The composed row is the coefficient-weighted sum of primitive rows. This is
+    an additive PED-basis helper only; it does not change finite-difference
+    evaluation, rank selection, or Stage 3D assignment behavior.
+    """
+    B_arr = np.asarray(B, dtype=float)
+    if B_arr.ndim != 2:
+        raise ValueError(f"B must be a 2D matrix, got shape {B_arr.shape}")
+    if not components:
+        raise ValueError("components must contain at least one primitive coordinate")
+
+    row = np.zeros(B_arr.shape[1], dtype=float)
+    for component in components:
+        if isinstance(component, ComposedCoordinateTerm):
+            idx = int(component.coordinate_index)
+            coefficient = float(component.coefficient)
+        else:
+            idx = int(component[0])
+            coefficient = float(component[1])
+        if idx < 0 or idx >= B_arr.shape[0]:
+            raise ValueError("component coordinate_index is out of range for B")
+        if not np.isfinite(coefficient):
+            raise ValueError("component coefficient must be finite")
+        row += coefficient * B_arr[idx, :]
+    row[~np.isfinite(row)] = 0.0
+    return row
+
+
+def build_composed_candidate_b_matrix(
+    B_primitive: np.ndarray,
+    primitive_internals: Sequence[InternalCoordinate],
+    composed_internals: Sequence[InternalCoordinate],
+) -> tuple[List[InternalCoordinate], np.ndarray, Dict[str, object]]:
+    """
+    Append composed-coordinate rows to a primitive B matrix for PED candidates.
+
+    This helper is intentionally side-effect free: primitive internals remain at
+    the start of the returned list, composed rows are appended, and no rank
+    selection or pipeline output behavior changes here.
+    """
+    B_arr = np.asarray(B_primitive, dtype=float)
+    if B_arr.ndim != 2:
+        raise ValueError(f"B_primitive must be a 2D matrix, got shape {B_arr.shape}")
+    if B_arr.shape[0] != len(primitive_internals):
+        raise ValueError("B_primitive row count must match primitive_internals")
+
+    composed_rows: List[np.ndarray] = []
+    generation_rule_counts: Dict[str, int] = {}
+    for composed in composed_internals:
+        if composed.source != "composed_coordinate":
+            raise ValueError("composed_internals must have source='composed_coordinate'")
+        row = compose_b_row(B_arr, composed.composition)
+        composed_rows.append(row)
+        rule = composed.generation_rule or "unknown"
+        generation_rule_counts[rule] = generation_rule_counts.get(rule, 0) + 1
+
+    if composed_rows:
+        B_candidates = np.vstack([B_arr, np.vstack(composed_rows)])
+    else:
+        B_candidates = B_arr.copy()
+
+    candidate_internals = list(primitive_internals) + list(composed_internals)
+    diagnostics: Dict[str, object] = {
+        "primitive_count": int(len(primitive_internals)),
+        "composed_count": int(len(composed_internals)),
+        "candidate_count": int(len(candidate_internals)),
+        "generation_rule_counts": generation_rule_counts,
+    }
+    return candidate_internals, B_candidates, diagnostics
 
 
 def svd_rank_condition(B: np.ndarray, tol_abs: float = 1.0e-6) -> Tuple[int, float, np.ndarray]:
@@ -273,6 +347,75 @@ def optimize_independent_coordinates_for_ped(
     report.update({f"initial_{key}": value for key, value in initial_metrics.items()})
     report.update({f"optimized_{key}": value for key, value in optimized_metrics.items()})
     return selected, report
+
+
+def select_rank_preserving_composed_ped_basis(
+    B_candidates: np.ndarray,
+    candidate_internals: Sequence[InternalCoordinate],
+    starting_idx: Sequence[int],
+    normal_modes: np.ndarray,
+    mode_indices: Sequence[int] | None = None,
+    *,
+    tol_abs: float = 1.0e-6,
+    max_passes: int = 2,
+    improvement_tol: float = 1.0e-6,
+):
+    """
+    Optimize a PED candidate basis while preserving the starting basis rank.
+
+    The input `starting_idx` should normally be the already accepted primitive
+    independent-coordinate basis. Composed candidates may replace primitive
+    rows only when the original rank is preserved. This helper is not connected
+    to Stage 3D or report generation.
+    """
+    B_arr = np.asarray(B_candidates, dtype=float)
+    if B_arr.ndim != 2:
+        raise ValueError(f"B_candidates must be a 2D matrix, got shape {B_arr.shape}")
+    if B_arr.shape[0] != len(candidate_internals):
+        raise ValueError("B_candidates row count must match candidate_internals")
+    starting = [int(i) for i in starting_idx]
+    if any(i < 0 or i >= len(candidate_internals) for i in starting):
+        raise ValueError("starting_idx contains an out-of-range candidate index")
+    if not starting:
+        raise ValueError("starting_idx must contain at least one accepted primitive coordinate")
+
+    starting_rank, starting_condition, _ = svd_rank_condition(B_arr[starting, :], tol_abs=tol_abs)
+    if starting_rank <= 0:
+        raise ValueError("starting_idx has zero recoverable rank")
+
+    optimized_idx, optimizer_report = optimize_independent_coordinates_for_ped(
+        B_arr,
+        candidate_internals,
+        starting,
+        normal_modes,
+        mode_indices,
+        target_rank=starting_rank,
+        tol_abs=tol_abs,
+        max_passes=max_passes,
+        improvement_tol=improvement_tol,
+    )
+    optimized_rank, optimized_condition, _ = svd_rank_condition(B_arr[optimized_idx, :], tol_abs=tol_abs)
+    if optimized_rank < starting_rank:
+        raise RuntimeError("rank-preserving composed PED basis optimization lost rank")
+
+    selected_composed_indices = [
+        idx for idx in optimized_idx
+        if candidate_internals[idx].source == "composed_coordinate"
+    ]
+    report = dict(optimizer_report)
+    report.update(
+        {
+            "rank_preserved": True,
+            "required_rank": int(starting_rank),
+            "starting_rank": int(starting_rank),
+            "starting_condition": float(starting_condition),
+            "optimized_rank": int(optimized_rank),
+            "optimized_condition": float(optimized_condition),
+            "composed_selected_count": int(len(selected_composed_indices)),
+            "selected_composed_indices": selected_composed_indices,
+        }
+    )
+    return optimized_idx, report
 
 
 def _select_independent_coordinates_pivoted_cholesky(

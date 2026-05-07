@@ -14,12 +14,17 @@ After this work, a user should be able to run ORCAVEDA on a `.hess` file and rec
 
 - [x] (2026-05-06 16:31+05:00) Existing project agent roles, ORCAVEDA skills, current PED code, and Jamroz 2013 text extraction were reviewed.
 - [x] (2026-05-06 16:31+05:00) Initial ExecPlan written before starting implementation of composed-coordinate optimization.
-- [ ] Implement composed internal-coordinate data model and B-row composition.
-- [ ] Implement same-type and CH/not-CH coordinate grouping.
-- [ ] Implement first composed coordinate generators for high-value chemical motifs.
-- [ ] Implement EPM metrics and optimization gates.
-- [ ] Integrate composed PED basis into Wilson/PED outputs without changing Stage 3D baseline.
-- [ ] Validate on synthetic cases, H2O/NH3, aromatic/ring cases, and full golden `.hess`.
+- [x] (2026-05-07 09:53+05:00) Implement initial composed internal-coordinate data model and B-row composition invariant helper.
+- [x] (2026-05-07 09:57+05:00) Implement same-type and X-H/heavy coordinate grouping helper.
+- [x] (2026-05-07 10:02+05:00) Implement first narrow X-H pair symmetric/asymmetric stretch candidate generator.
+- [x] (2026-05-07 10:06+05:00) Implement composed PED candidate B-matrix builder helper.
+- [x] (2026-05-07 10:09+05:00) Implement rank-preserving composed PED basis selection helper.
+- [x] (2026-05-07 10:15+05:00) Integrate composed PED basis as an experimental PED-only diagnostics layer without changing `assignment_audit`.
+- [x] (2026-05-07 10:20+05:00) Add separate composed PED/PED v2/Wilson audit tables without changing Stage 3D baseline.
+- [x] (2026-05-07 10:25+05:00) Run full-golden composed PED audit diagnostics over all local `data/hess/*.hess`.
+- [x] (2026-05-07 10:34+05:00) Expose composed PED evidence in the interactive viewer as a separate selectable/visible evidence layer.
+- [x] (2026-05-07 11:05+05:00) Add benchmark comparator support for composed PED audit as a separate diagnostic source and run policy review.
+- [ ] (next) Harden composed-coordinate semantic labels for X-H, carbonyl, and carboxylic-context evidence before any policy integration.
 
 ## Surprises & Discoveries
 
@@ -31,6 +36,9 @@ After this work, a user should be able to run ORCAVEDA on a `.hess` file and rec
 
 - Observation: Jamroz 2013 describes a stronger method than the current ORCAVEDA optimizer. VEDA constructs composed local coordinates from sums or differences, usually preserving coordinate type and separating CH-like motions from heavy-atom motions.
   Evidence: Extracted text in `outputs/jamroz_2013_text.txt`, especially the sections "Different ways for optimization of PED analysis" and "Block diagram".
+
+- Observation: On the current curated benchmark rows, composed Wilson evidence did not improve semantic status relative to `ped_final_assignment`, even though it improved localization for one acetophenone carbonyl row. Several rows worsened as a separate evidence source because composed top terms lost explicit C-H or O-H semantic classes.
+  Evidence: `outputs/composed_ped_benchmark_20260507/composed_ped_comparison_raw.csv` and `outputs/composed_ped_benchmark_20260507/composed_ped_comparison_scaled.csv`.
 
 ## Decision Log
 
@@ -54,9 +62,133 @@ After this work, a user should be able to run ORCAVEDA on a `.hess` file and rec
   Rationale: Jamroz describes EPM as the arithmetic average of maximal elements of the PED matrix. ORCAVEDA currently has a mode-centric localization score and Wilson energy terms, but not the full VEDA coordinate-construction workflow.
   Date/Author: 2026-05-06 / Codex
 
+- Decision: Start composed-coordinate implementation with metadata, a manual composed-coordinate factory, and a pure B-row composition helper.
+  Rationale: This proves the core invariant that a composed coordinate's B row is the coefficient-weighted sum of primitive B rows without changing Stage 3D assignment behavior, automatic coordinate generation, rank selection, output schemas, or scientific thresholds.
+  Date/Author: 2026-05-07 / Codex
+
+- Decision: Name the first hydrogen-containing grouping class `XH_like`, not `CH_like`.
+  Rationale: The initial grouping deliberately separates all hydrogen-involving motions, including C-H, O-H, and N-H, from heavy-atom-only motions. Calling this group `CH_like` would obscure O-H and N-H semantics, while `XH_like` preserves the intended safety boundary for future composed-coordinate generation.
+  Date/Author: 2026-05-07 / Codex
+
+- Decision: Keep composed-coordinate evidence as viewer/diagnostic evidence only after the first benchmark comparator run.
+  Rationale: The benchmark comparator found no semantic improvements over the baseline `ped_final_assignment` source on the current curated benchmark rows. The composed layer can confirm existing PASS rows and expose localization changes, but the evidence does not yet justify warning policy changes or automatic fallback into final assignments.
+  Date/Author: 2026-05-07 / Codex
+
 ## Outcomes & Retrospective
 
-No implementation outcomes yet. This plan was created before starting the composed-coordinate optimization patch. Update this section after each milestone with the exact commands run, generated files, observed EPM changes, fallback changes, and any scientific limitations discovered.
+Initial composed-coordinate model outcome: `src/orcaveda_models.py` now adds `ComposedCoordinateTerm` and optional trailing composition metadata on `InternalCoordinate`. `src/internal_coordinates.py` now has `make_composed_internal_coordinate(...)` for manual composed-coordinate construction from existing primitive coordinates. `src/b_matrix.py` now has `compose_b_row(...)`, which builds a coefficient-weighted B row from already-computed primitive B rows. This is additive and does not change Stage 3D assignment behavior, automatic coordinate generation, rank selection, output schemas, or PED final-label policy.
+
+Initial composed-coordinate validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_golden_rdkit_outputs.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_composed_ped_baseline_tmp` returned `30 passed, 1 skipped` before edits.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_composed_brow_tmp` returned `13 passed` after the focused composed-coordinate patch.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_golden_rdkit_outputs.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_composed_ped_after_patch_tmp` returned `31 passed, 1 skipped` after the patch.
+
+Current limitation after the first model patch: automatic composed-coordinate generation, grouping rules, rank-preserving composed PED selection, composed-coordinate output tables, and EPM-like before/after reporting remained not implemented in source.
+
+Initial coordinate-grouping outcome: `src/internal_coordinates.py` now has `classify_coordinate_optimization_group(...)`, which classifies internal coordinates by motion family (`stretch`, `bend`, `torsion`, or `other`) and by whether the coordinate contains hydrogen (`XH_like`) or only heavy atoms (`heavy`). This is a pure helper for future composed-coordinate candidate generation and is not connected to the pipeline or output tables.
+
+Coordinate-grouping validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_coordinate_grouping_tmp` returned `14 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_golden_rdkit_outputs.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_coordinate_grouping_baseline_tmp` returned `32 passed, 1 skipped`.
+
+Current limitation: automatic composed-coordinate generation, rank-preserving composed PED selection, composed-coordinate output tables, and EPM-like before/after reporting remain not implemented in source.
+
+Initial X-H pair generator outcome: `src/internal_coordinates.py` now has `build_xh_pair_composed_stretch_candidates(...)`. It creates symmetric and asymmetric sum/difference candidates only for two X-H stretch coordinates sharing the same heavy atom and having distinct hydrogens. Duplicate primitive X-H stretches for the same atom pair are resolved deterministically by priority, name, and index. The helper returns candidate `InternalCoordinate` objects but is not connected to Stage 3D, PED basis selection, pipeline outputs, or CSV schemas.
+
+X-H pair generator validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_xh_pair_generator_tmp` returned `15 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_golden_rdkit_outputs.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_xh_pair_generator_baseline_tmp` returned `33 passed, 1 skipped`.
+
+Current limitation: the first generator is available as a pure helper only. Rank-preserving composed PED selection, composed-coordinate output tables, EPM-like before/after reporting, and full-golden behavior remain not implemented in source.
+
+Initial composed candidate B-matrix outcome: `src/b_matrix.py` now has `build_composed_candidate_b_matrix(...)`. It appends composed-coordinate rows to an existing primitive B matrix, returns primitive internals followed by composed internals, and reports diagnostic counts including generation-rule counts. It is side-effect free and does not perform rank selection, modify Stage 3D internals, or write pipeline outputs.
+
+Composed candidate B-matrix validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_composed_candidate_b_matrix_tmp` returned `16 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_golden_rdkit_outputs.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_composed_candidate_b_matrix_baseline_tmp` returned `34 passed, 1 skipped`.
+
+Current limitation: rank-preserving composed PED selection, composed-coordinate output tables, EPM-like before/after reporting, and full-golden behavior remain not implemented in source.
+
+Initial rank-preserving composed PED basis outcome: `src/b_matrix.py` now has `select_rank_preserving_composed_ped_basis(...)`. It starts from an accepted primitive basis, computes the starting rank, runs the existing EPM-like PED optimizer over the primitive plus composed candidate matrix, and rejects rank loss. The helper reports required rank, starting and optimized condition diagnostics, selected composed candidate indices, and composed selected count. It is still a pure helper and is not connected to Stage 3D, pipeline outputs, or CSV schemas.
+
+Rank-preserving composed PED basis validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_rank_preserving_composed_basis_tmp` returned `17 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_golden_rdkit_outputs.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_rank_preserving_composed_basis_baseline_tmp` returned `35 passed, 1 skipped`.
+
+Current limitation: this selection helper has only synthetic/H2O-style unit coverage. Pipeline integration, composed-coordinate output tables, EPM-like report fields, full-golden behavior, and any effect on final assignment policy remain not implemented in source.
+
+Initial pipeline diagnostics outcome: `src/ORCAVEDA_patched_stage3D_v5_0.py` now builds X-H pair composed candidates, constructs a primitive plus composed candidate B matrix, and runs rank-preserving composed PED basis selection for each analyzed `.hess` file. The result is written only to new diagnostic tables: `composed_ped_basis_diagnostics` and `composed_ped_basis`. Existing `assignment_audit`, `ped_audit`, `ped_v2_force_audit`, `wilson_ped_audit`, `ped_stage3d_agreement`, and `ped_final_assignment` continue to use the existing basis behavior at this milestone.
+
+Pipeline diagnostics validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_composed_pipeline_tmp` returned `17 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_golden_rdkit_outputs.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_composed_pipeline_baseline_tmp` returned `35 passed, 1 skipped`.
+
+Current limitation: composed basis selection is visible as diagnostics only. It is not yet used to build PED, force-aware PED, or Wilson PED audit rows, and it does not affect final assignment policy. Full-golden behavior remains not run for this milestone.
+
+Initial composed PED audit outcome: `src/ORCAVEDA_patched_stage3D_v5_0.py` now writes separate experimental composed-coordinate audit tables: `composed_ped_audit`, `composed_ped_v2_force_audit`, and `composed_wilson_ped_audit`. These tables are built from the primitive plus composed candidate B matrix and the rank-preserving composed PED basis selection. The existing `ped_audit`, `ped_v2_force_audit`, `wilson_ped_audit`, `assignment_audit`, `ped_stage3d_agreement`, and `ped_final_assignment` remain on their prior basis behavior.
+
+Composed PED audit validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_composed_ped_audits_tmp` returned `17 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_golden_rdkit_outputs.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_composed_ped_audits_baseline_tmp` returned `35 passed, 1 skipped`.
+
+Current limitation: composed audit tables are not yet consumed by `ped_stage3d_agreement`, `ped_final_assignment`, viewer payloads, or benchmark comparators. Full-golden behavior remains not run for this milestone.
+
+Full-golden composed diagnostics outcome: running the current pipeline on all local `data/hess/*.hess` completed successfully and wrote outputs under `outputs/composed_ped_audits_full_golden_20260507`. The input set contained 55 `.hess` files, and `source_map.csv` plus `composed_ped_basis_diagnostics.csv` each contained 55 rows, so all input files were represented in the generated tables. The aggregated output prefix was `acetaldehyde__acetamide__acetanilide__plus_52_files__multi_file_55`.
+
+Full-golden command:
+
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\composed_ped_audits_full_golden_20260507`, where `@hess` was the PowerShell-expanded sorted list from `Get-ChildItem -LiteralPath 'data\hess' -Filter '*.hess'`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+
+Full-golden audit results:
+
+- `composed_candidate_count` total: 366.
+- `composed_selected_count` total: 166.
+- Rank losses: 0 rows; every row preserved `optimized_rank >= required_rank`.
+- Baseline high-frequency rows at or above 2500 cm-1 in `assignment_audit`: 350.
+- Baseline high-frequency unassigned rows: 0.
+- Rows with improved `optimized_mean_top_percent`: 52 of 55.
+- Rows with improved `optimized_mean_top_percent` and at least one selected composed row: 43 of 55.
+- Rows improved without selected composed rows, reflecting primitive-only optimization in the same helper path: `benzaldimine.hess`, `benzaldoxime.hess`, `benzene.hess`, `benzoic_acid.hess`, `benzonitrile.hess`, `nitrobenzene.hess`, `phenol.hess`, `pyridine.hess`, and `pyrrole.hess`.
+- Rows without improvement: `ethyne.hess`, `H2O2_freq.hess`, and `phenyl_isocyanate.hess`.
+- Files with no generated X-H pair candidates: `benzaldimine.hess`, `benzaldoxime.hess`, `benzene.hess`, `benzoic_acid.hess`, `benzonitrile.hess`, `ethyne.hess`, `H2O2_freq.hess`, `nitrobenzene.hess`, `phenol.hess`, `phenyl_isocyanate.hess`, `pyridine.hess`, and `pyrrole.hess`.
+
+Full-golden verdict: PASS for diagnostic integration. The composed-coordinate layer is safe as a separate evidence surface on this local corpus. It is not yet validated as an input to `ped_stage3d_agreement`, `ped_final_assignment`, viewer payloads, or benchmark comparators.
+
+Initial viewer evidence-layer outcome: `src/reports.py` now accepts `composed_wilson_ped_audit`, `composed_ped_v2_force_audit`, and `composed_ped_audit` in `build_spectrum_payload(...)`. The payload carries composed PED interpretation fields separately from baseline PED fields. The interactive HTML viewer adds an `Evidence Layer` selector in the selected-mode card and displays both baseline PED evidence and composed PED evidence without changing `final_assignment`, `assignment`, `ped_stage3d_agreement`, or `ped_final_assignment` policy. `src/ORCAVEDA_patched_stage3D_v5_0.py` passes the composed audit tables into the spectrum payload.
+
+Viewer evidence-layer validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py -q --basetemp outputs\pytest_composed_viewer_tmp` returned `6 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_composed_viewer_ped_tmp` returned `17 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_golden_rdkit_outputs.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_composed_viewer_baseline_tmp` returned `35 passed, 1 skipped`.
+
+Current limitation: visual browser inspection of the generated HTML was not run at this milestone. The viewer tests verify HTML text and JSON payload fields, but not pixel layout or manual interaction in a browser.
+
+Initial benchmark comparator outcome: `benchmarks/vibrational_assignments/compare_orcaveda_assignments.py` now accepts `--composed-ped-audit` and writes separate composed-coordinate diagnostic columns next to the existing baseline PED and `ped_final_assignment` benchmark columns. The new columns include `composed_ped_top_contributors`, `composed_ped_top_family`, `composed_ped_top_percent`, `composed_ped_classes`, `composed_ped_semantic_status`, `composed_ped_semantic_reason`, `stage3d_composed_ped_overlap_classes`, `stage3d_composed_ped_warning`, `composed_vs_baseline_ped_status`, `composed_ped_localization_delta_percent`, and `composed_ped_policy_hint`. These columns do not change the legacy `status`, `reason`, `orcaveda_assignment`, or `ped_final_assignment` comparison path.
+
+Benchmark comparator validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_vibrational_assignment_multiscale.py -q --basetemp outputs\pytest_composed_comparator_tmp` returned `6 passed`.
+- Raw benchmark command with `--ped-final-assignment` and `--composed-ped-audit outputs\composed_ped_audits_full_golden_20260507\acetaldehyde__acetamide__acetanilide__plus_52_files__multi_file_55__composed_wilson_ped_audit.csv` wrote `outputs\composed_ped_benchmark_20260507\composed_ped_comparison_raw.csv` and reported `27 PASS` and `66 WARN` for the primary baseline comparison.
+- Scaled benchmark command with the same composed audit source wrote `outputs\composed_ped_benchmark_20260507\composed_ped_comparison_scaled.csv` and reported `26 PASS` and `67 WARN` for the primary baseline comparison.
+
+Benchmark policy review:
+
+- Raw comparison: baseline PED semantic status was `32 PASS` and `61 WARN`; composed PED semantic status was `28 PASS`, `61 WARN`, and `4 FAIL`. `composed_vs_baseline_ped_status` reported `87 same_semantic_match`, `5 worsens_semantic_match`, `1 localization_gain_without_semantic_improvement`, and `0 improves_semantic_match`.
+- Scaled comparison: baseline PED semantic status was `32 PASS` and `61 WARN`; composed PED semantic status was `27 PASS`, `61 WARN`, and `5 FAIL`. `composed_vs_baseline_ped_status` reported `86 same_semantic_match`, `6 worsens_semantic_match`, `1 localization_gain_without_semantic_improvement`, and `0 improves_semantic_match`.
+- The only localization-only gain in both raw and scaled outputs was acetophenone near 1683 cm-1, where composed evidence raised the top contributor from baseline `C-C-C bend` at 45.933% to composed `C=O stretch` at 63.043354%, while both sources remained semantic PASS.
+- Worsened composed evidence rows included acetaldehyde C-H bend rows, acetamide C-H stretch rows, benzoic-acid O-H/context rows, and one scaled aniline mixed row. The common risk is that composed-coordinate terms can improve or preserve localization but lose explicit chemical labels needed by the benchmark class extractor.
+
+Current policy: composed evidence remains suitable as a viewer evidence layer and benchmark diagnostic. It is not yet supported as an automatic warning/confirmation policy layer or as fallback into final assignments. A future fallback experiment should require new evidence where baseline PED is diffuse or unavailable and composed evidence improves semantic status without increasing C-H, N-H, O-H, or carboxylic-context failures.
+
+Next planned stage: composed-coordinate semantic hardening. The benchmark comparator showed that composed coordinates can improve localization while losing explicit chemical labels such as C-H, O-H, C=O, or carboxylic acid context. The next patch should inspect the worsened rows in `outputs/composed_ped_benchmark_20260507`, improve composed-coordinate naming and `coordinate_family` propagation from primitive components, add focused tests for X-H and carbonyl/carboxylic labels, regenerate a small benchmark subset, and only then repeat the raw/scaled comparator. This stage must not change `ped_final_assignment`, `ped_stage3d_agreement`, or `assignment_audit` policy.
 
 ## Context and Orientation
 
@@ -100,6 +232,8 @@ Fifth, integrate composed candidates into PED basis optimization without changin
 Sixth, update PED and reports. Add `composed_ped_basis.csv`, `composed_coordinate_definitions.csv`, and summary columns showing composed optimization status. Add columns to PED audit rows that identify whether a top contributor is primitive or composed and, for composed rows, list component coordinates and coefficients. Viewer wording must call this "composed-coordinate PED optimization" or "VEDA-inspired EPM-like optimization", not "VEDA-equivalent".
 
 Seventh, validate incrementally. Start with synthetic molecules where expected sums and differences are obvious, then water and ammonia, then benzene and acetophenone, then the full golden `.hess` set. Compare not only EPM-like metrics but also PED-driven final label policy counts, Stage 3D fallback counts, high-frequency unassigned modes, rank loss, and selected NIST matching diagnostics when relevant.
+
+Eighth, harden composed-coordinate semantics before policy integration. Use the benchmark rows where composed evidence worsened as test fixtures and improve only label propagation and diagnostic text first. The target is to preserve explicit X-H labels (`C-H`, `N-H`, `O-H`), carbonyl labels (`C=O`), and carboxylic-acid context when a composed coordinate is made from primitive coordinates that already carry those semantics. Re-run the comparator and require fewer or zero `worsens_semantic_match` rows before considering warning/confirmation or fallback policies.
 
 ## Concrete Steps
 

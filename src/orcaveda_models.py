@@ -21,6 +21,12 @@ class HessData:
 
 
 @dataclass
+class ComposedCoordinateTerm:
+    coordinate_index: int
+    coefficient: float
+
+
+@dataclass
 class InternalCoordinate:
     name: str
     kind: str
@@ -28,6 +34,9 @@ class InternalCoordinate:
     priority: int
     fn: Callable[[np.ndarray], float]
     source: str = "primitive"
+    composition: Tuple[ComposedCoordinateTerm, ...] = ()
+    composition_category: str = ""
+    generation_rule: str = ""
 
 
 @dataclass

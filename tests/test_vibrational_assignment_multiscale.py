@@ -262,6 +262,93 @@ def test_ped_aware_comparator_accepts_wilson_rank_schema():
     assert result["raw_ped_window_50_status"] == "PASS"
 
 
+def test_composed_ped_audit_stays_separate_from_baseline_assignment_status():
+    outdir = OUTROOT / "composed_ped_source"
+    benchmark = _write_csv(
+        outdir / "benchmark.csv",
+        [
+            {
+                "molecule": "water",
+                "hess_file": "water.hess",
+                "observed_ir_cm1": 3650.0,
+                "observed_raman_cm1": "",
+                "calculated_cm1": "",
+                "assignment_normalized": "O-H stretch",
+                "mode_family": "stretch",
+                "functional_group": "O-H",
+                "confidence": "gold",
+            }
+        ],
+    )
+    audit = _write_csv(
+        outdir / "audit.csv",
+        [
+            {
+                "Filename": "water.hess",
+                "mode": 7,
+                "frequency_cm-1": 3650.0,
+                "IR_intensity": 100.0,
+                "functional_group_assignment": "C-C bend",
+                "top_internal_coordinates": "ang(C1-C2-C3)=74.0%",
+                "top1_coord": "ang(C1-C2-C3)",
+                "assignment_confidence": "medium",
+            }
+        ],
+    )
+    baseline_ped = _write_csv(
+        outdir / "ped.csv",
+        [
+            {
+                "Filename": "water.hess",
+                "mode": 7,
+                "frequency_cm-1": 3650.0,
+                "ped_rank": 1,
+                "coordinate_family": "C-C bend",
+                "internal_coordinate": "ang(C1-C2-C3)",
+                "coordinate_class": "bend",
+                "contribution_percent": 74.0,
+                "ped_warnings": "",
+            }
+        ],
+    )
+    composed_ped = _write_csv(
+        outdir / "composed_wilson.csv",
+        [
+            {
+                "Filename": "water.hess",
+                "mode": 7,
+                "frequency_cm-1": 3650.0,
+                "wilson_rank": 1,
+                "coordinate_family": "O-H stretch",
+                "internal_coordinate": "composed_symmetric_XH_stretch(O1:H2,H3)",
+                "coordinate_class": "stretch",
+                "contribution_percent": 98.5,
+                "wilson_ped_warnings": "",
+            }
+        ],
+    )
+
+    result = compare(
+        benchmark,
+        audit,
+        outdir / "out.csv",
+        max_delta_cm1=80.0,
+        windows_cm1=[50.0],
+        scale_factor=1.0,
+        primary_frequency="raw",
+        ped_audit_csv=baseline_ped,
+        composed_ped_audit_csv=composed_ped,
+    ).iloc[0]
+
+    assert result["status"] == "FAIL"
+    assert result["ped_semantic_status"] == "FAIL"
+    assert result["composed_ped_semantic_status"] == "PASS"
+    assert result["composed_vs_baseline_ped_status"] == "improves_semantic_match"
+    assert result["composed_ped_policy_hint"] == "warning_or_confirmation_layer_candidate"
+    assert "composed_symmetric_XH_stretch" in result["composed_ped_top_contributors"]
+    assert result["orcaveda_assignment"] == "C-C bend"
+
+
 def test_ped_final_assignment_comparator_and_coverage():
     outdir = OUTROOT / "ped_final"
     benchmark = _write_csv(
