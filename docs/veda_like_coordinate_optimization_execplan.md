@@ -38,7 +38,8 @@ After this work, a user should be able to run ORCAVEDA on a `.hess` file and rec
 - [x] (2026-05-12 16:30+05:00) Add warning-only diagnostic for primitive-row optimizer substitution evidence without changing final assignments.
 - [x] (2026-05-12 16:42+05:00) Run focused tests, subset check, and full-golden acceptance for the warning-only diagnostic.
 - [x] (2026-05-12 17:10+05:00) Add an opt-in narrow primitive-substitution constraint experiment and validate the DMF/ethene/ethylene oxide subset.
-- [ ] (next) Run full-golden acceptance for the opt-in primitive-substitution constraint before considering default behavior.
+- [x] (2026-05-13 10:36+05:00) Run full-golden acceptance for the opt-in primitive-substitution constraint; rank was preserved, final labels were unchanged, and primitive-substitution warnings were removed.
+- [ ] (next) Decide whether the accepted opt-in primitive-substitution constraint should remain experimental or be proposed for default behavior in a separate explicit plan.
 
 ## Surprises & Discoveries
 
@@ -429,7 +430,19 @@ Primitive-substitution constraint subset validation:
 - Subset high-frequency rows at or above 2500 cm-1 had `0` unassigned final assignments.
 - Comparing subset `ped_final_assignment.csv` from `outputs\primitive_warning_subset_20260512` and `outputs\primitive_constraint_subset_20260512` over final-label columns found 75 rows in both files and no changed columns.
 
-Current limitation after subset constraint experiment: this is not yet accepted for default use. Full-golden acceptance still needs to prove that the opt-in repair does not broaden policy counts, cause rank loss, remove useful X-H recovery, or change final assignments across all local golden `.hess` files.
+Primitive-substitution constraint full-golden validation:
+
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\primitive_constraint_full_golden_live --experimental-composed-primitive-substitution-constraint`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, first timed out at the 120 second tool limit and was then rerun with a longer timeout. The rerun returned exit code 0 in 101.2 seconds and printed `Terminal mode detected -> using CLI`.
+- Full-golden `composed_ped_basis_diagnostics.csv` had 55 rows and zero rank loss. Constraint status counts were `53 no_targets` and `2 applied`.
+- Constraint diagnostics reported 8 primitive-substitution targets before repair, 0 after repair, and 3 reverted primitive indices.
+- Full-golden policy counts changed from the warning baseline `1745 viewer_evidence_only`, `140 composed_confirms_with_better_localization`, `19 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified` to `1767 viewer_evidence_only`, `126 composed_confirms_with_better_localization`, `11 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- Full-golden triage counts changed from the warning baseline `1745 viewer_evidence_only`, `140 confirmation_candidate`, `16 baseline_gap_candidate`, `8 baseline_preferred_composed_lower_localization`, `8 primitive_row_optimizer_substitution`, and `3 high_frequency_xh_stretch_recovery` to `1767 viewer_evidence_only`, `126 confirmation_candidate`, `16 baseline_gap_candidate`, `8 baseline_preferred_composed_lower_localization`, and `3 high_frequency_xh_stretch_recovery`.
+- `composed_ped_warning` counts changed from 8 `primitive_row_optimizer_substitution_warning` rows in `outputs\primitive_warning_full_golden_20260512` to 1920 blank warning rows in `outputs\primitive_constraint_full_golden_live`.
+- Full-golden evidence-origin counts were `1442 primitive_substitution_top`, `148 composed_coordinate_top`, and `330 baseline_or_no_composed_top`.
+- Comparing `ped_final_assignment.csv` from `outputs\primitive_warning_full_golden_20260512` and `outputs\primitive_constraint_full_golden_live` over `Filename`, `mode`, `frequency_cm-1`, `final_assignment`, `final_assignment_source`, `final_assignment_policy`, and `final_assignment_warning` found 1920 rows in both files and no changed columns.
+- High-frequency rows at or above 2500 cm-1 had 0 unassigned final assignments.
+
+Current limitation after full-golden constraint validation: the opt-in repair passed the planned acceptance checks, but it is still not default behavior. The run reduced diagnostic disagreement and removed primitive-substitution warnings, but it also reduced `confirmation_candidate` rows from 140 to 126. Any promotion from opt-in experiment to default behavior needs a separate explicit decision and validation plan.
 
 ## Context and Orientation
 
