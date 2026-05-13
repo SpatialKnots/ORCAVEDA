@@ -251,7 +251,6 @@ function renderResult(payload) {
     <div class="run-header">
       <h2>Results</h2>
       <div class="meta">${inputFiles || "Input file not reported"}</div>
-      ${viewerUrl ? `<a href="${viewerUrl}" target="_blank" rel="noopener">Open viewer in a new tab</a>` : ""}
     </div>
     <div class="artifact-strip">
       ${links}

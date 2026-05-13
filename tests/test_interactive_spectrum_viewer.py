@@ -127,6 +127,7 @@ def test_interactive_spectrum_viewer_artifacts():
     assert '<details id="advancedDiagnostics" class="advanced-diagnostics">' in html_text
     assert "Final Assignment" in html_text
     assert "Final Assignment Policy" in html_text
+    assert "PED Contribution" in html_text
     assert "PED Diagnostic Interpretation" in html_text
     assert "PED Agreement Status" in html_text
     assert "PED Policy Warning" in html_text
@@ -140,6 +141,7 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "Better localization" in html_text
     assert "Differs from baseline" in html_text
     assert "No modes match the selected composed hint filter." in html_text
+    assert 'appendEmptyRow(peakTable, 6' in html_text
     assert "Selected Evidence Interpretation" in html_text
     assert "Composed PED Interpretation" in html_text
     assert "Composed PED Contributors" in html_text

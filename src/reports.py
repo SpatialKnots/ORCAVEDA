@@ -1224,6 +1224,10 @@ def write_interactive_spectrum_viewer(
       grid-column: 1 / -1;
     }}
     .panel-spectrum {{
+      grid-column: 1 / -1;
+      width: 100vw;
+      margin-left: calc(50% - 50vw);
+      margin-right: calc(50% - 50vw);
       min-height: 0;
     }}
     .panel {{
@@ -1511,7 +1515,7 @@ def write_interactive_spectrum_viewer(
       position: relative;
       flex: 1 1 auto;
       min-height: 0;
-      height: 360px;
+      height: 420px;
       border-radius: 6px;
       overflow: hidden;
     }}
@@ -1885,6 +1889,7 @@ def write_interactive_spectrum_viewer(
                   <th>Mode</th>
                   <th>Frequency</th>
                   <th>Intensity</th>
+                  <th>PED Contribution</th>
                   <th>Final Assignment</th>
                   <th>Warning</th>
                 </tr>
@@ -2894,7 +2899,7 @@ def write_interactive_spectrum_viewer(
         .sort((a, b) => a.scaled - b.scaled);
       clearElement(peakTable);
       if (!rows.length) {{
-        appendEmptyRow(peakTable, 5, "No modes match the selected composed hint filter.");
+        appendEmptyRow(peakTable, 6, "No modes match the selected composed hint filter.");
         return;
       }}
       for (const mode of rows) {{
@@ -2903,6 +2908,12 @@ def write_interactive_spectrum_viewer(
         appendCell(tr, mode.mode);
         appendCell(tr, mode.scaled.toFixed(1));
         appendCell(tr, Number(mode.intensity).toFixed(3));
+        const pedPercent = Number(mode.ped_top_percent || 0);
+        const pedCell = appendCell(
+          tr,
+          mode.ped_top_family ? `${{mode.ped_top_family}} (${{pedPercent.toFixed(1)}}%)` : "n/a",
+        );
+        pedCell.title = mode.ped_top_contributors || "";
         appendCell(tr, mode.final_assignment || mode.assignment || "unassigned");
         appendCell(tr, mode.final_assignment_warning || mode.warnings || composedHintLabel(mode) || "");
         tr.addEventListener("mouseenter", () => {{
