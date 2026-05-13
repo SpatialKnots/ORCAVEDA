@@ -16,7 +16,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from orca_parser import read_orca_hess  # noqa: E402
-from reports import build_ped_driven_final_assignment_table, build_ped_stage3d_agreement_table, build_spectrum_payload, write_interactive_spectrum_viewer  # noqa: E402
+from reports import build_ped_driven_final_assignment_table, build_ped_stage3d_agreement_table, build_spectrum_payload, classify_composed_ped_diagnostic_policy, classify_composed_ped_evidence_origin, classify_composed_ped_warning, triage_composed_ped_diagnostic_hint, write_interactive_spectrum_viewer  # noqa: E402
 from reports import attach_nist_reference_set, classify_reference_suitability  # noqa: E402
 
 
@@ -89,6 +89,14 @@ def test_interactive_spectrum_viewer_artifacts():
     assert target_mode["composed_ped_assignment"] == "composed O-H stretch"
     assert target_mode["composed_ped_top_percent"] == 99.8
     assert "composed_symmetric_XH_stretch" in target_mode["composed_ped_top_contributors"]
+    assert target_mode["composed_ped_policy_hint"] == "diagnostic_hint_composed_differs_from_baseline"
+    assert target_mode["composed_ped_triage_category"] == "baseline_preferred_composed_lower_localization"
+    assert target_mode["composed_ped_evidence_origin"] == "composed_coordinate_top"
+    assert target_mode["composed_ped_warning"] == ""
+    assert target_mode["composed_ped_warning_reason"] == ""
+    assert target_mode["composed_ped_localization_delta_percent"] == -0.1
+    assert target_mode["composed_ped_semantic_status"] == "FAIL"
+    assert target_mode["composed_ped_semantic_reason"] == "motion_family_mismatch"
     assert target_mode["ped_agreement_status"] == "disagrees"
     assert "ped_stage3d_semantic_disagreement" in target_mode["ped_policy_warning"]
     fallback_mode = next(mode for mode in payload["files"][0]["modes"] if mode["mode"] != positive_mode)
@@ -120,9 +128,22 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "Stage 3D Assignment" in html_text
     assert "PED Contributors" in html_text
     assert "Evidence Layer" in html_text
+    assert "Composed Hint" in html_text
+    assert "composedHintFilter" in html_text
+    assert "All modes" in html_text
+    assert "Composed hints" in html_text
+    assert "Better localization" in html_text
+    assert "Differs from baseline" in html_text
+    assert "No modes match the selected composed hint filter." in html_text
     assert "Selected Evidence Interpretation" in html_text
     assert "Composed PED Interpretation" in html_text
     assert "Composed PED Contributors" in html_text
+    assert "Composed PED Policy Hint" in html_text
+    assert "Composed PED Triage" in html_text
+    assert "Composed PED Evidence Origin" in html_text
+    assert "Composed PED Warning" in html_text
+    assert "Composed PED Localization Delta" in html_text
+    assert "Composed PED Semantic Status" in html_text
     assert "moleculeViewer" in html_text
     assert "3Dmol-min.js" in html_text
     assert "molStyle" in html_text
@@ -136,12 +157,141 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "ped_agreement_status" in json_text
     assert "ped_policy_warning" in json_text
     assert "composed_ped_assignment" in json_text
+    assert "composed_ped_policy_hint" in json_text
+    assert "composed_ped_triage_category" in json_text
+    assert "composed_ped_evidence_origin" in json_text
+    assert "composed_ped_warning" in json_text
+    assert "composed_ped_localization_delta_percent" in json_text
+    assert "composed_ped_semantic_status" in json_text
     assert "Composed-coordinate Wilson GF-style PED audit" in json_text
     assert "composed_symmetric_XH_stretch" in json_text
     assert "O-H stretch" in json_text
     assert "\"geometry\"" in json_text
     assert "\"atoms\"" in json_text
     assert "\"bonds\"" in json_text
+
+
+def test_composed_ped_diagnostic_policy_is_viewer_only_and_conservative():
+    hint, delta, status, reason = classify_composed_ped_diagnostic_policy(
+        "C=O stretch",
+        45.9,
+        "C=O stretch",
+        63.0,
+    )
+    assert hint == "composed_confirms_with_better_localization"
+    assert round(delta, 1) == 17.1
+    assert status == "PASS"
+    assert reason == "baseline_ped_semantic_overlap"
+
+    hint, _delta, status, reason = classify_composed_ped_diagnostic_policy(
+        "H-O-H bend",
+        99.9,
+        "O-H stretch",
+        99.8,
+    )
+    assert hint == "diagnostic_hint_composed_differs_from_baseline"
+    assert status == "FAIL"
+    assert reason == "motion_family_mismatch"
+
+
+def test_composed_ped_hint_triage_separates_noise_from_review_targets():
+    category, recommendation = triage_composed_ped_diagnostic_hint(
+        "diagnostic_hint_composed_differs_from_baseline",
+        "motion_family_mismatch",
+        -4.1,
+        3196.0,
+    )
+    assert category == "baseline_preferred_composed_lower_localization"
+    assert recommendation == "do_not_promote_composed_evidence"
+
+    category, recommendation = triage_composed_ped_diagnostic_hint(
+        "diagnostic_hint_composed_differs_from_baseline",
+        "motion_family_mismatch",
+        53.9,
+        3073.0,
+        "C-H torsion mixed with CH2 scissor",
+        "C-H stretch",
+    )
+    assert category == "high_frequency_xh_stretch_recovery"
+    assert recommendation == "keep_composed_xh_stretch_as_diagnostic_evidence"
+
+    category, recommendation = triage_composed_ped_diagnostic_hint(
+        "diagnostic_hint_composed_differs_from_baseline",
+        "motion_family_mismatch",
+        53.9,
+        3073.0,
+        "C-C-C bend",
+        "C-C stretch",
+    )
+    assert category == "high_frequency_motion_family_review"
+    assert recommendation == "inspect_xh_stretch_vs_bend_or_torsion_coordinate_generation"
+
+    category, recommendation = triage_composed_ped_diagnostic_hint(
+        "diagnostic_hint_composed_differs_from_baseline",
+        "motion_family_mismatch",
+        28.5,
+        289.7,
+        "C-N-C bend",
+        "C-H torsion",
+        "primitive",
+        False,
+    )
+    assert category == "primitive_row_optimizer_substitution"
+    assert recommendation == "inspect_optimizer_substitution_before_coordinate_generation"
+
+    category, recommendation = triage_composed_ped_diagnostic_hint(
+        "composed_confirms_with_better_localization",
+        "baseline_ped_semantic_overlap",
+        17.1,
+        1683.0,
+    )
+    assert category == "confirmation_candidate"
+    assert recommendation == "keep_as_diagnostic_confirmation"
+
+
+def test_composed_ped_evidence_origin_uses_top_provenance():
+    assert (
+        classify_composed_ped_evidence_origin(
+            "C-H stretch",
+            "composed_coordinate",
+            True,
+        )
+        == "composed_coordinate_top"
+    )
+    assert (
+        classify_composed_ped_evidence_origin(
+            "C-H torsion",
+            "primitive",
+            False,
+        )
+        == "primitive_substitution_top"
+    )
+    assert (
+        classify_composed_ped_evidence_origin(
+            "",
+            "",
+            False,
+        )
+        == "baseline_or_no_composed_top"
+    )
+
+
+def test_composed_ped_warning_requires_origin_and_triage():
+    assert classify_composed_ped_warning(
+        "primitive_substitution_top",
+        "primitive_row_optimizer_substitution",
+    ) == (
+        "primitive_row_optimizer_substitution_warning",
+        "composed_ped_top_contributor_is_primitive_after_optimizer_substitution",
+    )
+    assert classify_composed_ped_warning(
+        "primitive_substitution_top",
+        "viewer_evidence_only",
+    ) == ("", "")
+    assert classify_composed_ped_warning(
+        "composed_coordinate_top",
+        "primitive_row_optimizer_substitution",
+    ) == ("", "")
 
 
 def test_ped_stage3d_agreement_table_policy_statuses():

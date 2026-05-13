@@ -135,3 +135,32 @@ For small tasks, one agent role is enough. For larger tasks, split work by owner
 - Sci-agent owns scientific correctness and method claims.
 
 Workers are not alone in the codebase. They must avoid reverting unrelated edits and must adapt to changes made by others.
+
+## Caveman mode
+
+Caveman is available as an optional compressed-response mode.
+
+Use Caveman only when the user explicitly asks with one of:
+
+- `/caveman`
+- `$caveman`
+- `caveman mode`
+- `коротко`
+- `без воды`
+- `меньше токенов`
+
+Default project style remains: concise but complete.
+
+When Caveman mode is active:
+
+- Prefer short technical fragments over prose.
+- Preserve exact code, paths, commands, identifiers, error messages, API names, and warnings.
+- Do not remove important assumptions, risks, or test results.
+- Keep diffs and commands copy-paste safe.
+- For destructive operations, security issues, architecture trade-offs, legal/compliance topics, or handoff summaries: temporarily leave Caveman style unless the user explicitly insists.
+
+Disable Caveman when the user says:
+
+- `normal mode`
+- `stop caveman`
+- `обычный режим`

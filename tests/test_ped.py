@@ -42,6 +42,7 @@ from internal_coordinates import (
     distance_fn,
     make_composed_internal_coordinate,
 )  # noqa: E402
+from mode_assignment import _assignment_family_from_internal  # noqa: E402
 from reports import decide_ped_driven_final_assignment  # noqa: E402
 
 
@@ -146,6 +147,7 @@ def test_pipeline_writes_separate_ped_audit_for_water():
     assert "composed_ped_basis" in tables
     assert "ped_stage3d_agreement" in tables
     assert "ped_final_assignment" in tables
+    assert "composed_ped_policy_diagnostics" in tables
     assignment_df = tables["assignment_audit"]
     ped_audit = tables["ped_audit"]
     ped_v2 = tables["ped_v2_force_audit"]
@@ -158,6 +160,7 @@ def test_pipeline_writes_separate_ped_audit_for_water():
     composed_ped_basis = tables["composed_ped_basis"]
     agreement = tables["ped_stage3d_agreement"]
     final_assignment = tables["ped_final_assignment"]
+    composed_policy = tables["composed_ped_policy_diagnostics"]
     assert not ped_audit.empty
     assert not ped_v2.empty
     assert not wilson_ped.empty
@@ -169,6 +172,7 @@ def test_pipeline_writes_separate_ped_audit_for_water():
     assert not composed_ped_basis.empty
     assert not agreement.empty
     assert not final_assignment.empty
+    assert not composed_policy.empty
     assert next(outdir.glob("*__ped_audit.csv")).is_file()
     assert next(outdir.glob("*__ped_v2_force_audit.csv")).is_file()
     assert next(outdir.glob("*__wilson_ped_audit.csv")).is_file()
@@ -180,6 +184,7 @@ def test_pipeline_writes_separate_ped_audit_for_water():
     assert next(outdir.glob("*__composed_ped_basis.csv")).is_file()
     assert next(outdir.glob("*__ped_stage3d_agreement.csv")).is_file()
     assert next(outdir.glob("*__ped_final_assignment.csv")).is_file()
+    assert next(outdir.glob("*__composed_ped_policy_diagnostics.csv")).is_file()
     assert {
         "stage3d_assignment",
         "ped_assignment",
@@ -195,6 +200,78 @@ def test_pipeline_writes_separate_ped_audit_for_water():
         "final_assignment_warning",
     }.issubset(set(final_assignment.columns))
     assert final_assignment["final_assignment"].astype(str).str.len().gt(0).all()
+    expected_policy_columns = {
+        "Filename",
+        "mode",
+        "frequency_cm-1",
+        "ped_assignment",
+        "ped_top_percent",
+        "composed_ped_assignment",
+        "composed_ped_top_percent",
+        "composed_ped_localization_delta_percent",
+        "composed_ped_semantic_status",
+        "composed_ped_semantic_reason",
+        "composed_ped_policy_hint",
+        "composed_ped_triage_category",
+        "composed_ped_triage_recommendation",
+        "composed_ped_top_source",
+        "composed_ped_top_internal_coordinate",
+        "composed_ped_top_coord_index",
+        "composed_ped_top_generation_rule",
+        "composed_ped_top_is_composed_coordinate",
+        "composed_ped_evidence_origin",
+        "composed_ped_warning",
+        "composed_ped_warning_reason",
+    }
+    assert expected_policy_columns.issubset(set(composed_policy.columns))
+    assert "generation_rule" in composed_wilson_ped.columns
+    assert len(composed_policy) == len(agreement)
+    assert composed_policy["composed_ped_assignment"].astype(str).str.len().gt(0).any()
+    assert composed_policy["composed_ped_top_internal_coordinate"].astype(str).str.len().gt(0).any()
+    assert composed_policy["composed_ped_top_is_composed_coordinate"].astype(str).isin({"True", "False"}).all()
+    composed_top_rows = composed_policy[composed_policy["composed_ped_top_is_composed_coordinate"].astype(bool)]
+    if not composed_top_rows.empty:
+        assert (composed_top_rows["composed_ped_top_source"] == "composed_coordinate").all()
+        assert composed_top_rows["composed_ped_top_generation_rule"].astype(str).str.len().gt(0).all()
+        assert (composed_top_rows["composed_ped_evidence_origin"] == "composed_coordinate_top").all()
+    assert set(composed_policy["composed_ped_evidence_origin"]).issubset(
+        {"baseline_or_no_composed_top", "composed_coordinate_top", "primitive_substitution_top"}
+    )
+    warning_rows = composed_policy[composed_policy["composed_ped_warning"].astype(str).str.len() > 0]
+    if not warning_rows.empty:
+        assert set(warning_rows["composed_ped_warning"]) == {"primitive_row_optimizer_substitution_warning"}
+        assert (warning_rows["composed_ped_evidence_origin"] == "primitive_substitution_top").all()
+        assert (warning_rows["composed_ped_triage_category"] == "primitive_row_optimizer_substitution").all()
+    assert set(composed_policy["composed_ped_policy_hint"]).issubset(
+        {
+            "viewer_evidence_only",
+            "composed_confirms_with_better_localization",
+            "diagnostic_hint_composed_available_without_baseline",
+            "diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified",
+            "diagnostic_hint_composed_differs_from_baseline",
+        }
+    )
+    policy_only_columns = {
+        "composed_ped_assignment",
+        "composed_ped_top_percent",
+        "composed_ped_localization_delta_percent",
+        "composed_ped_semantic_status",
+        "composed_ped_semantic_reason",
+        "composed_ped_policy_hint",
+        "composed_ped_triage_category",
+        "composed_ped_triage_recommendation",
+        "composed_ped_top_source",
+        "composed_ped_top_internal_coordinate",
+        "composed_ped_top_coord_index",
+        "composed_ped_top_generation_rule",
+        "composed_ped_top_is_composed_coordinate",
+        "composed_ped_evidence_origin",
+        "composed_ped_warning",
+        "composed_ped_warning_reason",
+    }
+    assert policy_only_columns.isdisjoint(set(assignment_df.columns))
+    assert policy_only_columns.isdisjoint(set(agreement.columns))
+    assert policy_only_columns.isdisjoint(set(final_assignment.columns))
     assert int(composed_ped_diagnostics["composed_candidate_count"].iloc[0]) >= 2
     assert composed_ped_diagnostics["rank_preserved"].iloc[0] is True or composed_ped_diagnostics["rank_preserved"].iloc[0] == np.True_
     assert "experimental_ped_only_not_used_for_assignment_audit" in set(composed_ped_basis["ped_basis_scope"])
@@ -357,6 +434,45 @@ def test_xh_pair_generator_builds_h2o_symmetric_and_asymmetric_stretches():
     composed_B = finite_difference_B(coords, candidates)
     assert np.allclose(composed_B[0], compose_b_row(primitive_B, ((0, 1.0), (1, 1.0))))
     assert np.allclose(composed_B[1], compose_b_row(primitive_B, ((0, 1.0), (1, -1.0))))
+
+
+def test_composed_xh_stretch_family_preserves_center_element_semantics():
+    atoms = ["C", "H", "H", "N", "H", "H", "O", "H", "H"]
+    primitive_internals = [
+        InternalCoordinate("r(C1-H2)", "stretch", (0, 1), 10, distance_fn(0, 1)),
+        InternalCoordinate("r(C1-H3)", "stretch", (0, 2), 10, distance_fn(0, 2)),
+        InternalCoordinate("r(N4-H5)", "stretch", (3, 4), 10, distance_fn(3, 4)),
+        InternalCoordinate("r(N4-H6)", "stretch", (3, 5), 10, distance_fn(3, 5)),
+        InternalCoordinate("r(O7-H8)", "stretch", (6, 7), 10, distance_fn(6, 7)),
+        InternalCoordinate("r(O7-H9)", "stretch", (6, 8), 10, distance_fn(6, 8)),
+    ]
+
+    candidates = build_xh_pair_composed_stretch_candidates(atoms, primitive_internals)
+    families = {candidate.name: _assignment_family_from_internal(candidate) for candidate in candidates}
+
+    assert families["composed_symmetric_XH_stretch(C1:H2,H3)"] == "C-H stretch"
+    assert families["composed_asymmetric_XH_stretch(C1:H2,H3)"] == "C-H stretch"
+    assert families["composed_symmetric_XH_stretch(N4:H5,H6)"] == "N-H stretch"
+    assert families["composed_asymmetric_XH_stretch(N4:H5,H6)"] == "N-H stretch"
+    assert families["composed_symmetric_XH_stretch(O7:H8,H9)"] == "O-H stretch"
+    assert families["composed_asymmetric_XH_stretch(O7:H8,H9)"] == "O-H stretch"
+
+
+def test_primitive_torsion_family_uses_terminal_h_neighbor_for_xh_label():
+    def dummy_coord(_xyz):
+        return 0.0
+
+    cases = [
+        (InternalCoordinate("tor(C1-N3-C4-H12)", "torsion", (0, 2, 3, 11), 55, dummy_coord), "C-H torsion"),
+        (InternalCoordinate("tor(C1-O2-C6-H5)", "torsion", (0, 1, 5, 4), 55, dummy_coord), "C-H torsion"),
+        (InternalCoordinate("tor(C1-C2-O3-H4)", "torsion", (0, 1, 2, 3), 55, dummy_coord), "O-H torsion"),
+        (InternalCoordinate("tor(C1-C2-N3-H4)", "torsion", (0, 1, 2, 3), 55, dummy_coord), "N-H torsion"),
+        (InternalCoordinate("tor(H4-O3-C2-C1)", "torsion", (3, 2, 1, 0), 55, dummy_coord), "O-H torsion"),
+        (InternalCoordinate("tor(H4-N3-C2-C1)", "torsion", (3, 2, 1, 0), 55, dummy_coord), "N-H torsion"),
+    ]
+
+    for internal, expected in cases:
+        assert _assignment_family_from_internal(internal) == expected
 
 
 def test_composed_candidate_b_matrix_appends_h2o_xh_pair_rows_without_mutating_primitives():

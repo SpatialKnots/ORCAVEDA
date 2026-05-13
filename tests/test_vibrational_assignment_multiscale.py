@@ -344,9 +344,97 @@ def test_composed_ped_audit_stays_separate_from_baseline_assignment_status():
     assert result["ped_semantic_status"] == "FAIL"
     assert result["composed_ped_semantic_status"] == "PASS"
     assert result["composed_vs_baseline_ped_status"] == "improves_semantic_match"
-    assert result["composed_ped_policy_hint"] == "warning_or_confirmation_layer_candidate"
+    assert result["composed_ped_policy_hint"] == "diagnostic_hint_composed_semantic_improvement"
     assert "composed_symmetric_XH_stretch" in result["composed_ped_top_contributors"]
     assert result["orcaveda_assignment"] == "C-C bend"
+
+
+def test_composed_ped_comparator_keeps_top_six_context_terms():
+    outdir = OUTROOT / "composed_top_six_context"
+    benchmark = _write_csv(
+        outdir / "benchmark.csv",
+        [
+            {
+                "molecule": "benzoic acid",
+                "hess_file": "benzoic_acid.hess",
+                "observed_ir_cm1": 755.0,
+                "observed_raman_cm1": "",
+                "calculated_cm1": "",
+                "assignment_normalized": "mixed mode",
+                "mode_family": "mixed in-plane bend",
+                "functional_group": "aromatic C-H; carboxylic acid O-H",
+                "confidence": "gold",
+            }
+        ],
+    )
+    audit = _write_csv(
+        outdir / "audit.csv",
+        [
+            {
+                "Filename": "benzoic_acid.hess",
+                "mode": 17,
+                "frequency_cm-1": 755.0,
+                "functional_group_assignment": "C-C-H bend",
+            }
+        ],
+    )
+    baseline_ped = _write_csv(
+        outdir / "ped.csv",
+        [
+            {
+                "Filename": "benzoic_acid.hess",
+                "mode": 17,
+                "frequency_cm-1": 755.0,
+                "ped_rank": 1,
+                "coordinate_family": "C-C-H bend",
+                "internal_coordinate": "ang(C2-C1-H11)",
+                "coordinate_class": "bend",
+                "contribution_percent": 31.0,
+                "ped_warnings": "",
+            }
+        ],
+    )
+    composed_ped = _write_csv(
+        outdir / "composed_wilson.csv",
+        [
+            {
+                "Filename": "benzoic_acid.hess",
+                "mode": 17,
+                "frequency_cm-1": 755.0,
+                "wilson_rank": rank,
+                "coordinate_family": family,
+                "internal_coordinate": coord,
+                "coordinate_class": "bend",
+                "contribution_percent": percent,
+                "wilson_ped_warnings": "",
+            }
+            for rank, family, coord, percent in [
+                (1, "C-C-H bend", "ang(C2-C1-H11)", 17.1),
+                (2, "C-C-C bend", "ang(C2-C1-C6)", 15.5),
+                (3, "C-C-H bend", "ang(C6-C1-H11)", 8.7),
+                (4, "C-C-H bend", "ang(C4-C3-H8)", 7.7),
+                (5, "C-C-O bend", "ang(C4-C12-O14)", 7.2),
+                (6, "C-H torsion", "tor(C4-C5-C6-H10)", 6.2),
+            ]
+        ],
+    )
+
+    result = compare(
+        benchmark,
+        audit,
+        outdir / "out.csv",
+        max_delta_cm1=80.0,
+        windows_cm1=[50.0],
+        scale_factor=1.0,
+        primary_frequency="raw",
+        ped_audit_csv=baseline_ped,
+        composed_ped_audit_csv=composed_ped,
+    ).iloc[0]
+
+    assert "C-C-O bend" in result["composed_ped_top_contributors"]
+    assert "acid_context" in result["composed_ped_classes"]
+    assert result["composed_ped_semantic_status"] == "WARN"
+    assert result["composed_ped_semantic_reason"] == "acid_context_without_explicit_oh"
 
 
 def test_ped_final_assignment_comparator_and_coverage():

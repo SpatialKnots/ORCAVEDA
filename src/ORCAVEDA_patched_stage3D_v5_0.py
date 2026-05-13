@@ -53,6 +53,7 @@ from b_matrix import (
     build_composed_candidate_b_matrix as bmatrix_build_composed_candidate_b_matrix,
     finite_difference_B as bmatrix_finite_difference_B,
     optimize_independent_coordinates_for_ped as bmatrix_optimize_independent_coordinates_for_ped,
+    ped_basis_localization_metrics as bmatrix_ped_basis_localization_metrics,
     select_independent_coordinates as bmatrix_select_independent_coordinates,
     select_rank_preserving_composed_ped_basis as bmatrix_select_rank_preserving_composed_ped_basis,
     svd_rank_condition as bmatrix_svd_rank_condition,
@@ -87,6 +88,7 @@ from orca_parser import (
     split_orca_hess_sections as parser_split_orca_hess_sections,
 )
 from reports import (
+    build_composed_ped_policy_diagnostics_table as reports_build_composed_ped_policy_diagnostics_table,
     build_ped_driven_final_assignment_table as reports_build_ped_driven_final_assignment_table,
     build_ped_stage3d_agreement_table as reports_build_ped_stage3d_agreement_table,
     build_spectrum_payload as reports_build_spectrum_payload,
@@ -1694,7 +1696,176 @@ def output_prefix_for_hess_paths(paths: Sequence[str | Path]) -> str:
         joined += f"__plus_{len(stems) - 3}_files"
     return f"{joined}__multi_file_{len(stems)}"
 
-def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | Path, out_paths: Optional[Sequence[str | Path]] = None):
+
+def _build_policy_for_composed_basis(
+    *,
+    hess: HessData,
+    assignment_df: pd.DataFrame,
+    internals: Sequence[InternalCoordinate],
+    B: np.ndarray,
+    ped_selected_idx: Sequence[int],
+    composed_candidate_internals: Sequence[InternalCoordinate],
+    B_composed_candidates: np.ndarray,
+    composed_ped_selected_idx: Sequence[int],
+    source_label: str,
+) -> pd.DataFrame:
+    if hess.cartesian_hessian is not None:
+        baseline_audit = ped_build_wilson_ped_audit_dataframe(
+            hess, internals, B, ped_selected_idx, source_label=source_label, top_n=8
+        )
+        composed_audit = ped_build_wilson_ped_audit_dataframe(
+            hess,
+            composed_candidate_internals,
+            B_composed_candidates,
+            composed_ped_selected_idx,
+            source_label=source_label,
+            top_n=8,
+        )
+        agreement = reports_build_ped_stage3d_agreement_table(assignment_df, wilson_ped_audit=baseline_audit)
+        return reports_build_composed_ped_policy_diagnostics_table(
+            agreement,
+            composed_wilson_ped_audit=composed_audit,
+        )
+
+    baseline_audit = ped_build_ped_audit_dataframe(
+        hess, internals, B, ped_selected_idx, source_label=source_label, top_n=8
+    )
+    composed_audit = ped_build_ped_audit_dataframe(
+        hess,
+        composed_candidate_internals,
+        B_composed_candidates,
+        composed_ped_selected_idx,
+        source_label=source_label,
+        top_n=8,
+    )
+    agreement = reports_build_ped_stage3d_agreement_table(assignment_df, ped_audit=baseline_audit)
+    return reports_build_composed_ped_policy_diagnostics_table(agreement, composed_ped_audit=composed_audit)
+
+
+def _apply_experimental_primitive_substitution_constraint(
+    *,
+    hess: HessData,
+    assignment_df: pd.DataFrame,
+    internals: Sequence[InternalCoordinate],
+    B: np.ndarray,
+    ped_selected_idx: Sequence[int],
+    composed_candidate_internals: Sequence[InternalCoordinate],
+    B_composed_candidates: np.ndarray,
+    starting_idx: Sequence[int],
+    composed_ped_selected_idx: Sequence[int],
+    composed_ped_basis_report: Dict[str, object],
+    positive_mode_indices: Sequence[int],
+    source_label: str,
+) -> tuple[list[int], Dict[str, object]]:
+    selected = [int(idx) for idx in composed_ped_selected_idx]
+    starting = [int(idx) for idx in starting_idx]
+    report = dict(composed_ped_basis_report)
+    report["primitive_substitution_constraint_enabled"] = True
+    report["primitive_substitution_constraint_scope"] = "warning_only_triage_repair"
+
+    if len(selected) != len(starting):
+        report["primitive_substitution_constraint_status"] = "skipped_selection_length_mismatch"
+        return selected, report
+
+    policy_before = _build_policy_for_composed_basis(
+        hess=hess,
+        assignment_df=assignment_df,
+        internals=internals,
+        B=B,
+        ped_selected_idx=ped_selected_idx,
+        composed_candidate_internals=composed_candidate_internals,
+        B_composed_candidates=B_composed_candidates,
+        composed_ped_selected_idx=selected,
+        source_label=source_label,
+    )
+    target_rows = policy_before[
+        (policy_before["composed_ped_triage_category"] == "primitive_row_optimizer_substitution")
+        & (policy_before["composed_ped_evidence_origin"] == "primitive_substitution_top")
+        & (pd.to_numeric(policy_before["composed_ped_localization_delta_percent"], errors="coerce") > 0.0)
+        & (policy_before["composed_ped_semantic_reason"] == "motion_family_mismatch")
+    ].copy()
+    report["primitive_substitution_constraint_targets_before"] = int(len(target_rows))
+    if target_rows.empty:
+        report["primitive_substitution_constraint_reverted_count"] = 0
+        report["primitive_substitution_constraint_targets_after"] = 0
+        report["primitive_substitution_constraint_status"] = "no_targets"
+        return selected, report
+
+    required_rank = int(report.get("required_rank", 0) or report.get("starting_rank", 0) or 0)
+    if required_rank <= 0:
+        required_rank, _cond, _s = svd_rank_condition(B_composed_candidates[starting, :])
+    reverted: list[int] = []
+    for _, row in target_rows.iterrows():
+        try:
+            top_idx = int(float(row.get("composed_ped_top_coord_index", "")))
+        except (TypeError, ValueError):
+            continue
+        if top_idx < 0 or top_idx >= len(composed_candidate_internals):
+            continue
+        if composed_candidate_internals[top_idx].source == "composed_coordinate":
+            continue
+        positions = [pos for pos, idx in enumerate(selected) if idx == top_idx and idx != starting[pos]]
+        for pos in positions:
+            trial = list(selected)
+            trial[pos] = starting[pos]
+            if len(set(trial)) != len(trial):
+                continue
+            rank, _cond, _s = svd_rank_condition(B_composed_candidates[trial, :])
+            if rank < required_rank:
+                continue
+            selected = trial
+            reverted.append(top_idx)
+
+    optimized_rank, optimized_condition, _ = svd_rank_condition(B_composed_candidates[selected, :])
+    optimized_metrics = bmatrix_ped_basis_localization_metrics(
+        B_composed_candidates,
+        hess.normal_modes,
+        selected,
+        positive_mode_indices,
+    )
+    selected_composed_indices = [
+        idx for idx in selected
+        if composed_candidate_internals[idx].source == "composed_coordinate"
+    ]
+    policy_after = _build_policy_for_composed_basis(
+        hess=hess,
+        assignment_df=assignment_df,
+        internals=internals,
+        B=B,
+        ped_selected_idx=ped_selected_idx,
+        composed_candidate_internals=composed_candidate_internals,
+        B_composed_candidates=B_composed_candidates,
+        composed_ped_selected_idx=selected,
+        source_label=source_label,
+    )
+    target_after = policy_after[
+        (policy_after["composed_ped_triage_category"] == "primitive_row_optimizer_substitution")
+        & (policy_after["composed_ped_evidence_origin"] == "primitive_substitution_top")
+    ]
+    report.update(
+        {
+            "optimized_rank": int(optimized_rank),
+            "optimized_condition": float(optimized_condition),
+            "rank_preserved": bool(optimized_rank >= required_rank),
+            "composed_selected_count": int(len(selected_composed_indices)),
+            "selected_composed_indices": selected_composed_indices,
+            "primitive_substitution_constraint_reverted_count": int(len(reverted)),
+            "primitive_substitution_constraint_reverted_indices": reverted,
+            "primitive_substitution_constraint_targets_after": int(len(target_after)),
+            "primitive_substitution_constraint_status": "applied" if reverted else "no_rank_safe_reverts",
+        }
+    )
+    report.update({f"optimized_{key}": value for key, value in optimized_metrics.items()})
+    return selected, report
+
+
+def analyze_general_hess_files(
+    hess_paths: Sequence[str | Path],
+    outdir: str | Path,
+    out_paths: Optional[Sequence[str | Path]] = None,
+    *,
+    experimental_composed_primitive_substitution_constraint: bool = False,
+):
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     output_prefix = output_prefix_for_hess_paths(hess_paths)
@@ -1771,6 +1942,29 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             top_n=6,
         )
         assignment_frames.append(assignment_df)
+
+        if experimental_composed_primitive_substitution_constraint:
+            composed_ped_selected_idx, composed_ped_basis_report = _apply_experimental_primitive_substitution_constraint(
+                hess=hess,
+                assignment_df=assignment_df,
+                internals=internals,
+                B=B,
+                ped_selected_idx=ped_selected_idx,
+                composed_candidate_internals=composed_candidate_internals,
+                B_composed_candidates=B_composed_candidates,
+                starting_idx=selected_idx,
+                composed_ped_selected_idx=composed_ped_selected_idx,
+                composed_ped_basis_report=composed_ped_basis_report,
+                positive_mode_indices=positive_mode_indices,
+                source_label=f"[{source_index}]",
+            )
+        else:
+            composed_ped_basis_report = dict(composed_ped_basis_report)
+            composed_ped_basis_report["primitive_substitution_constraint_enabled"] = False
+            composed_ped_basis_report["primitive_substitution_constraint_status"] = "disabled"
+            composed_ped_basis_report["primitive_substitution_constraint_targets_before"] = ""
+            composed_ped_basis_report["primitive_substitution_constraint_targets_after"] = ""
+            composed_ped_basis_report["primitive_substitution_constraint_reverted_count"] = ""
 
         ped_df = ped_build_ped_audit_dataframe(
             hess,
@@ -1987,6 +2181,13 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             "optimized_mean_top_percent": composed_ped_basis_report.get("optimized_mean_top_percent", ""),
             "initial_diffuse_mode_fraction": composed_ped_basis_report.get("initial_diffuse_mode_fraction", ""),
             "optimized_diffuse_mode_fraction": composed_ped_basis_report.get("optimized_diffuse_mode_fraction", ""),
+            "primitive_substitution_constraint_enabled": bool(composed_ped_basis_report.get("primitive_substitution_constraint_enabled", False)),
+            "primitive_substitution_constraint_status": composed_ped_basis_report.get("primitive_substitution_constraint_status", ""),
+            "primitive_substitution_constraint_scope": composed_ped_basis_report.get("primitive_substitution_constraint_scope", ""),
+            "primitive_substitution_constraint_targets_before": composed_ped_basis_report.get("primitive_substitution_constraint_targets_before", ""),
+            "primitive_substitution_constraint_targets_after": composed_ped_basis_report.get("primitive_substitution_constraint_targets_after", ""),
+            "primitive_substitution_constraint_reverted_count": composed_ped_basis_report.get("primitive_substitution_constraint_reverted_count", ""),
+            "primitive_substitution_constraint_reverted_indices": ";".join(str(i) for i in composed_ped_basis_report.get("primitive_substitution_constraint_reverted_indices", [])),
             "ped_basis_scope": "experimental_ped_only_not_used_for_assignment_audit",
         })
         for order, idx in enumerate(composed_ped_selected_idx, start=1):
@@ -2037,6 +2238,12 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
         ped_audit=tables["ped_audit"],
     )
     tables["ped_final_assignment"] = reports_build_ped_driven_final_assignment_table(tables["ped_stage3d_agreement"])
+    tables["composed_ped_policy_diagnostics"] = reports_build_composed_ped_policy_diagnostics_table(
+        tables["ped_stage3d_agreement"],
+        composed_wilson_ped_audit=tables["composed_wilson_ped_audit"],
+        composed_ped_v2_force_audit=tables["composed_ped_v2_force_audit"],
+        composed_ped_audit=tables["composed_ped_audit"],
+    )
 
     for name, df in tables.items():
         df.to_csv(outdir / f"{output_prefix}__{name}.csv", index=False)
@@ -2057,6 +2264,7 @@ def analyze_general_hess_files(hess_paths: Sequence[str | Path], outdir: str | P
             "composed_ped_basis": "Experimental PED-only rank-preserving composed-coordinate basis selection; not used for Stage 3D assignment_audit labels",
             "ped_stage3d_agreement": "PED-first diagnostic policy table comparing Stage 3D assignment and strongest available PED interpretation; does not rewrite assignment_audit labels",
             "ped_final_assignment": "PED-driven final assignment table; uses PED when policy confirms/adds context and Stage 3D fallback when PED is unavailable, diffuse, or contradictory",
+            "composed_ped_policy_diagnostics": "Conservative composed-coordinate PED diagnostic policy table; does not rewrite assignment_audit, ped_stage3d_agreement, or ped_final_assignment labels",
             "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
         }, indent=2),
         encoding="utf-8"
@@ -2549,7 +2757,13 @@ build_ped_audit_dataframe = ped_build_ped_audit_dataframe
 build_ped_v2_force_audit_dataframe = ped_build_ped_v2_force_audit_dataframe
 build_wilson_ped_audit_dataframe = ped_build_wilson_ped_audit_dataframe
 
-def general_outputs_for_hess_files(paths: Sequence[str | Path], outdir: str | Path, out_paths: Optional[Sequence[str | Path]] = None) -> Dict[str, pd.DataFrame]:
+def general_outputs_for_hess_files(
+    paths: Sequence[str | Path],
+    outdir: str | Path,
+    out_paths: Optional[Sequence[str | Path]] = None,
+    *,
+    experimental_composed_primitive_substitution_constraint: bool = False,
+) -> Dict[str, pd.DataFrame]:
     """
     Pipeline hook for the main PED workflow.
 
@@ -2558,10 +2772,21 @@ def general_outputs_for_hess_files(paths: Sequence[str | Path], outdir: str | Pa
         all_tables = {**ped_tables, **general_outputs_for_hess_files(hess_paths, outdir, out_paths)}
         write_xlsx_report(all_tables, "orca_ped_like_report.xlsx")
     """
-    return analyze_general_hess_files(paths, outdir, out_paths)
+    return analyze_general_hess_files(
+        paths,
+        outdir,
+        out_paths,
+        experimental_composed_primitive_substitution_constraint=experimental_composed_primitive_substitution_constraint,
+    )
 
 
-def analyze_orca_ped_like(paths: Sequence[str | Path], outdir: str | Path, out_paths: Optional[Sequence[str | Path]] = None) -> Dict[str, pd.DataFrame]:
+def analyze_orca_ped_like(
+    paths: Sequence[str | Path],
+    outdir: str | Path,
+    out_paths: Optional[Sequence[str | Path]] = None,
+    *,
+    experimental_composed_primitive_substitution_constraint: bool = False,
+) -> Dict[str, pd.DataFrame]:
     """
     Integrated entry point for the current development version.
 
@@ -2580,7 +2805,12 @@ def analyze_orca_ped_like(paths: Sequence[str | Path], outdir: str | Path, out_p
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     output_prefix = output_prefix_for_hess_paths(paths)
-    tables = general_outputs_for_hess_files(paths, outdir, out_paths)
+    tables = general_outputs_for_hess_files(
+        paths,
+        outdir,
+        out_paths,
+        experimental_composed_primitive_substitution_constraint=experimental_composed_primitive_substitution_constraint,
+    )
 
     # Stage 3C mode tracking is meaningful only when two or more .hess files are supplied.
     if len(paths) >= 2:

@@ -438,12 +438,14 @@ def composed_policy_hint(
     """Summarize possible use of composed evidence without changing assignments."""
     ped_rank = semantic_rank(ped_status)
     composed_rank = semantic_rank(composed_status)
+    if composed_rank == ped_rank and composed_status == "PASS" and float(composed_top_percent) > float(ped_top_percent) + 10.0:
+        return "composed_confirms_with_better_localization"
     if composed_rank > ped_rank:
         if float(ped_top_percent) < 25.0 or str(ped_reason) == "no_ped_classes":
-            return "fallback_candidate_when_baseline_ped_diffuse_or_unavailable"
-        return "warning_or_confirmation_layer_candidate"
+            return "diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified"
+        return "diagnostic_hint_composed_semantic_improvement"
     if composed_rank == ped_rank and composed_status == "PASS":
-        return "confirmation_layer_candidate"
+        return "viewer_evidence_only"
     if float(composed_top_percent) > float(ped_top_percent) + 10.0:
         return "localization_gain_without_semantic_improvement"
     return "viewer_evidence_only"
@@ -527,7 +529,7 @@ def compare(
         audit = audit.merge(ped_summary, on=["Filename", "mode"], how="left")
     if composed_ped_audit_csv is not None:
         composed_summary = rename_ped_summary(
-            ped_mode_summaries(pd.read_csv(composed_ped_audit_csv)),
+            ped_mode_summaries(pd.read_csv(composed_ped_audit_csv), top_n=6),
             prefix="composed_ped",
         )
         audit = audit.merge(composed_summary, on=["Filename", "mode"], how="left")

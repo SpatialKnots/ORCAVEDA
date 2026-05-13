@@ -37,6 +37,7 @@ class PEDContribution:
     coordinate_class: str
     atoms0: Tuple[int, ...]
     source: str
+    generation_rule: str
     signed_projection: float
     weight: float
     percent: float
@@ -162,6 +163,7 @@ def compute_ped(
                     coordinate_class=_stage3d_coord_class(ic),
                     atoms0=tuple(int(a) for a in ic.atoms0),
                     source=str(ic.source),
+                    generation_rule=str(ic.generation_rule or ""),
                     signed_projection=float(projections[local_idx]),
                     weight=float(weights[local_idx]),
                     percent=percent,
@@ -305,6 +307,7 @@ def compute_ped_v2_force_aware(
                     coordinate_class=_stage3d_coord_class(ic),
                     atoms0=tuple(int(a) for a in ic.atoms0),
                     source=str(ic.source),
+                    generation_rule=str(ic.generation_rule or ""),
                     signed_projection=float(projections[local_idx]),
                     weight=float(signed_weights[local_idx]),
                     percent=percent,
@@ -354,6 +357,7 @@ def ped_results_to_dataframe(results: Sequence[PEDModeResult], *, method: str = 
                     "coordinate_class": contribution.coordinate_class,
                     "atoms_1based": "-".join(str(a + 1) for a in contribution.atoms0),
                     "source": contribution.source,
+                    "generation_rule": contribution.generation_rule,
                     "signed_projection": round(float(contribution.signed_projection), 8),
                     "weight": round(float(contribution.weight), 12),
                     "contribution_percent": round(float(contribution.percent), 6),
@@ -379,6 +383,7 @@ def ped_results_to_dataframe(results: Sequence[PEDModeResult], *, method: str = 
                 "coordinate_class": "",
                 "atoms_1based": "",
                 "source": "",
+                "generation_rule": "",
                 "signed_projection": 0.0,
                 "weight": 0.0,
                 "contribution_percent": 0.0,
@@ -582,6 +587,7 @@ def build_wilson_ped_audit_dataframe(
                     "coordinate_class": _stage3d_coord_class(ic),
                     "atoms_1based": "-".join(str(a + 1) for a in ic.atoms0),
                     "source": str(ic.source),
+                    "generation_rule": str(ic.generation_rule or ""),
                     "internal_displacement": round(float(internal_displacement[local_idx]), 10),
                     "force_response": round(float(force_response[local_idx]), 10),
                     "signed_potential_term": round(float(signed_terms[local_idx]), 12),
@@ -616,6 +622,7 @@ def build_wilson_ped_audit_dataframe(
                     "coordinate_class": "",
                     "atoms_1based": "",
                     "source": "",
+                    "generation_rule": "",
                     "internal_displacement": 0.0,
                     "force_response": 0.0,
                     "signed_potential_term": 0.0,

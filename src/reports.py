@@ -446,6 +446,167 @@ def decide_ped_driven_final_assignment(
     return final, "Stage 3D assignment audit", policy, final_warning
 
 
+def classify_composed_ped_diagnostic_policy(
+    baseline_ped_assignment: object,
+    baseline_ped_top_percent: object,
+    composed_ped_assignment: object,
+    composed_ped_top_percent: object,
+) -> tuple[str, float, str, str]:
+    """
+    Conservative viewer-only policy for composed-coordinate PED evidence.
+
+    This compares composed PED to the baseline PED diagnostic. It does not use
+    benchmark expectations and must not drive final assignment labels.
+    """
+    baseline_text = str(baseline_ped_assignment or "").strip()
+    composed_text = str(composed_ped_assignment or "").strip()
+    try:
+        baseline_top = float(baseline_ped_top_percent)
+    except (TypeError, ValueError):
+        baseline_top = 0.0
+    try:
+        composed_top = float(composed_ped_top_percent)
+    except (TypeError, ValueError):
+        composed_top = 0.0
+    delta = composed_top - baseline_top
+
+    if not composed_text:
+        return "viewer_evidence_only", delta, "not_available", "composed_ped_not_available"
+    if not baseline_text:
+        return "diagnostic_hint_composed_available_without_baseline", delta, "WARN", "baseline_ped_not_available"
+
+    baseline_classes = _assignment_semantic_classes(baseline_text)
+    composed_classes = _assignment_semantic_classes(composed_text)
+    motion_classes = {"stretch", "bend", "torsion"}
+    baseline_motion = baseline_classes & motion_classes
+    composed_motion = composed_classes & motion_classes
+    if baseline_motion and composed_motion and not (baseline_motion & composed_motion):
+        return "diagnostic_hint_composed_differs_from_baseline", delta, "FAIL", "motion_family_mismatch"
+
+    overlap = baseline_classes & composed_classes
+    if overlap:
+        if delta > 10.0:
+            return "composed_confirms_with_better_localization", delta, "PASS", "baseline_ped_semantic_overlap"
+        return "viewer_evidence_only", delta, "PASS", "baseline_ped_semantic_overlap"
+
+    if composed_top >= 25.0 and (baseline_top < 25.0 or not baseline_classes):
+        return "diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified", delta, "WARN", "baseline_ped_diffuse_or_unclassified"
+    return "diagnostic_hint_composed_differs_from_baseline", delta, "WARN", "no_baseline_ped_semantic_overlap"
+
+
+def triage_composed_ped_diagnostic_hint(
+    policy_hint: object,
+    semantic_reason: object,
+    localization_delta_percent: object,
+    frequency_cm1: object = 0.0,
+    baseline_ped_assignment: object = "",
+    composed_ped_assignment: object = "",
+    composed_ped_top_source: object = "",
+    composed_ped_top_is_composed_coordinate: object = False,
+) -> tuple[str, str]:
+    """
+    Classify composed-coordinate PED hints for follow-up inspection.
+
+    This is a diagnostic triage helper only. It does not decide assignments and
+    must not feed final-label policy.
+    """
+    hint = str(policy_hint or "").strip()
+    reason = str(semantic_reason or "").strip()
+    try:
+        delta = float(localization_delta_percent)
+    except (TypeError, ValueError):
+        delta = 0.0
+    try:
+        frequency = float(frequency_cm1)
+    except (TypeError, ValueError):
+        frequency = 0.0
+    baseline_classes = _assignment_semantic_classes(baseline_ped_assignment)
+    composed_classes = _assignment_semantic_classes(composed_ped_assignment)
+    composed_text = str(composed_ped_assignment or "").lower()
+    top_source = str(composed_ped_top_source or "").strip()
+    if isinstance(composed_ped_top_is_composed_coordinate, str):
+        top_is_composed = composed_ped_top_is_composed_coordinate.strip().lower() == "true"
+    else:
+        top_is_composed = bool(composed_ped_top_is_composed_coordinate)
+    composed_has_explicit_xh = bool(
+        re.search(r"\b[cons][- ]?h\b", composed_text)
+        or "hydroxyl" in composed_text
+        or "phenolic" in composed_text
+        or "thiol" in composed_text
+    )
+
+    if hint == "viewer_evidence_only":
+        return "viewer_evidence_only", "no_followup_required"
+    if hint == "composed_confirms_with_better_localization":
+        return "confirmation_candidate", "keep_as_diagnostic_confirmation"
+    if hint in {
+        "diagnostic_hint_composed_available_without_baseline",
+        "diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified",
+    }:
+        return "baseline_gap_candidate", "inspect_baseline_ped_coverage_before_policy_use"
+    if hint != "diagnostic_hint_composed_differs_from_baseline":
+        return "unclassified_composed_hint", "inspect_policy_hint"
+
+    if delta <= 0.0:
+        return "baseline_preferred_composed_lower_localization", "do_not_promote_composed_evidence"
+    if (
+        reason == "motion_family_mismatch"
+        and frequency >= 2500.0
+        and "stretch" in composed_classes
+        and composed_has_explicit_xh
+        and "stretch" not in baseline_classes
+    ):
+        return "high_frequency_xh_stretch_recovery", "keep_composed_xh_stretch_as_diagnostic_evidence"
+    if reason == "motion_family_mismatch" and frequency >= 2500.0:
+        return "high_frequency_motion_family_review", "inspect_xh_stretch_vs_bend_or_torsion_coordinate_generation"
+    if reason == "motion_family_mismatch" and top_source and not top_is_composed:
+        return "primitive_row_optimizer_substitution", "inspect_optimizer_substitution_before_coordinate_generation"
+    if reason == "motion_family_mismatch":
+        return "motion_family_coordinate_generation_target", "inspect_composed_coordinate_generation_or_family_semantics"
+    return "semantic_overlap_review_target", "inspect_composed_and_baseline_top_contributors"
+
+
+def classify_composed_ped_evidence_origin(
+    composed_ped_assignment: object,
+    composed_ped_top_source: object,
+    composed_ped_top_is_composed_coordinate: object,
+) -> str:
+    assignment = str(composed_ped_assignment or "").strip()
+    if not assignment:
+        return "baseline_or_no_composed_top"
+    top_source = str(composed_ped_top_source or "").strip()
+    if isinstance(composed_ped_top_is_composed_coordinate, str):
+        top_is_composed = composed_ped_top_is_composed_coordinate.strip().lower() == "true"
+    else:
+        top_is_composed = bool(composed_ped_top_is_composed_coordinate)
+    if top_is_composed or top_source == "composed_coordinate":
+        return "composed_coordinate_top"
+    if top_source:
+        return "primitive_substitution_top"
+    return "baseline_or_no_composed_top"
+
+
+def classify_composed_ped_warning(
+    composed_ped_evidence_origin: object,
+    composed_ped_triage_category: object,
+) -> tuple[str, str]:
+    """
+    Return warning-only composed PED diagnostics.
+
+    Evidence origin alone is intentionally not a warning because many
+    viewer-evidence rows can be topped by primitive rows. The warning is only
+    actionable when the top primitive origin also has substitution triage.
+    """
+    origin = str(composed_ped_evidence_origin or "").strip()
+    triage = str(composed_ped_triage_category or "").strip()
+    if origin == "primitive_substitution_top" and triage == "primitive_row_optimizer_substitution":
+        return (
+            "primitive_row_optimizer_substitution_warning",
+            "composed_ped_top_contributor_is_primitive_after_optimizer_substitution",
+        )
+    return "", ""
+
+
 def _build_ped_viewer_mode_summary(ped_df: pd.DataFrame | None, *, top_n: int = 6) -> Dict[tuple[str, int], Dict[str, object]]:
     if not isinstance(ped_df, pd.DataFrame) or ped_df.empty:
         return {}
@@ -468,6 +629,8 @@ def _build_ped_viewer_mode_summary(ped_df: pd.DataFrame | None, *, top_n: int = 
     method_col = _ped_method_column(df)
     summaries: Dict[tuple[str, int], Dict[str, object]] = {}
     for (filename, mode), group in df.sort_values(["Filename", "mode", rank_col]).groupby(["Filename", "mode"], dropna=False):
+        group = group.sort_values(rank_col)
+        top_row = group.iloc[0]
         terms = []
         family_totals: Dict[str, float] = {}
         for _, row in group.iterrows():
@@ -491,12 +654,21 @@ def _build_ped_viewer_mode_summary(ped_df: pd.DataFrame | None, *, top_n: int = 
                 if len(mixed) > 1 and mixed[1][1] >= 10.0:
                     assignment = f"{assignment} and {mixed[1][0]}"
 
-        method = str(group.iloc[0].get(method_col, "") or "") if method_col else ""
+        top_source = str(top_row.get("source", "") or "").strip()
+        top_generation_rule = str(top_row.get("generation_rule", "") or "").strip()
+        top_internal_coordinate = str(top_row.get("internal_coordinate", "") or "").strip()
+        top_coord_index = top_row.get("coord_index", "")
+        method = str(top_row.get(method_col, "") or "") if method_col else ""
         summaries[(str(filename), int(mode))] = {
             "ped_assignment": assignment,
             "ped_top_family": top_family,
             "ped_top_percent": round(float(top_percent), 3),
             "ped_top_contributors": "; ".join(terms),
+            "ped_top_source": top_source,
+            "ped_top_internal_coordinate": top_internal_coordinate,
+            "ped_top_coord_index": top_coord_index,
+            "ped_top_generation_rule": top_generation_rule,
+            "ped_top_is_composed_coordinate": top_source == "composed_coordinate",
             "ped_method": method,
         }
     return summaries
@@ -626,6 +798,114 @@ def build_ped_driven_final_assignment_table(agreement_table: pd.DataFrame | None
     return pd.DataFrame(rows, columns=columns)
 
 
+def build_composed_ped_policy_diagnostics_table(
+    ped_stage3d_agreement: pd.DataFrame | None,
+    *,
+    composed_wilson_ped_audit: pd.DataFrame | None = None,
+    composed_ped_v2_force_audit: pd.DataFrame | None = None,
+    composed_ped_audit: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    columns = [
+        "Filename",
+        "mode",
+        "frequency_cm-1",
+        "ped_assignment",
+        "ped_top_percent",
+        "composed_ped_assignment",
+        "composed_ped_top_percent",
+        "composed_ped_localization_delta_percent",
+        "composed_ped_semantic_status",
+        "composed_ped_semantic_reason",
+        "composed_ped_policy_hint",
+        "composed_ped_triage_category",
+        "composed_ped_triage_recommendation",
+        "composed_ped_top_source",
+        "composed_ped_top_internal_coordinate",
+        "composed_ped_top_coord_index",
+        "composed_ped_top_generation_rule",
+        "composed_ped_top_is_composed_coordinate",
+        "composed_ped_evidence_origin",
+        "composed_ped_warning",
+        "composed_ped_warning_reason",
+    ]
+    agreement_df = ped_stage3d_agreement if isinstance(ped_stage3d_agreement, pd.DataFrame) else pd.DataFrame()
+    if agreement_df.empty or "Filename" not in agreement_df.columns or "mode" not in agreement_df.columns:
+        return pd.DataFrame(columns=columns)
+
+    composed_df, _source_label = _select_ped_diagnostic_layer(
+        wilson_ped_audit=composed_wilson_ped_audit,
+        ped_v2_force_audit=composed_ped_v2_force_audit,
+        ped_audit=composed_ped_audit,
+    )
+    composed_by_mode = _build_ped_viewer_mode_summary(composed_df)
+
+    rows = []
+    for _, row in agreement_df.iterrows():
+        try:
+            mode = int(row.get("mode"))
+        except (TypeError, ValueError):
+            continue
+        filename = str(row.get("Filename", "") or "")
+        composed_row = composed_by_mode.get((filename, mode), {})
+        ped_assignment = str(row.get("ped_assignment", "") or "")
+        ped_top_percent = float(row.get("ped_top_percent", 0.0) or 0.0)
+        composed_assignment = str(composed_row.get("ped_assignment", "") or "")
+        composed_top_percent = float(composed_row.get("ped_top_percent", 0.0) or 0.0)
+        composed_top_source = str(composed_row.get("ped_top_source", "") or "")
+        composed_top_internal_coordinate = str(composed_row.get("ped_top_internal_coordinate", "") or "")
+        composed_top_coord_index = composed_row.get("ped_top_coord_index", "")
+        composed_top_generation_rule = str(composed_row.get("ped_top_generation_rule", "") or "")
+        composed_top_is_composed = bool(composed_row.get("ped_top_is_composed_coordinate", False))
+        evidence_origin = classify_composed_ped_evidence_origin(
+            composed_assignment,
+            composed_top_source,
+            composed_top_is_composed,
+        )
+        policy_hint, delta, semantic_status, semantic_reason = classify_composed_ped_diagnostic_policy(
+            ped_assignment,
+            ped_top_percent,
+            composed_assignment,
+            composed_top_percent,
+        )
+        triage_category, triage_recommendation = triage_composed_ped_diagnostic_hint(
+            policy_hint,
+            semantic_reason,
+            delta,
+            row.get("frequency_cm-1", 0.0),
+            ped_assignment,
+            composed_assignment,
+            composed_top_source,
+            composed_top_is_composed,
+        )
+        warning, warning_reason = classify_composed_ped_warning(evidence_origin, triage_category)
+        rows.append(
+            {
+                "Filename": filename,
+                "mode": mode,
+                "frequency_cm-1": row.get("frequency_cm-1", ""),
+                "ped_assignment": ped_assignment,
+                "ped_top_percent": ped_top_percent,
+                "composed_ped_assignment": composed_assignment,
+                "composed_ped_top_percent": composed_top_percent,
+                "composed_ped_localization_delta_percent": round(float(delta), 3),
+                "composed_ped_semantic_status": semantic_status,
+                "composed_ped_semantic_reason": semantic_reason,
+                "composed_ped_policy_hint": policy_hint,
+                "composed_ped_triage_category": triage_category,
+                "composed_ped_triage_recommendation": triage_recommendation,
+                "composed_ped_top_source": composed_top_source,
+                "composed_ped_top_internal_coordinate": composed_top_internal_coordinate,
+                "composed_ped_top_coord_index": composed_top_coord_index,
+                "composed_ped_top_generation_rule": composed_top_generation_rule,
+                "composed_ped_top_is_composed_coordinate": composed_top_is_composed,
+                "composed_ped_evidence_origin": evidence_origin,
+                "composed_ped_warning": warning,
+                "composed_ped_warning_reason": warning_reason,
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
 def build_spectrum_payload(
     hess_list,
     assignment_audit: pd.DataFrame | None = None,
@@ -684,6 +964,8 @@ def build_spectrum_payload(
             ped_source = ped_source_label if ped_assignment else ""
             composed_ped_assignment = str(composed_ped_row.get("ped_assignment", "") or "")
             composed_ped_source = composed_ped_source_label if composed_ped_assignment else ""
+            composed_top_source = str(composed_ped_row.get("ped_top_source", "") or "")
+            composed_top_is_composed = bool(composed_ped_row.get("ped_top_is_composed_coordinate", False))
             ped_agreement_status, ped_policy_warning = classify_ped_stage3d_agreement(
                 stage3d_assignment,
                 ped_assignment,
@@ -697,6 +979,33 @@ def build_spectrum_payload(
                 ped_agreement_status,
                 ped_policy_warning,
                 float(ped_row.get("ped_top_percent", 0.0) or 0.0),
+            )
+            composed_policy_hint, composed_delta, composed_semantic_status, composed_semantic_reason = (
+                classify_composed_ped_diagnostic_policy(
+                    ped_assignment,
+                    float(ped_row.get("ped_top_percent", 0.0) or 0.0),
+                    composed_ped_assignment,
+                    float(composed_ped_row.get("ped_top_percent", 0.0) or 0.0),
+                )
+            )
+            composed_evidence_origin = classify_composed_ped_evidence_origin(
+                composed_ped_assignment,
+                composed_top_source,
+                composed_top_is_composed,
+            )
+            composed_triage_category, composed_triage_recommendation = triage_composed_ped_diagnostic_hint(
+                composed_policy_hint,
+                composed_semantic_reason,
+                composed_delta,
+                float(freq),
+                ped_assignment,
+                composed_ped_assignment,
+                composed_top_source,
+                composed_top_is_composed,
+            )
+            composed_warning, composed_warning_reason = classify_composed_ped_warning(
+                composed_evidence_origin,
+                composed_triage_category,
             )
             rows.append(
                 {
@@ -723,6 +1032,15 @@ def build_spectrum_payload(
                     "composed_ped_top_percent": float(composed_ped_row.get("ped_top_percent", 0.0) or 0.0),
                     "composed_ped_top_contributors": str(composed_ped_row.get("ped_top_contributors", "") or ""),
                     "composed_ped_method": str(composed_ped_row.get("ped_method", "") or ""),
+                    "composed_ped_policy_hint": composed_policy_hint,
+                    "composed_ped_triage_category": composed_triage_category,
+                    "composed_ped_triage_recommendation": composed_triage_recommendation,
+                    "composed_ped_evidence_origin": composed_evidence_origin,
+                    "composed_ped_warning": composed_warning,
+                    "composed_ped_warning_reason": composed_warning_reason,
+                    "composed_ped_localization_delta_percent": round(float(composed_delta), 3),
+                    "composed_ped_semantic_status": composed_semantic_status,
+                    "composed_ped_semantic_reason": composed_semantic_reason,
                     "top_internal_coordinates": str(audit_row.get("top_internal_coordinates", "")) if audit_row is not None else "",
                     "warnings": str(audit_row.get("warnings", "")) if audit_row is not None else "",
                 }
@@ -1463,7 +1781,17 @@ def write_interactive_spectrum_viewer(
       </div>
 
       <section class="panel">
-        <div class="panel-head"><h2>Peak Table</h2></div>
+        <div class="panel-head">
+          <h2>Peak Table</h2>
+          <div class="viewer-actions">
+            <select id="composedHintFilter">
+              <option value="all" selected>All modes</option>
+              <option value="hints">Composed hints</option>
+              <option value="better_localization">Better localization</option>
+              <option value="differs">Differs from baseline</option>
+            </select>
+          </div>
+        </div>
         <div class="panel-body">
           <div class="table-wrap">
             <table>
@@ -1473,6 +1801,7 @@ def write_interactive_spectrum_viewer(
                   <th>Scaled Frequency</th>
                   <th>IR Intensity</th>
                   <th>Mode Interpretation</th>
+                  <th>Composed Hint</th>
                 </tr>
               </thead>
               <tbody id="peakTable"></tbody>
@@ -1506,6 +1835,7 @@ def write_interactive_spectrum_viewer(
     const hwhmValue = document.getElementById("hwhmValue");
     const summaryGrid = document.getElementById("summaryGrid");
     const evidenceLayer = document.getElementById("evidenceLayer");
+    const composedHintFilter = document.getElementById("composedHintFilter");
     const modeDetails = document.getElementById("modeDetails");
     const peakTable = document.getElementById("peakTable");
     const canvas = document.getElementById("chart");
@@ -1535,6 +1865,26 @@ def write_interactive_spectrum_viewer(
       td.textContent = String(text ?? "");
       row.appendChild(td);
       return td;
+    }}
+
+    function composedHintLabel(mode) {{
+      const hint = String(mode?.composed_ped_policy_hint || "viewer_evidence_only");
+      if (hint === "viewer_evidence_only") return "";
+      if (hint === "composed_confirms_with_better_localization") return "Better localization";
+      if (hint === "diagnostic_hint_composed_differs_from_baseline") return "Differs from baseline";
+      if (hint === "diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified") return "Baseline diffuse";
+      if (hint === "diagnostic_hint_composed_available_without_baseline") return "Composed only";
+      return hint.replaceAll("_", " ");
+    }}
+
+    function modePassesComposedHintFilter(mode) {{
+      const filter = composedHintFilter ? String(composedHintFilter.value || "all") : "all";
+      const hint = String(mode?.composed_ped_policy_hint || "viewer_evidence_only");
+      if (filter === "all") return true;
+      if (filter === "hints") return hint !== "viewer_evidence_only";
+      if (filter === "better_localization") return hint === "composed_confirms_with_better_localization";
+      if (filter === "differs") return hint === "diagnostic_hint_composed_differs_from_baseline";
+      return true;
     }}
 
     function appendEmptyRow(tbody, colspan, text) {{
@@ -2388,6 +2738,9 @@ def write_interactive_spectrum_viewer(
         appendKv(modeDetails, "Selected Evidence Source", mode.composed_ped_source || "n/a", true);
         appendKv(modeDetails, "Selected Evidence Top Contributor", mode.composed_ped_top_family ? `${{mode.composed_ped_top_family}} (${{Number(mode.composed_ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
         appendKv(modeDetails, "Selected Evidence Contributors", mode.composed_ped_top_contributors || "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Policy Hint", mode.composed_ped_policy_hint || "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Warning", mode.composed_ped_warning || "n/a", true);
+        appendKv(modeDetails, "Selected Evidence Localization Delta", `${{Number(mode.composed_ped_localization_delta_percent || 0).toFixed(1)}}%`, true);
         appendKv(modeDetails, "Selected Evidence Method", mode.composed_ped_method || "n/a", true);
       }} else {{
         appendKv(modeDetails, "Selected Evidence Layer", "Baseline PED", true);
@@ -2407,6 +2760,14 @@ def write_interactive_spectrum_viewer(
       appendKv(modeDetails, "Composed PED Source", mode.composed_ped_source || "n/a", true);
       appendKv(modeDetails, "Composed PED Top Contributor", mode.composed_ped_top_family ? `${{mode.composed_ped_top_family}} (${{Number(mode.composed_ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
       appendKv(modeDetails, "Composed PED Contributors", mode.composed_ped_top_contributors || "n/a", true);
+      appendKv(modeDetails, "Composed PED Policy Hint", mode.composed_ped_policy_hint || "n/a", true);
+      appendKv(modeDetails, "Composed PED Triage", mode.composed_ped_triage_category || "n/a", true);
+      appendKv(modeDetails, "Composed PED Evidence Origin", mode.composed_ped_evidence_origin || "n/a", true);
+      appendKv(modeDetails, "Composed PED Warning", mode.composed_ped_warning || "n/a", true);
+      appendKv(modeDetails, "Composed PED Warning Reason", mode.composed_ped_warning_reason || "n/a", true);
+      appendKv(modeDetails, "Composed PED Localization Delta", `${{Number(mode.composed_ped_localization_delta_percent || 0).toFixed(1)}}%`, true);
+      appendKv(modeDetails, "Composed PED Semantic Status", mode.composed_ped_semantic_status || "n/a", true);
+      appendKv(modeDetails, "Composed PED Semantic Reason", mode.composed_ped_semantic_reason || "n/a", true);
       appendKv(modeDetails, "Composed PED Method", mode.composed_ped_method || "n/a", true);
       appendKv(modeDetails, "Warnings", mode.warnings || "none", true);
       appendKv(modeDetails, "Stage 3D Supporting Coordinates", mode.top_internal_coordinates || "n/a", true);
@@ -2415,8 +2776,13 @@ def write_interactive_spectrum_viewer(
     function updatePeakTable(file, scale, x1, x2, engineName = getSelectedScaleEngine(), engineFit = getSelectedScaleEngineFit()) {{
       const rows = getScaledModes(file, scale, engineName, engineFit)
         .filter(mode => mode.scaled >= x1 && mode.scaled <= x2)
+        .filter(modePassesComposedHintFilter)
         .sort((a, b) => a.scaled - b.scaled);
       clearElement(peakTable);
+      if (!rows.length) {{
+        appendEmptyRow(peakTable, 5, "No modes match the selected composed hint filter.");
+        return;
+      }}
       for (const mode of rows) {{
         const tr = document.createElement("tr");
         if (mode.mode === selectedMode) tr.classList.add("active");
@@ -2424,6 +2790,7 @@ def write_interactive_spectrum_viewer(
         appendCell(tr, mode.scaled.toFixed(1));
         appendCell(tr, Number(mode.intensity).toFixed(3));
         appendCell(tr, mode.assignment || "unassigned");
+        appendCell(tr, composedHintLabel(mode));
         tr.addEventListener("mouseenter", () => {{
           selectedMode = mode.mode;
           updateModeDetails(file, scale);
@@ -2742,6 +3109,9 @@ def write_interactive_spectrum_viewer(
     evidenceLayer.addEventListener("input", () => {{
       const file = payload.files[currentIndex];
       updateModeDetails(file, Number(scaleFactor.value || payload.default_scale_factor || 1.0));
+    }});
+    composedHintFilter.addEventListener("input", () => {{
+      drawSpectrum(false);
     }});
 
     molStyle.addEventListener("input", renderMolecule);

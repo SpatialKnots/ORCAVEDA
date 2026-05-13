@@ -24,7 +24,21 @@ After this work, a user should be able to run ORCAVEDA on a `.hess` file and rec
 - [x] (2026-05-07 10:25+05:00) Run full-golden composed PED audit diagnostics over all local `data/hess/*.hess`.
 - [x] (2026-05-07 10:34+05:00) Expose composed PED evidence in the interactive viewer as a separate selectable/visible evidence layer.
 - [x] (2026-05-07 11:05+05:00) Add benchmark comparator support for composed PED audit as a separate diagnostic source and run policy review.
-- [ ] (next) Harden composed-coordinate semantic labels for X-H, carbonyl, and carboxylic-context evidence before any policy integration.
+- [x] (2026-05-07 11:43+05:00) Harden composed X-H stretch labels and composed benchmark context summaries; rerun focused tests and raw/scaled subset comparator.
+- [x] (2026-05-07 11:55+05:00) Repeat full-golden composed benchmark comparison after semantic hardening; raw and scaled comparisons had zero `worsens_semantic_match` rows.
+- [x] (2026-05-07 12:18+05:00) Add conservative composed PED diagnostic policy fields to viewer payload and benchmark comparator without changing final assignment policy.
+- [x] (2026-05-07 12:39+05:00) Export conservative composed PED diagnostic policy as `composed_ped_policy_diagnostics.csv` and validate full-golden behavior.
+- [x] (2026-05-07 13:04+05:00) Add viewer peak-table filter and compact indicator for composed diagnostic hints; validate focused tests and full-golden smoke outputs.
+- [x] (2026-05-07 13:32+05:00) Harden primitive torsion labels so terminal C-H/N-H/O-H neighbors drive torsion family semantics; rerun full-golden audit.
+- [x] (2026-05-12 14:25+05:00) Add diagnostic triage categories for remaining composed PED hints and rerun full-golden audit.
+- [x] (2026-05-12 15:06+05:00) Inspect the 8 `motion_family_coordinate_generation_target` rows and 3 high-frequency ethylene oxide rows; classify ethylene oxide as X-H stretch recovery rather than unresolved high-frequency conflict.
+- [x] (2026-05-12 15:31+05:00) Add top-contributor provenance fields to composed PED policy diagnostics and verify the 8 DMF/ethene target rows are primitive-row optimizer substitutions.
+- [x] (2026-05-12 15:47+05:00) Split primitive-row optimizer substitutions into their own composed PED triage category.
+- [x] (2026-05-12 16:02+05:00) Add stable `composed_ped_evidence_origin` field for future optimizer constraints.
+- [x] (2026-05-12 16:30+05:00) Add warning-only diagnostic for primitive-row optimizer substitution evidence without changing final assignments.
+- [x] (2026-05-12 16:42+05:00) Run focused tests, subset check, and full-golden acceptance for the warning-only diagnostic.
+- [x] (2026-05-12 17:10+05:00) Add an opt-in narrow primitive-substitution constraint experiment and validate the DMF/ethene/ethylene oxide subset.
+- [ ] (next) Run full-golden acceptance for the opt-in primitive-substitution constraint before considering default behavior.
 
 ## Surprises & Discoveries
 
@@ -39,6 +53,12 @@ After this work, a user should be able to run ORCAVEDA on a `.hess` file and rec
 
 - Observation: On the current curated benchmark rows, composed Wilson evidence did not improve semantic status relative to `ped_final_assignment`, even though it improved localization for one acetophenone carbonyl row. Several rows worsened as a separate evidence source because composed top terms lost explicit C-H or O-H semantic classes.
   Evidence: `outputs/composed_ped_benchmark_20260507/composed_ped_comparison_raw.csv` and `outputs/composed_ped_benchmark_20260507/composed_ped_comparison_scaled.csv`.
+
+- Observation: The initial worsened rows had two separable causes. Composed X-H stretch coordinates were labeled as generic `bond stretch`, losing C-H/N-H/O-H classes, and the composed benchmark summary used only four top contributors, dropping weak but important carboxylic-context contributors such as `C-C-O bend` or `O-H torsion`.
+  Evidence: `outputs/composed_ped_benchmark_20260507/composed_ped_comparison_raw.csv`, `outputs/composed_ped_benchmark_20260507/composed_ped_comparison_scaled.csv`, and focused inspection of `composed_ped_top_contributors` for acetaldehyde, acetamide, benzoic acid, and aniline rows.
+
+- Observation: The DMF/ethene `C-H torsion` composed disagreements are not caused by generated composed torsion coordinates. The first-wave composed generator creates only X-H stretch sum/difference candidates. The dominant C-H torsions in the composed Wilson audit are primitive torsion rows selected by the existing EPM-like basis optimizer after composed candidates are added.
+  Evidence: `src/internal_coordinates.py` rejects composed torsion components in `make_composed_internal_coordinate(...)` and only `build_xh_pair_composed_stretch_candidates(...)` is integrated for first-wave composed generation; `outputs/composed_xh_recovery_triage_full_golden_20260512\*__composed_wilson_ped_audit.csv` shows primitive `tor(...)` rows as the DMF/ethene top contributors.
 
 ## Decision Log
 
@@ -73,6 +93,18 @@ After this work, a user should be able to run ORCAVEDA on a `.hess` file and rec
 - Decision: Keep composed-coordinate evidence as viewer/diagnostic evidence only after the first benchmark comparator run.
   Rationale: The benchmark comparator found no semantic improvements over the baseline `ped_final_assignment` source on the current curated benchmark rows. The composed layer can confirm existing PASS rows and expose localization changes, but the evidence does not yet justify warning policy changes or automatic fallback into final assignments.
   Date/Author: 2026-05-07 / Codex
+
+- Decision: Fix composed semantic hardening only in evidence labels and benchmark diagnostics, not final assignment policy.
+  Rationale: Mapping `composed_*_XH_stretch(center:H,H)` to C-H/N-H/O-H stretch preserves explicit X-H chemistry without changing the B matrix, basis selection, or assignment policy. Using six composed benchmark contributors matches the existing final-assignment evidence depth closely enough to avoid false semantic regressions from truncated diagnostic summaries.
+  Date/Author: 2026-05-07 / Codex
+
+- Decision: Add composed PED policy hints as diagnostic fields only.
+  Rationale: Full-golden evidence supports using composed PED as a conservative confirmation/warning candidate, but not as an automatic final-label fallback. The implemented fields (`composed_ped_policy_hint`, `composed_ped_localization_delta_percent`, `composed_ped_semantic_status`, and `composed_ped_semantic_reason`) are surfaced in viewer payloads and benchmark comparison outputs while preserving `assignment_audit`, `ped_stage3d_agreement`, `ped_final_assignment`, B matrices, and rank selection.
+  Date/Author: 2026-05-07 / Codex
+
+- Decision: Do not restrict the composed PED optimizer candidate pool globally to composed coordinates only.
+  Rationale: A local experiment on DMF/ethene/ethylene oxide removed the original DMF/ethene torsion disagreements, but the full-golden run broadened composed/baseline disagreements from 19 to 181 rows. This failed the minimal safe patch criterion, so the optimizer-scope change was reverted. The safer retained change is diagnostic triage only.
+  Date/Author: 2026-05-12 / Codex
 
 ## Outcomes & Retrospective
 
@@ -188,7 +220,216 @@ Benchmark policy review:
 
 Current policy: composed evidence remains suitable as a viewer evidence layer and benchmark diagnostic. It is not yet supported as an automatic warning/confirmation policy layer or as fallback into final assignments. A future fallback experiment should require new evidence where baseline PED is diffuse or unavailable and composed evidence improves semantic status without increasing C-H, N-H, O-H, or carboxylic-context failures.
 
-Next planned stage: composed-coordinate semantic hardening. The benchmark comparator showed that composed coordinates can improve localization while losing explicit chemical labels such as C-H, O-H, C=O, or carboxylic acid context. The next patch should inspect the worsened rows in `outputs/composed_ped_benchmark_20260507`, improve composed-coordinate naming and `coordinate_family` propagation from primitive components, add focused tests for X-H and carbonyl/carboxylic labels, regenerate a small benchmark subset, and only then repeat the raw/scaled comparator. This stage must not change `ped_final_assignment`, `ped_stage3d_agreement`, or `assignment_audit` policy.
+Composed-coordinate semantic hardening outcome: `src/mode_assignment.py` now maps `composed_symmetric_XH_stretch(...)` and `composed_asymmetric_XH_stretch(...)` to explicit C-H, N-H, or O-H stretch families based on the heavy-atom center encoded in the composed coordinate name. `benchmarks/vibrational_assignments/compare_orcaveda_assignments.py` now summarizes composed PED evidence with the top six contributors, so weak but chemically important carboxylic-context contributors are not silently dropped from the diagnostic comparison. This changes composed evidence labeling and benchmark diagnostics only; it does not change `assignment_audit`, `ped_stage3d_agreement`, `ped_final_assignment`, B matrices, rank selection, or final-label policy.
+
+Composed-coordinate semantic hardening validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_composed_semantics_ped_tmp` returned `18 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_vibrational_assignment_multiscale.py -q --basetemp outputs\pytest_composed_semantics_compare_tmp` returned `7 passed`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\acetaldehyde.hess data\hess\acetamide.hess data\hess\aniline.hess data\hess\benzoic_acid.hess --outdir outputs\composed_semantics_subset_20260507` completed in CLI mode.
+- Raw comparator for the same four-molecule problem subset wrote `outputs\composed_semantics_subset_20260507\composed_ped_comparison_raw.csv`. On the previous full-golden benchmark filtered to these molecules, `composed_vs_baseline_ped_status` had `5 worsens_semantic_match` and `40 same_semantic_match`; on the regenerated subset it had `0 worsens_semantic_match` and `45 same_semantic_match`, with 48 rows lacking composed comparison because those benchmark rows matched files outside the regenerated composed subset.
+- Scaled comparator for the same four-molecule problem subset wrote `outputs\composed_semantics_subset_20260507\composed_ped_comparison_scaled.csv`. On the previous full-golden benchmark filtered to these molecules, `composed_vs_baseline_ped_status` had `6 worsens_semantic_match` and `39 same_semantic_match`; on the regenerated subset it had `0 worsens_semantic_match` and `45 same_semantic_match`, with 48 rows lacking composed comparison for rows outside the regenerated subset.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_composed_semantics_focused_tmp` returned `33 passed, 1 skipped`.
+
+Current limitation after semantic hardening: this is a subset validation, not a refreshed full-golden comparison. The composed layer remains diagnostic/viewer evidence only and still must not drive `ped_final_assignment` or policy warnings until a full-golden rerun shows no new C-H, N-H, O-H, carbonyl, or carboxylic-context regressions.
+
+Full-golden semantic-hardening rerun outcome: running the current pipeline on all local `data/hess/*.hess` after the semantic hardening patch completed successfully and wrote outputs under `outputs/composed_semantics_full_golden_20260507`. The input set contained 55 `.hess` files, and `composed_ped_basis_diagnostics.csv` contained 55 rows. Rank loss remained zero. The total composed candidate count was 366, and the total selected composed coordinate count was 166. `assignment_audit.csv` contained 350 high-frequency rows at or above 2500 cm-1, with zero high-frequency unassigned rows.
+
+Full-golden semantic-hardening commands:
+
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\composed_semantics_full_golden_20260507`, where `@hess` was the PowerShell-expanded sorted list from `Get-ChildItem -LiteralPath 'data\hess' -Filter '*.hess'`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Raw comparator with `--ped-final-assignment outputs\composed_semantics_full_golden_20260507\acetaldehyde__acetamide__acetanilide__plus_52_files__multi_file_55__ped_final_assignment.csv` and `--composed-ped-audit outputs\composed_semantics_full_golden_20260507\acetaldehyde__acetamide__acetanilide__plus_52_files__multi_file_55__composed_wilson_ped_audit.csv` wrote `outputs\composed_semantics_full_golden_20260507\composed_ped_comparison_raw.csv` and reported primary baseline counts of `27 PASS` and `66 WARN`.
+- Scaled comparator with the same composed audit source wrote `outputs\composed_semantics_full_golden_20260507\composed_ped_comparison_scaled.csv` and reported primary baseline counts of `26 PASS` and `67 WARN`.
+
+Full-golden semantic-hardening composed comparison:
+
+- Raw `composed_vs_baseline_ped_status`: `92 same_semantic_match`, `1 localization_gain_without_semantic_improvement`, and `0 worsens_semantic_match`.
+- Scaled `composed_vs_baseline_ped_status`: `92 same_semantic_match`, `1 localization_gain_without_semantic_improvement`, and `0 worsens_semantic_match`.
+- The only localization-gain row in both raw and scaled comparisons was acetophenone near 1683 cm-1, mode 42. Baseline PED semantic status was `PASS`; composed PED semantic status was also `PASS`. The top contribution increased from baseline `45.933%` to composed `63.043354%`, and the composed top contributor remained `C=O stretch [carbonyl_CO_stretch(C12=O17)]`.
+
+Current policy after full-golden semantic-hardening rerun: composed evidence is now cleaner as a diagnostic layer, with no raw or scaled semantic regressions on the current curated benchmark. It still remains a separate viewer/benchmark diagnostic source. Any graduation into warning/confirmation or fallback policy must be planned separately and must preserve `assignment_audit`, `ped_stage3d_agreement`, and `ped_final_assignment` contracts unless explicitly changed.
+
+Conservative composed diagnostic policy outcome: `src/reports.py` now computes viewer-only composed diagnostic fields by comparing baseline PED evidence to composed PED evidence. `composed_confirms_with_better_localization` is emitted only when baseline PED and composed PED are semantically compatible and composed top contribution exceeds baseline top contribution by more than 10 percentage points. When composed evidence is available but differs from baseline or fills a diffuse/unclassified baseline case, the policy emits diagnostic hints rather than final-label fallbacks. The interactive viewer displays the selected composed evidence policy hint and localization delta, plus composed semantic status/reason. `benchmarks/vibrational_assignments/compare_orcaveda_assignments.py` now uses the same conservative naming for benchmark policy hints; benchmark semantic status remains expected-aware, while viewer semantic status is baseline-PED compatibility only.
+
+Conservative composed diagnostic policy validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py -q --basetemp outputs\pytest_composed_policy_viewer_tmp` returned `7 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_vibrational_assignment_multiscale.py -q --basetemp outputs\pytest_composed_policy_compare_tmp` returned `7 passed`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\composed_policy_full_golden_20260507`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Raw comparator wrote `outputs\composed_policy_full_golden_20260507\composed_ped_comparison_raw.csv` and reported primary baseline counts of `27 PASS` and `66 WARN`; `composed_vs_baseline_ped_status` was `92 same_semantic_match`, `1 localization_gain_without_semantic_improvement`, and `0 worsens_semantic_match`; `composed_ped_policy_hint` was `92 viewer_evidence_only` and `1 composed_confirms_with_better_localization`.
+- Scaled comparator wrote `outputs\composed_policy_full_golden_20260507\composed_ped_comparison_scaled.csv` and reported primary baseline counts of `26 PASS` and `67 WARN`; `composed_vs_baseline_ped_status` was `92 same_semantic_match`, `1 localization_gain_without_semantic_improvement`, and `0 worsens_semantic_match`; `composed_ped_policy_hint` was `92 viewer_evidence_only` and `1 composed_confirms_with_better_localization`.
+- Full-golden diagnostics remained stable: `composed_ped_basis_diagnostics.csv` had 55 rows, zero rank loss, 366 composed candidates, and 166 selected composed coordinates. `assignment_audit.csv` had 350 high-frequency rows at or above 2500 cm-1 and zero high-frequency unassigned rows.
+- `Select-String` checks on the regenerated `spectrum_data.json` and `interactive_spectrum.html` found the new composed policy fields and viewer labels.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_composed_policy_focused_tmp` returned `34 passed, 1 skipped`.
+
+Current limitation after conservative composed diagnostic policy: the policy is intentionally diagnostic. It does not write composed policy fields into `ped_final_assignment.csv`, and it does not let composed PED override or fallback into final labels. A future plan can decide whether these hints should be exported as a dedicated CSV table or used for a stricter warning/confirmation layer.
+
+Composed policy CSV export outcome: `src/reports.py` now has `build_composed_ped_policy_diagnostics_table(...)`, and `src/ORCAVEDA_patched_stage3D_v5_0.py` writes a separate `composed_ped_policy_diagnostics.csv` table for every pipeline run. The table columns are `Filename`, `mode`, `frequency_cm-1`, `ped_assignment`, `ped_top_percent`, `composed_ped_assignment`, `composed_ped_top_percent`, `composed_ped_localization_delta_percent`, `composed_ped_semantic_status`, `composed_ped_semantic_reason`, and `composed_ped_policy_hint`. This table is diagnostic only and is not consumed by `assignment_audit`, `ped_stage3d_agreement`, or `ped_final_assignment`.
+
+Composed policy CSV validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_composed_policy_csv_ped_tmp` returned `18 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_vibrational_assignment_multiscale.py -q --basetemp outputs\pytest_composed_policy_csv_viewer_compare_tmp` returned `14 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\composed_policy_csv_full_golden_20260507`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Full-golden `composed_ped_policy_diagnostics.csv` contained 1920 rows and all required columns. Policy hint counts were `1739 viewer_evidence_only`, `145 composed_confirms_with_better_localization`, `20 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- Raw comparator wrote `outputs\composed_policy_csv_full_golden_20260507\composed_ped_comparison_raw.csv` and reported `27 PASS`, `66 WARN`, `92 same_semantic_match`, `1 localization_gain_without_semantic_improvement`, and `0 worsens_semantic_match`. Benchmark policy hints were `92 viewer_evidence_only` and `1 composed_confirms_with_better_localization`.
+- Scaled comparator wrote `outputs\composed_policy_csv_full_golden_20260507\composed_ped_comparison_scaled.csv` and reported `26 PASS`, `67 WARN`, `92 same_semantic_match`, `1 localization_gain_without_semantic_improvement`, and `0 worsens_semantic_match`. Benchmark policy hints were `92 viewer_evidence_only` and `1 composed_confirms_with_better_localization`.
+- Critical benchmark rows involving X-H, carboxyl/carboxylic acid, or carbonyl had zero `diagnostic_hint_composed_differs_from_baseline` rows in both raw and scaled comparisons.
+- Full-golden diagnostics remained stable: `composed_ped_basis_diagnostics.csv` had 55 rows, zero rank loss, 366 composed candidates, and 166 selected composed coordinates. `assignment_audit.csv` had 350 high-frequency rows at or above 2500 cm-1 and zero high-frequency unassigned rows.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_composed_policy_csv_focused_tmp` returned `34 passed, 1 skipped`.
+
+Current limitation after CSV export: the separate policy table now exposes all composed diagnostic hints, including 20 baseline/composed differences outside the current critical benchmark rows. Those rows are diagnostic inspection targets, not final-label changes. The next safe UI step is a viewer filter/indicator for non-`viewer_evidence_only` hints.
+
+Viewer composed-hint filter outcome: `src/reports.py` now adds a peak-table `composedHintFilter` with `All modes`, `Composed hints`, `Better localization`, and `Differs from baseline` options. The peak table has a compact `Composed Hint` column that labels non-`viewer_evidence_only` rows, including `Better localization`, `Differs from baseline`, `Baseline diffuse`, and `Composed only`. The filter uses only viewer JSON fields and does not change assignments, spectrum rendering data, CSV scientific tables, `assignment_audit`, `ped_stage3d_agreement`, or `ped_final_assignment`.
+
+Viewer composed-hint filter validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py -q --basetemp outputs\pytest_composed_hint_filter_viewer_tmp` returned `7 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_composed_hint_filter_ped_tmp` returned `18 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_composed_hint_filter_focused_tmp` returned `34 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\composed_hint_filter_full_golden_20260507`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Full-golden HTML smoke checks found `composedHintFilter`, `Composed Hint`, `Composed hints`, `Better localization`, `Differs from baseline`, and the empty-state text `No modes match the selected composed hint filter.` in the regenerated interactive spectrum HTML.
+- Full-golden `composed_ped_policy_diagnostics.csv` remained stable with 1920 rows and hint counts of `1739 viewer_evidence_only`, `145 composed_confirms_with_better_localization`, `20 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- Full-golden diagnostics remained stable: 55 composed basis diagnostic rows, zero rank loss, 366 composed candidates, 166 selected composed coordinates, 350 high-frequency rows at or above 2500 cm-1, and zero high-frequency unassigned rows.
+- Raw and scaled benchmark comparators under `outputs\composed_hint_filter_full_golden_20260507` both reported `92 same_semantic_match`, `1 localization_gain_without_semantic_improvement`, and `0 worsens_semantic_match`; benchmark policy hints remained `92 viewer_evidence_only` and `1 composed_confirms_with_better_localization`; critical X-H/carboxyl/carbonyl rows had zero `diagnostic_hint_composed_differs_from_baseline` in raw and scaled outputs.
+
+Current limitation after viewer filter: browser pixel/interaction automation was not run for this UI-only patch. The validation covers generated HTML strings, JSON payload fields, pipeline generation, focused tests, and full-golden smoke outputs. The filter is intentionally table-only and does not filter the spectrum plot.
+
+Primitive torsion semantic hardening outcome: `src/mode_assignment.py` now labels primitive torsions containing terminal hydrogens by the heavy atom adjacent to the terminal H in the torsion label. For example, `tor(C1-N3-C4-H12)` and `tor(C1-O2-C6-H5)` now map to `C-H torsion`, while true `tor(C1-C2-O3-H4)` and `tor(C1-C2-N3-H4)` retain `O-H torsion` and `N-H torsion`. This fixes misleading `N-H torsion` and `O-H torsion` labels in molecules without N-H or O-H bonds without changing PED math, coordinate selection, B matrices, final assignment policy, or output schemas.
+
+Primitive torsion semantic hardening validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_torsion_semantics_ped_tmp` returned `19 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py -q --basetemp outputs\pytest_torsion_semantics_viewer_compare_tmp` returned `14 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q --basetemp outputs\pytest_torsion_semantics_focused_tmp` returned `35 passed, 1 skipped`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\torsion_semantics_full_golden_20260507`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Full-golden `composed_ped_policy_diagnostics.csv` remained 1920 rows. Policy hint counts changed from the previous `1739 viewer_evidence_only`, `145 composed_confirms_with_better_localization`, `20 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified` to `1745 viewer_evidence_only`, `140 composed_confirms_with_better_localization`, `19 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- The DMSO 1049 cm-1 S=O row no longer appears among `diagnostic_hint_composed_differs_from_baseline`. DMF, dimethyl carbonate, ethylene oxide, ethanol, and monoethanolamine dimer rows now report terminal-C-H torsions as `C-H torsion` instead of misleading `N-H torsion` or `O-H torsion` where the terminal H is adjacent to carbon.
+- Full-golden diagnostics remained stable: 55 composed basis diagnostic rows, zero rank loss, 366 composed candidates, 166 selected composed coordinates, 350 high-frequency rows at or above 2500 cm-1, and zero high-frequency unassigned rows.
+- Raw and scaled benchmark comparators under `outputs\torsion_semantics_full_golden_20260507` both reported `92 same_semantic_match`, `1 localization_gain_without_semantic_improvement`, and `0 worsens_semantic_match`; benchmark policy hints remained `92 viewer_evidence_only` and `1 composed_confirms_with_better_localization`; critical X-H/carboxyl/carbonyl rows had zero `diagnostic_hint_composed_differs_from_baseline` in raw and scaled outputs.
+
+Current limitation after primitive torsion semantic hardening: remaining `diagnostic_hint_composed_differs_from_baseline` rows are mostly genuine bend/torsion/stretch competition or high-frequency stretch localization disagreements, not obvious X-H label bugs. They should be treated as candidate coordinate-generation or benchmark-fixture review targets, not as final-label changes.
+
+Composed hint triage outcome: `src/reports.py` now adds `triage_composed_ped_diagnostic_hint(...)`, and `composed_ped_policy_diagnostics.csv` now includes `composed_ped_triage_category` and `composed_ped_triage_recommendation`. These fields are diagnostic only. They are not written into `assignment_audit`, `ped_stage3d_agreement`, or `ped_final_assignment`, and they do not affect viewer final labels.
+
+Composed hint triage validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_ped.py -q --basetemp outputs\pytest_composed_triage_tmp` returned `27 passed` before failing one unrelated headless Chrome smoke test at browser startup with `GPU process isn't usable`. The failure occurred in `test_interactive_spectrum_viewer_headless_chrome_smoke_without_cdn`, before exercising the new composed triage logic.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_ped.py -q -k "not headless_chrome_smoke_without_cdn" --basetemp outputs\pytest_composed_triage_no_chrome_tmp` returned `27 passed, 1 deselected`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_vibrational_assignment_multiscale.py -q --basetemp outputs\pytest_composed_triage_compare_tmp` returned `7 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_vibrational_assignment_multiscale.py tests\test_interactive_spectrum_viewer.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q -k "not headless_chrome_smoke_without_cdn" --basetemp outputs\pytest_composed_triage_focused_tmp` returned `36 passed, 1 deselected`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\composed_triage_full_golden_20260512`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Full-golden `composed_ped_policy_diagnostics.csv` remained 1920 rows. Policy hint counts remained `1745 viewer_evidence_only`, `140 composed_confirms_with_better_localization`, `19 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- Full-golden triage counts were `1745 viewer_evidence_only`, `140 confirmation_candidate`, `16 baseline_gap_candidate`, `8 baseline_preferred_composed_lower_localization`, `8 motion_family_coordinate_generation_target`, and `3 high_frequency_motion_family_review`.
+- Full-golden diagnostics remained stable: 55 composed basis diagnostic rows, all 55 rank-preserved, 350 high-frequency rows at or above 2500 cm-1, and zero high-frequency unassigned rows.
+
+Current limitation after composed hint triage: this patch only makes the remaining diagnostic rows easier to inspect. It does not implement new composed-coordinate generators. The next implementation step should focus on the 8 DMF/ethene-like `motion_family_coordinate_generation_target` rows and 3 ethylene oxide `high_frequency_motion_family_review` rows; the 8 negative-delta `baseline_preferred_composed_lower_localization` rows should not be promoted into composed policy.
+
+DMF/ethene and high-frequency ethylene oxide review outcome: focused inspection of the 8 `motion_family_coordinate_generation_target` rows showed that composed Wilson PED selected primitive C-H torsion rows, not generated composed torsion rows. A trial patch that restricted composed-basis optimization to composed candidates only passed focused PED tests and removed the original DMF/ethene targets on a three-molecule subset, but full-golden validation broadened the diagnostic disagreement surface and was rejected. The retained implementation improves triage only: high-frequency rows where composed PED recovers an explicit X-H stretch from a non-stretch baseline are now categorized as `high_frequency_xh_stretch_recovery`, with recommendation `keep_composed_xh_stretch_as_diagnostic_evidence`.
+
+DMF/ethene and high-frequency ethylene oxide validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q --basetemp outputs\pytest_composed_optimizer_scope_ped_tmp` returned `20 passed` during the rejected optimizer-scope experiment.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\DMF_freq.hess data\hess\ethene.hess data\hess\ethylene_oxide.hess --outdir outputs\composed_optimizer_scope_subset_20260512_b` returned exit code 0 and printed `Terminal mode detected -> using CLI`. The subset had zero original DMF/ethene targets but still one new low-frequency ethylene oxide target; the three high-frequency ethylene oxide rows became `high_frequency_xh_stretch_recovery`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\composed_optimizer_scope_full_golden_20260512`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, returned exit code 0 but produced `181 diagnostic_hint_composed_differs_from_baseline` rows, including `46 motion_family_coordinate_generation_target` and `13 high_frequency_xh_stretch_recovery`. This was rejected as too broad.
+- After reverting the optimizer-scope experiment, `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_interactive_spectrum_viewer.py tests\test_vibrational_assignment_multiscale.py -q -k "not headless_chrome_smoke_without_cdn" --basetemp outputs\pytest_composed_xh_recovery_triage_tmp` returned `34 passed, 1 deselected`.
+- Final full-golden run `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\composed_xh_recovery_triage_full_golden_20260512` returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Final full-golden policy counts remained `1745 viewer_evidence_only`, `140 composed_confirms_with_better_localization`, `19 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- Final full-golden triage counts were `1745 viewer_evidence_only`, `140 confirmation_candidate`, `16 baseline_gap_candidate`, `8 baseline_preferred_composed_lower_localization`, `8 motion_family_coordinate_generation_target`, and `3 high_frequency_xh_stretch_recovery`. There were zero `high_frequency_motion_family_review` rows.
+- Final full-golden diagnostics remained stable: 55 composed basis diagnostic rows, all 55 rank-preserved, 366 composed candidates, 166 selected composed coordinates, 350 high-frequency rows at or above 2500 cm-1, and zero high-frequency unassigned rows.
+
+Current limitation after high-frequency X-H recovery triage: the 8 DMF/ethene rows remain genuine coordinate-generation or optimizer-diagnostic targets. They should not be fixed by a global optimizer candidate-pool restriction. A future safe patch should be narrower, likely adding a diagnostic that distinguishes primitive-row optimizer substitutions from composed-coordinate evidence, or a molecule-agnostic generator/constraint that can be validated without increasing full-golden disagreement counts.
+
+Composed PED provenance outcome: `src/ped.py` now writes `generation_rule` in PED v1, PED v2, and Wilson PED audit rows. `src/reports.py` now carries the top-ranked composed PED contributor provenance into `composed_ped_policy_diagnostics.csv` as `composed_ped_top_source`, `composed_ped_top_internal_coordinate`, `composed_ped_top_coord_index`, `composed_ped_top_generation_rule`, and `composed_ped_top_is_composed_coordinate`. These fields are diagnostic only and are intentionally absent from `assignment_audit`, `ped_stage3d_agreement`, and `ped_final_assignment`.
+
+Composed PED provenance validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_interactive_spectrum_viewer.py tests\test_vibrational_assignment_multiscale.py -q -k "not headless_chrome_smoke_without_cdn" --basetemp outputs\pytest_composed_provenance_focused_tmp` returned `34 passed, 1 deselected`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\DMF_freq.hess data\hess\ethene.hess data\hess\ethylene_oxide.hess --outdir outputs\composed_provenance_subset_20260512` returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- In `outputs\composed_provenance_subset_20260512\*__composed_ped_policy_diagnostics.csv`, all 8 DMF/ethene `motion_family_coordinate_generation_target` rows had `composed_ped_top_source == primitive`, `composed_ped_top_is_composed_coordinate == False`, and top coordinates `tor(C1-N3-C4-H12)`, `tor(C5-N3-C4-H12)`, `tor(H3-C1-C2-H6)`, `tor(H3-C1-C2-H5)`, or `tor(H4-C1-C2-H6)`.
+- The three high-frequency ethylene oxide `high_frequency_xh_stretch_recovery` rows had explicit top provenance: modes 17 and 19 were topped by composed X-H stretch rows with `generation_rule == xh_pair_sum_difference`, while mode 18 was topped by primitive `r(C2-H4)`.
+- Final full-golden run `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\composed_provenance_full_golden_20260512`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Final full-golden policy counts remained unchanged: `1745 viewer_evidence_only`, `140 composed_confirms_with_better_localization`, `19 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- Final full-golden triage counts remained unchanged: `1745 viewer_evidence_only`, `140 confirmation_candidate`, `16 baseline_gap_candidate`, `8 baseline_preferred_composed_lower_localization`, `8 motion_family_coordinate_generation_target`, and `3 high_frequency_xh_stretch_recovery`.
+- All 8 full-golden `motion_family_coordinate_generation_target` rows had `composed_ped_top_source == primitive` and zero had `composed_ped_top_source == composed_coordinate`.
+- Final full-golden diagnostics remained stable: 55 composed basis diagnostic rows, zero rank loss, 366 composed candidates, 166 selected composed coordinates, 350 high-frequency rows at or above 2500 cm-1, and zero high-frequency unassigned rows.
+- Comparing `ped_final_assignment.csv` from `outputs\composed_xh_recovery_triage_full_golden_20260512` and `outputs\composed_provenance_full_golden_20260512` over `Filename`, `mode`, `frequency_cm-1`, `final_assignment`, `final_assignment_source`, `final_assignment_policy`, and `final_assignment_warning` found 1920 rows in both files and no changed columns.
+
+Current limitation after composed PED provenance: provenance confirms the 8 DMF/ethene target rows are primitive-row optimizer substitutions, not composed-coordinate top contributors. The next safe experiment should use this provenance to add an optimizer diagnostic or a narrower constraint that flags or limits primitive substitution artifacts without reducing useful composed X-H stretch recovery and without increasing full-golden disagreement counts.
+
+Primitive-row substitution triage outcome: `src/reports.py` now classifies composed PED motion-family disagreements with positive localization delta and a non-composed top contributor as `primitive_row_optimizer_substitution`, with recommendation `inspect_optimizer_substitution_before_coordinate_generation`. This keeps `diagnostic_hint_composed_differs_from_baseline` policy status unchanged but distinguishes optimizer substitution artifacts from missing composed-coordinate generators. It does not change PED math, B matrices, rank selection, `assignment_audit`, `ped_stage3d_agreement`, or `ped_final_assignment`.
+
+Primitive-row substitution triage validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_ped.py tests\test_vibrational_assignment_multiscale.py -q -k "not headless_chrome_smoke_without_cdn" --basetemp outputs\pytest_primitive_substitution_triage_tmp` returned `34 passed, 1 deselected`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\DMF_freq.hess data\hess\ethene.hess data\hess\ethylene_oxide.hess --outdir outputs\primitive_substitution_triage_subset_20260512` returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- In the subset output, all 8 DMF/ethene `diagnostic_hint_composed_differs_from_baseline` rows became `primitive_row_optimizer_substitution`, and all 8 had `composed_ped_top_source == primitive`.
+- The three high-frequency ethylene oxide rows remained `high_frequency_xh_stretch_recovery`.
+- Final full-golden run `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\primitive_substitution_triage_full_golden_20260512`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Final full-golden policy counts remained unchanged: `1745 viewer_evidence_only`, `140 composed_confirms_with_better_localization`, `19 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- Final full-golden triage counts were `1745 viewer_evidence_only`, `140 confirmation_candidate`, `16 baseline_gap_candidate`, `8 baseline_preferred_composed_lower_localization`, `8 primitive_row_optimizer_substitution`, and `3 high_frequency_xh_stretch_recovery`.
+- Final full-golden diagnostics remained stable: 55 composed basis diagnostic rows, zero rank loss, 366 composed candidates, 166 selected composed coordinates, 350 high-frequency rows at or above 2500 cm-1, and zero high-frequency unassigned rows.
+- Comparing `ped_final_assignment.csv` from `outputs\composed_provenance_full_golden_20260512` and `outputs\primitive_substitution_triage_full_golden_20260512` over `Filename`, `mode`, `frequency_cm-1`, `final_assignment`, `final_assignment_source`, `final_assignment_policy`, and `final_assignment_warning` found 1920 rows in both files and no changed columns.
+
+Current limitation after primitive-row substitution triage: the next step is still a method change, not a label change. Candidate approaches include adding an explicit warning when composed evidence is topped by newly selected primitive rows, or testing a narrower optimizer constraint that applies only to primitive substitution artifacts and is accepted only if full-golden policy counts do not broaden.
+
+Composed evidence-origin outcome: `src/reports.py` now writes `composed_ped_evidence_origin` in `composed_ped_policy_diagnostics.csv`. Values are `composed_coordinate_top`, `primitive_substitution_top`, or `baseline_or_no_composed_top`. This is a stable machine-readable origin field derived from top-contributor provenance and is intended for future optimizer constraints or warning-only policy. It does not change policy hints, triage categories, PED math, rank selection, `assignment_audit`, `ped_stage3d_agreement`, or `ped_final_assignment`.
+
+Composed evidence-origin validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_ped.py tests\test_vibrational_assignment_multiscale.py -q -k "not headless_chrome_smoke_without_cdn" --basetemp outputs\pytest_evidence_origin_focused_tmp` returned `35 passed, 1 deselected`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\DMF_freq.hess data\hess\ethene.hess data\hess\ethylene_oxide.hess --outdir outputs\evidence_origin_subset_20260512` returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- In the subset output, all 8 DMF/ethene primitive-row substitution rows had `composed_ped_evidence_origin == primitive_substitution_top`.
+- In the subset output, ethylene oxide high-frequency modes 17 and 19 had `composed_ped_evidence_origin == composed_coordinate_top`, while mode 18 had `primitive_substitution_top` because the top row was primitive `r(C2-H4)`.
+- Final full-golden run `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\evidence_origin_full_golden_20260512`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Final full-golden policy counts remained unchanged: `1745 viewer_evidence_only`, `140 composed_confirms_with_better_localization`, `19 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- Final full-golden triage counts remained unchanged: `1745 viewer_evidence_only`, `140 confirmation_candidate`, `16 baseline_gap_candidate`, `8 baseline_preferred_composed_lower_localization`, `8 primitive_row_optimizer_substitution`, and `3 high_frequency_xh_stretch_recovery`.
+- Final full-golden origin counts were `1440 primitive_substitution_top`, `150 composed_coordinate_top`, and `330 baseline_or_no_composed_top`.
+- Final full-golden diagnostics remained stable: 55 composed basis diagnostic rows, zero rank loss, 366 composed candidates, 166 selected composed coordinates, 350 high-frequency rows at or above 2500 cm-1, and zero high-frequency unassigned rows.
+- Comparing `ped_final_assignment.csv` from `outputs\primitive_substitution_triage_full_golden_20260512` and `outputs\evidence_origin_full_golden_20260512` over `Filename`, `mode`, `frequency_cm-1`, `final_assignment`, `final_assignment_source`, `final_assignment_policy`, and `final_assignment_warning` found 1920 rows in both files and no changed columns.
+
+Current limitation after evidence-origin field: many viewer-evidence rows naturally have `primitive_substitution_top` because composed PED basis selection can still be topped by primitive rows. This field should not be interpreted as a failure by itself. It becomes actionable only together with policy/triage fields such as `primitive_row_optimizer_substitution`.
+
+Primitive substitution warning-only outcome: `src/reports.py` now adds `classify_composed_ped_warning(...)` and writes `composed_ped_warning` plus `composed_ped_warning_reason` in `composed_ped_policy_diagnostics.csv` and the interactive viewer payload. The warning is intentionally narrow: it is emitted only when `composed_ped_evidence_origin == primitive_substitution_top` and `composed_ped_triage_category == primitive_row_optimizer_substitution`. Primitive-topped viewer-evidence rows without that triage remain unflagged. This is diagnostic only and does not change policy hints, triage categories, PED math, rank selection, `assignment_audit`, `ped_stage3d_agreement`, or `ped_final_assignment`.
+
+Primitive substitution warning-only validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_ped.py tests\test_vibrational_assignment_multiscale.py -q -k "not headless_chrome_smoke_without_cdn" --basetemp outputs\pytest_primitive_warning_focused_tmp` returned `36 passed, 1 deselected`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\DMF_freq.hess data\hess\ethene.hess data\hess\ethylene_oxide.hess --outdir outputs\primitive_warning_subset_20260512` returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- In the subset output, `composed_ped_warning` emitted `8 primitive_row_optimizer_substitution_warning` rows and `67` blank rows. The 8 warnings were the known DMF/ethene primitive-row substitutions, and the 3 ethylene oxide high-frequency rows remained `high_frequency_xh_stretch_recovery`.
+- Full-golden run `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py @hess --outdir outputs\primitive_warning_full_golden_20260512`, where `@hess` was the PowerShell-expanded sorted list from `data\hess`, returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Final full-golden policy counts remained unchanged: `1745 viewer_evidence_only`, `140 composed_confirms_with_better_localization`, `19 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- Final full-golden triage counts remained unchanged: `1745 viewer_evidence_only`, `140 confirmation_candidate`, `16 baseline_gap_candidate`, `8 baseline_preferred_composed_lower_localization`, `8 primitive_row_optimizer_substitution`, and `3 high_frequency_xh_stretch_recovery`.
+- Final full-golden warning counts were `1912` blank rows and `8 primitive_row_optimizer_substitution_warning` rows. The warning rows were limited to `DMF_freq.hess` (`5`) and `ethene.hess` (`3`).
+- Final full-golden evidence-origin counts remained `1440 primitive_substitution_top`, `330 baseline_or_no_composed_top`, and `150 composed_coordinate_top`.
+- Final full-golden diagnostics remained stable: 55 composed basis diagnostic rows, zero rank loss, 366 composed candidates, 166 selected composed coordinates, 350 high-frequency rows at or above 2500 cm-1, and zero high-frequency unassigned rows.
+- Comparing `ped_final_assignment.csv` from `outputs\evidence_origin_full_golden_20260512` and `outputs\primitive_warning_full_golden_20260512` over `Filename`, `mode`, `frequency_cm-1`, `final_assignment`, `final_assignment_source`, `final_assignment_policy`, and `final_assignment_warning` found 1920 rows in both files and no changed columns.
+
+Current limitation after warning-only patch: no optimizer behavior changed. The new warning only identifies primitive-row optimizer substitution evidence for review; it is not a constraint and does not resolve those rows.
+
+Diagnostic baseline acceptance criteria before optimizer-constraint experiments:
+
+- Full-golden policy counts must not broaden beyond `1745 viewer_evidence_only`, `140 composed_confirms_with_better_localization`, `19 diagnostic_hint_composed_differs_from_baseline`, and `16 diagnostic_hint_composed_available_when_baseline_diffuse_or_unclassified`.
+- Full-golden triage counts must not get worse than `1745 viewer_evidence_only`, `140 confirmation_candidate`, `16 baseline_gap_candidate`, `8 baseline_preferred_composed_lower_localization`, `8 primitive_row_optimizer_substitution`, and `3 high_frequency_xh_stretch_recovery`.
+- `composed_ped_warning` count must be `8` or fewer.
+- Composed PED basis rank loss must remain `0`.
+- High-frequency rows at or above 2500 cm-1 must have `0` unassigned final assignments.
+- `ped_final_assignment.csv` must remain unchanged over `Filename`, `mode`, `frequency_cm-1`, `final_assignment`, `final_assignment_source`, `final_assignment_policy`, and `final_assignment_warning` unless a new explicit plan justifies a final-label policy change.
+
+Primitive-substitution constraint experiment outcome: `src/ORCAVEDA_patched_stage3D_v5_0.py` now has an opt-in experimental repair controlled by `experimental_composed_primitive_substitution_constraint`, exposed on the CLI as `--experimental-composed-primitive-substitution-constraint`. The default behavior is unchanged. When enabled, the pipeline first runs the normal composed PED basis optimization, builds temporary composed policy diagnostics, identifies only rows matching `primitive_row_optimizer_substitution`, `primitive_substitution_top`, positive localization delta, and `motion_family_mismatch`, then attempts to revert the top primitive replacement to the corresponding original Stage 3D basis row if rank is preserved. This does not globally forbid primitive rows, and it does not change `assignment_audit`, `ped_stage3d_agreement`, or `ped_final_assignment` policy.
+
+Primitive-substitution constraint subset validation:
+
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_interactive_spectrum_viewer.py -q -k "not headless_chrome_smoke_without_cdn" --basetemp outputs\pytest_experimental_constraint_focused_tmp` returned `29 passed, 1 deselected`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\DMF_freq.hess data\hess\ethene.hess data\hess\ethylene_oxide.hess --outdir outputs\primitive_constraint_subset_20260512 --experimental-composed-primitive-substitution-constraint` returned exit code 0 and printed `Terminal mode detected -> using CLI`.
+- Subset `composed_ped_warning` counts changed from the diagnostic baseline `8 primitive_row_optimizer_substitution_warning` rows to `75` blank rows and zero warnings.
+- Subset triage counts became `67 viewer_evidence_only`, `5 confirmation_candidate`, and `3 high_frequency_xh_stretch_recovery`; the prior 8 primitive-row substitution rows were removed.
+- The three ethylene oxide high-frequency X-H recovery rows were preserved. Modes 17 and 19 remained `composed_coordinate_top`; mode 18 remained `primitive_substitution_top` but stayed classified as `high_frequency_xh_stretch_recovery`, not as a substitution warning.
+- Subset diagnostics reported rank preserved for all 3 files, `8` primitive-substitution targets before repair, `0` after repair, and `3` rank-safe reverted primitive indices.
+- Subset high-frequency rows at or above 2500 cm-1 had `0` unassigned final assignments.
+- Comparing subset `ped_final_assignment.csv` from `outputs\primitive_warning_subset_20260512` and `outputs\primitive_constraint_subset_20260512` over final-label columns found 75 rows in both files and no changed columns.
+
+Current limitation after subset constraint experiment: this is not yet accepted for default use. Full-golden acceptance still needs to prove that the opt-in repair does not broaden policy counts, cause rank loss, remove useful X-H recovery, or change final assignments across all local golden `.hess` files.
 
 ## Context and Orientation
 

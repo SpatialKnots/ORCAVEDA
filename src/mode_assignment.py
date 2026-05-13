@@ -95,14 +95,21 @@ def _primitive_torsion_label(name: str) -> Optional[str]:
         return None
     elems = [_normalize_element_symbol(match.group(i)) for i in range(1, 5)]
     joined = "-".join(elems)
-    if "N" in elems and "H" in elems:
+    terminal_h_neighbors = []
+    if elems[0] == "H":
+        terminal_h_neighbors.append(elems[1])
+    if elems[3] == "H":
+        terminal_h_neighbors.append(elems[2])
+    if "N" in terminal_h_neighbors:
         return "N-H torsion"
-    if "O" in elems and "H" in elems:
+    if "O" in terminal_h_neighbors:
         return "O-H torsion"
-    if "C" in elems and "H" in elems:
+    if "C" in terminal_h_neighbors:
         return "C-H torsion"
     if elems.count("C") >= 3:
         return "C-C-C torsion"
+    if "H" in elems:
+        return "X-H torsion"
     return f"{joined} torsion"
 
 
@@ -117,6 +124,21 @@ def _assignment_family_from_internal(ic: InternalCoordinate) -> str:
     """
     kind = ic.kind.lower()
     name = ic.name.lower()
+
+    composed_xh_match = re.search(
+        r"composed_(?:symmetric|asymmetric)_xh_stretch\(([a-z]{1,2})\d+:",
+        name,
+        flags=re.IGNORECASE,
+    )
+    if "composed_xh_stretch" in kind or composed_xh_match:
+        center = _normalize_element_symbol(composed_xh_match.group(1)) if composed_xh_match else ""
+        if center == "O":
+            return "O-H stretch"
+        if center == "N":
+            return "N-H stretch"
+        if center == "C":
+            return "C-H stretch"
+        return "X-H stretch"
 
     if "acid_dimer" in kind or "acid_dimer" in name:
         return "acid dimer H-bond / intermolecular"

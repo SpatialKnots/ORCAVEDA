@@ -19,6 +19,14 @@ def cli_main(
     parser.add_argument("--outdir", default="orca_ped_results", help="Output directory")
     parser.add_argument("--chem-backend", help=f"Chemistry backend name. Overrides {chem_backend_env_var} if provided.")
     parser.add_argument("--list-chem-backends", action="store_true", help="Print available chemistry backends and exit.")
+    parser.add_argument(
+        "--experimental-composed-primitive-substitution-constraint",
+        action="store_true",
+        help=(
+            "Opt-in experiment: repair composed PED primitive-row optimizer substitution warnings "
+            "without changing assignment_audit, ped_stage3d_agreement, or ped_final_assignment policy."
+        ),
+    )
 
     args, _unknown = parser.parse_known_args()
     if args.list_chem_backends:
@@ -50,7 +58,11 @@ def cli_main(
             print(f"Active default chemistry backend: {default_chem_backend()}")
         return
 
-    run_orca_ped_like(hess_paths, args.outdir)
+    run_orca_ped_like(
+        hess_paths,
+        args.outdir,
+        experimental_composed_primitive_substitution_constraint=args.experimental_composed_primitive_substitution_constraint,
+    )
 
 
 def colab_upload_and_run(run_orca_ped_like: Callable[[Sequence[str], str], object]) -> None:
