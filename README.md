@@ -1,5 +1,9 @@
 # ORCAVEDA
 
+<p align="center">
+  <img src="assets/orcaveda_logo.png" alt="ORCAVEDA logo" width="320">
+</p>
+
 ORCAVEDA is an ORCA `.hess` vibrational analysis toolkit. It parses ORCA Hessian files, builds internal-coordinate diagnostics, assigns vibrational modes, writes regression artifacts, and can generate interactive spectrum viewers for inspection.
 
 The current baseline is ORCAVEDA v5.0. Its assignment layer is a geometric and weighted independent-coordinate audit. ORCAVEDA also includes PED-like diagnostic layers, including B-matrix projection, force-aware diagnostics, and Wilson GF-style PED audit outputs when the required Hessian data are available. These layers are diagnostic evidence, not a strict VEDA-equivalent validation suite.
