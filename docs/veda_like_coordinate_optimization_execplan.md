@@ -39,7 +39,8 @@ After this work, a user should be able to run ORCAVEDA on a `.hess` file and rec
 - [x] (2026-05-12 16:42+05:00) Run focused tests, subset check, and full-golden acceptance for the warning-only diagnostic.
 - [x] (2026-05-12 17:10+05:00) Add an opt-in narrow primitive-substitution constraint experiment and validate the DMF/ethene/ethylene oxide subset.
 - [x] (2026-05-13 10:36+05:00) Run full-golden acceptance for the opt-in primitive-substitution constraint; rank was preserved, final labels were unchanged, and primitive-substitution warnings were removed.
-- [ ] (next) Decide whether the accepted opt-in primitive-substitution constraint should remain experimental or be proposed for default behavior in a separate explicit plan.
+- [x] (2026-05-13 10:45+05:00) Decide to keep the primitive-substitution constraint opt-in for now; default promotion needs a separate explicit plan because confirmation candidates decreased.
+- [ ] (next) Plan the next scientific expansion: broader composed-coordinate generators or a default-promotion validation plan, without changing final assignment policy silently.
 
 ## Surprises & Discoveries
 
@@ -106,6 +107,10 @@ After this work, a user should be able to run ORCAVEDA on a `.hess` file and rec
 - Decision: Do not restrict the composed PED optimizer candidate pool globally to composed coordinates only.
   Rationale: A local experiment on DMF/ethene/ethylene oxide removed the original DMF/ethene torsion disagreements, but the full-golden run broadened composed/baseline disagreements from 19 to 181 rows. This failed the minimal safe patch criterion, so the optimizer-scope change was reverted. The safer retained change is diagnostic triage only.
   Date/Author: 2026-05-12 / Codex
+
+- Decision: Keep the primitive-substitution constraint opt-in after full-golden acceptance; do not make it default in this plan.
+  Rationale: The opt-in repair passed the planned safety checks: zero rank loss, zero high-frequency unassigned final assignments, no final-label changes, and zero primitive-substitution warnings. However, it reduced `confirmation_candidate` rows from 140 to 126, so default promotion is a policy and validation decision rather than a mechanical acceptance step.
+  Date/Author: 2026-05-13 / Codex
 
 ## Outcomes & Retrospective
 
