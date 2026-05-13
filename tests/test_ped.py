@@ -678,7 +678,7 @@ def test_wilson_ped_audit_reports_h2o_bend_and_stretches():
     df = build_wilson_ped_audit_dataframe(hess, internals, B, [0, 1, 2], top_n=3)
     positive = df[df["frequency_cm-1"] > 0.0].copy()
 
-    assert positive["wilson_ped_method"].astype(str).str.contains("Wilson GF PED", regex=False).all()
+    assert positive["wilson_ped_method"].astype(str).str.contains("Wilson GF-style PED audit", regex=False).all()
     assert positive["coordinate_family"].astype(str).str.contains("H-O-H bend", regex=False).any()
     assert positive["coordinate_family"].astype(str).str.contains("O-H stretch", regex=False).any()
     assert "G = B M^-1 B^T" in WILSON_PED_METHOD

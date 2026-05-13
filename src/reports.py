@@ -443,7 +443,7 @@ def decide_ped_driven_final_assignment(
     if ped_text and status in {"disagrees", "diffuse"}:
         suffix = "final_label_kept_stage3d"
         final_warning = f"{final_warning}; {suffix}" if final_warning else suffix
-    return final, "Stage 3D assignment audit", policy, final_warning
+    return final, "ORCAVEDA assignment audit", policy, final_warning
 
 
 def classify_composed_ped_diagnostic_policy(
@@ -1094,7 +1094,7 @@ def build_spectrum_payload(
         "viewer_title": "ORCAVEDA Interactive IR Spectrum",
         "default_scale_factor": 1.0,
         "default_lorentz_hwhm": 12.0,
-        "viewer_assignment_source": ped_source_label or "Stage 3D",
+        "viewer_assignment_source": ped_source_label or "ORCAVEDA assignment audit",
         "viewer_composed_evidence_source": composed_ped_source_label,
         "files": files,
         "nist_reference_sets": nist_reference_sets or {},
@@ -2727,10 +2727,10 @@ def write_interactive_spectrum_viewer(
       appendKv(modeDetails, "Original Frequency", `${{mode.frequency_cm1.toFixed(2)}} cm-1`);
       appendKv(modeDetails, "IR Intensity", Number(mode.intensity).toFixed(4));
       appendKv(modeDetails, "Final Assignment", mode.final_assignment || mode.assignment || "unassigned", true);
-      appendKv(modeDetails, "Final Assignment Source", mode.final_assignment_source || "Stage 3D assignment audit");
+      appendKv(modeDetails, "Final Assignment Source", mode.final_assignment_source || "ORCAVEDA assignment audit");
       appendKv(modeDetails, "Final Assignment Policy", mode.final_assignment_policy || "n/a", true);
       appendKv(modeDetails, "Final Assignment Warning", mode.final_assignment_warning || "n/a", true);
-      appendKv(modeDetails, "Stage 3D Assignment", mode.stage3d_assignment || "n/a", true);
+      appendKv(modeDetails, "ORCAVEDA Assignment", mode.stage3d_assignment || "n/a", true);
       const selectedEvidence = evidenceLayer ? String(evidenceLayer.value || "baseline") : "baseline";
       if (selectedEvidence === "composed") {{
         appendKv(modeDetails, "Selected Evidence Layer", "Composed PED", true);
@@ -2770,7 +2770,7 @@ def write_interactive_spectrum_viewer(
       appendKv(modeDetails, "Composed PED Semantic Reason", mode.composed_ped_semantic_reason || "n/a", true);
       appendKv(modeDetails, "Composed PED Method", mode.composed_ped_method || "n/a", true);
       appendKv(modeDetails, "Warnings", mode.warnings || "none", true);
-      appendKv(modeDetails, "Stage 3D Supporting Coordinates", mode.top_internal_coordinates || "n/a", true);
+      appendKv(modeDetails, "ORCAVEDA Supporting Coordinates", mode.top_internal_coordinates || "n/a", true);
     }}
 
     function updatePeakTable(file, scale, x1, x2, engineName = getSelectedScaleEngine(), engineFit = getSelectedScaleEngineFit()) {{

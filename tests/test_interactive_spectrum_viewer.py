@@ -50,7 +50,7 @@ def test_interactive_spectrum_viewer_artifacts():
                 "internal_coordinate": "ang(H2-O1-H3)",
                 "coordinate_class": "bend",
                 "contribution_percent": 99.9,
-                "wilson_ped_method": "Wilson GF PED test method",
+                "wilson_ped_method": "Wilson GF-style PED audit test method",
             }
         ]
     )
@@ -66,7 +66,7 @@ def test_interactive_spectrum_viewer_artifacts():
                 "coordinate_class": "stretch",
                 "contribution_percent": 99.8,
                 "source": "composed_coordinate",
-                "wilson_ped_method": "Composed Wilson GF PED test method",
+                "wilson_ped_method": "Composed Wilson GF-style PED audit test method",
             }
         ]
     )
@@ -80,7 +80,7 @@ def test_interactive_spectrum_viewer_artifacts():
     target_mode = next(mode for mode in payload["files"][0]["modes"] if mode["mode"] == positive_mode)
     assert target_mode["assignment"] == "O-H stretch"
     assert target_mode["final_assignment"] == "O-H stretch"
-    assert target_mode["final_assignment_source"] == "Stage 3D assignment audit"
+    assert target_mode["final_assignment_source"] == "ORCAVEDA assignment audit"
     assert target_mode["final_assignment_policy"] == "stage3d_fallback_due_to_ped_disagreement"
     assert target_mode["stage3d_assignment"] == "O-H stretch"
     assert target_mode["ped_source"] == "Wilson GF-style PED audit"
@@ -125,7 +125,7 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "PED Diagnostic Interpretation" in html_text
     assert "PED Agreement Status" in html_text
     assert "PED Policy Warning" in html_text
-    assert "Stage 3D Assignment" in html_text
+    assert "ORCAVEDA Assignment" in html_text
     assert "PED Contributors" in html_text
     assert "Evidence Layer" in html_text
     assert "Composed Hint" in html_text
@@ -651,6 +651,8 @@ def test_interactive_spectrum_viewer_headless_chrome_smoke_without_cdn():
     )
     if dom_result.returncode != 0 and "crashpad" in dom_result.stderr.lower() and "0x5" in dom_result.stderr:
         pytest.skip(f"Headless Chrome is blocked by local crashpad permissions: {dom_result.stderr.strip()}")
+    if dom_result.returncode != 0 and "gpu process isn't usable" in dom_result.stderr.lower():
+        pytest.skip(f"Headless Chrome GPU process is unavailable in this local environment: {dom_result.stderr.strip()}")
     assert dom_result.returncode == 0, dom_result.stderr
     dom = dom_result.stdout
     assert 'class="panel panel-spectrum"' in dom
@@ -668,6 +670,8 @@ def test_interactive_spectrum_viewer_headless_chrome_smoke_without_cdn():
         capture_output=True,
         timeout=30,
     )
+    if screenshot_result.returncode != 0 and "gpu process isn't usable" in screenshot_result.stderr.lower():
+        pytest.skip(f"Headless Chrome GPU process is unavailable in this local environment: {screenshot_result.stderr.strip()}")
     assert screenshot_result.returncode == 0, screenshot_result.stderr
     assert screenshot_path.exists()
     image = Image.open(screenshot_path).convert("RGB")

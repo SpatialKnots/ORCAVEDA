@@ -349,6 +349,7 @@ def create_web_import_handler(
             try:
                 run_id = validate_web_run_id(parse_qs(parsed.query).get("run_id", [uuid4().hex])[0])
             except ValueError as exc:
+                self.rfile.read(length)
                 self._send_json(400, {"error": str(exc)})
                 return
             staging_dir = resolved_staging_root / run_id

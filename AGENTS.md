@@ -26,7 +26,7 @@ Never replace it with:
 
     normal_modes[mode, :]
 
-Stage 3D is a geometric and weighted independent-coordinate assignment audit. It may be called PED-like, but not strict VEDA PED or full Wilson GF PED unless those methods are actually implemented.
+ORCAVEDA's current assignment layer is a geometric and weighted independent-coordinate audit. It may be called PED-like, but not strict VEDA PED or full Wilson GF PED unless those methods are actually implemented.
 
 ## Backend-agent
 
@@ -112,7 +112,7 @@ Responsibilities:
 - verify that functional-group labels are traceable to code or generated outputs;
 - protect high-frequency C-H, N-H, and O-H diagnostics;
 - distinguish NIST IR curve references from unsuitable records such as absorption index records;
-- keep Stage 3D language within the PED-like assignment-audit boundary.
+- keep assignment-audit language within the PED-like boundary.
 
 Default skills:
 

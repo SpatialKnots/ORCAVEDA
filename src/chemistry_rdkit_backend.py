@@ -208,6 +208,12 @@ class RDKitChemistryBackend:
                 n_atom = end if c_atom is begin else begin
                 c_idx = int(c_atom.GetIdx())
                 n_idx = int(n_atom.GetIdx())
+                if (
+                    c_idx in aromatic_carbon_indices
+                    and n_idx in aromatic_nitrogen_indices
+                    and any(c_idx in ring and n_idx in ring for ring in aromatic_rings)
+                ):
+                    continue
                 imine_nitrogen_indices.add(n_idx)
                 self._add_group(groups, "imine_C=N", (c_idx, n_idx), "RDKit imine C=N bond perception", "high", "RDKit C=N bond order")
                 o_neighbors = [int(nbr.GetIdx()) for nbr in n_atom.GetNeighbors() if nbr.GetSymbol() == "O"]

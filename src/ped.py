@@ -21,7 +21,7 @@ PED_V2_METHOD = (
 )
 
 WILSON_PED_METHOD = (
-    "Wilson GF PED using selected nonredundant internal-coordinate B matrix, "
+    "Wilson GF-style PED audit using selected nonredundant internal-coordinate B matrix, "
     "G = B M^-1 B^T, reconstructed internal F matrix, and mode-projected potential-energy terms"
 )
 

@@ -971,8 +971,8 @@ def build_stage3d_assignment_audit(
         3. Apply transparent audit weights by coordinate class and frequency region.
         4. Report class totals and top coordinates separately.
 
-    This is an assignment audit layer. It is not strict Wilson GF and not
-    VEDA-equivalent PED.
+    This is an assignment audit layer. It is not a strict Wilson GF or
+    strict VEDA-equivalent PED implementation.
     """
     rows: List[Dict[str, object]] = []
 

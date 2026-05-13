@@ -508,7 +508,7 @@ def test_ped_final_assignment_comparator_and_coverage():
                 "mode": 2,
                 "frequency_cm-1": 1000.0,
                 "final_assignment": "O-H stretch",
-                "final_assignment_source": "Stage 3D assignment audit",
+                "final_assignment_source": "ORCAVEDA assignment audit",
                 "final_assignment_policy": "stage3d_fallback_due_to_ped_disagreement",
                 "final_assignment_warning": "ped_stage3d_semantic_disagreement; final_label_kept_stage3d",
                 "stage3d_assignment": "O-H stretch",
