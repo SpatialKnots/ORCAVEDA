@@ -79,7 +79,7 @@ def test_web_import_page_embeds_interactive_viewer_after_upload():
         assert 'class="topbar"' in html
         assert 'class="artifact-strip"' in html
         assert 'class="diagnostics-toggle"' in html
-        assert "height: calc(100vh - 156px)" in html
+        assert "height: calc(100vh - 142px)" in html
         assert "<h1>ORCAVEDA</h1>" in html
         assert "setRunningStatus()" in html
         assert "Parsing ORCA .hess data..." in html

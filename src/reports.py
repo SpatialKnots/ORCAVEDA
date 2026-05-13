@@ -1148,28 +1148,35 @@ def write_interactive_spectrum_viewer(
   {three_dmol_script_tag}
   <style>
     :root {{
-      --bg: #f5f2eb;
-      --panel: #fffdf8;
-      --ink: #1f2933;
-      --muted: #677483;
-      --accent: #0f766e;
-      --accent-2: #9a3412;
-      --line: #0b5670;
-      --grid: #d8d2c5;
-      --sticks: rgba(15, 118, 110, 0.34);
-      --border: #d5cec1;
-      --soft: #f0ece3;
-      --shadow: 0 18px 44px rgba(31, 41, 51, 0.08);
+      --bg: #0b1020;
+      --panel: #121a2b;
+      --panel-elevated: #182235;
+      --panel-soft: #0f1726;
+      --ink: #f3f4f6;
+      --muted: #9ca3af;
+      --text-muted: #6b7280;
+      --accent: #60a5fa;
+      --accent-2: #22d3ee;
+      --accent-cyan: #22d3ee;
+      --accent-violet: #a78bfa;
+      --accent-green: #34d399;
+      --accent-red: #f87171;
+      --accent-amber: #fbbf24;
+      --line: #60a5fa;
+      --grid: rgba(255,255,255,0.08);
+      --sticks: rgba(34, 211, 238, 0.28);
+      --border: rgba(255,255,255,0.08);
+      --border-strong: rgba(255,255,255,0.14);
+      --soft: #0f1726;
+      --shadow: 0 8px 24px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.03);
+      --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
     }}
     * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
-      background:
-        radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 24%),
-        radial-gradient(circle at bottom right, rgba(154, 52, 18, 0.08), transparent 28%),
-        linear-gradient(180deg, #f8f6f1 0%, var(--bg) 100%);
+      background: var(--bg);
       color: var(--ink);
-      font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+      font-family: Inter, "Segoe UI", system-ui, sans-serif;
     }}
     .wrap {{
       max-width: 1600px;
@@ -1180,11 +1187,11 @@ def write_interactive_spectrum_viewer(
       display: flex;
       align-items: center;
       gap: 12px;
-      margin-bottom: 14px;
-      padding: 10px 14px;
-      background: rgba(255,255,255,0.82);
+      margin-bottom: 10px;
+      padding: 8px 12px;
+      background: var(--panel);
       border: 1px solid var(--border);
-      border-radius: 18px;
+      border-radius: 8px;
       box-shadow: var(--shadow);
       flex-wrap: wrap;
     }}
@@ -1194,41 +1201,35 @@ def write_interactive_spectrum_viewer(
       letter-spacing: 0.01em;
     }}
     .toolbar p {{
-      margin: 0;
-      color: var(--muted);
-      font-size: 12px;
-      flex: 1 1 320px;
+      display: none;
     }}
     .toolbar select {{
       min-width: 280px;
       border: 1px solid var(--border);
       border-radius: 999px;
       padding: 8px 12px;
-      background: white;
+      background: var(--panel-soft);
       color: var(--ink);
       font-size: 13px;
     }}
     .grid {{
       display: grid;
       grid-template-columns: 1fr 1fr;
-      grid-template-rows: auto auto;
-      gap: 16px;
+      grid-template-rows: auto auto auto;
+      gap: 12px;
       align-items: start;
     }}
-    .panel-spectrum {{
+    .panel-summary,
+    .panel-table {{
       grid-column: 1 / -1;
     }}
-    .info3d-stack {{
-      display: grid;
-      grid-template-rows: auto auto;
-      gap: 16px;
+    .panel-spectrum {{
       min-height: 0;
-      align-content: start;
     }}
     .panel {{
       background: var(--panel);
       border: 1px solid var(--border);
-      border-radius: 20px;
+      border-radius: 8px;
       box-shadow: var(--shadow);
       overflow: hidden;
       display: flex;
@@ -1240,9 +1241,9 @@ def write_interactive_spectrum_viewer(
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 12px 16px;
+      padding: 9px 12px;
       border-bottom: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(247,244,237,0.96));
+      background: var(--panel-elevated);
     }}
     .panel-head h2 {{
       margin: 0;
@@ -1252,16 +1253,19 @@ def write_interactive_spectrum_viewer(
       color: var(--muted);
     }}
     .panel-body {{
-      padding: 14px;
+      padding: 10px;
       min-height: 0;
       flex: 1 1 auto;
     }}
     .panel-body.info-body {{
       overflow: visible;
+      display: grid;
+      grid-template-columns: minmax(260px, 0.8fr) minmax(360px, 1.2fr);
+      gap: 10px;
     }}
     .panel-body.viewer-body {{
       display: flex;
-      padding: 16px;
+      padding: 10px;
     }}
     .panel-body.spectrum-body {{
       display: flex;
@@ -1271,19 +1275,23 @@ def write_interactive_spectrum_viewer(
     }}
     .summary-grid {{
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px 12px;
-      margin-bottom: 10px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      align-self: start;
+      align-content: start;
+      grid-auto-rows: minmax(0, auto);
+      gap: 8px;
+      margin-bottom: 0;
     }}
     .kv {{
-      padding: 8px 10px;
-      border: 1px solid #ebe5d9;
-      border-radius: 14px;
-      background: rgba(255,255,255,0.72);
+      padding: 7px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel-soft);
       font-size: 12px;
       line-height: 1.28;
       overflow-wrap: anywhere;
       word-break: break-word;
+      font-family: var(--mono);
     }}
     .kv strong {{
       display: block;
@@ -1295,8 +1303,8 @@ def write_interactive_spectrum_viewer(
     }}
     .mode-card {{
       border: 1px solid var(--border);
-      border-radius: 16px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(246,243,236,0.92));
+      border-radius: 6px;
+      background: var(--panel-soft);
       padding: 10px;
       overflow-wrap: anywhere;
       word-break: break-word;
@@ -1310,8 +1318,8 @@ def write_interactive_spectrum_viewer(
     }}
     .mode-grid {{
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px 10px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
       font-size: 12px;
     }}
     .mode-grid .wide {{
@@ -1319,7 +1327,7 @@ def write_interactive_spectrum_viewer(
     }}
     .controls {{
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 6px 12px;
       margin-bottom: 4px;
     }}
@@ -1343,13 +1351,17 @@ def write_interactive_spectrum_viewer(
       padding: 6px 10px;
       border: 1px solid var(--border);
       border-radius: 999px;
-      background: white;
+      background: var(--panel-soft);
       color: var(--accent);
       font-size: 11px;
+    }}
+    .control input[type="range"] {{
+      accent-color: var(--accent-cyan, #22d3ee);
     }}
     .value {{
       color: var(--accent);
       font-weight: 700;
+      font-family: var(--mono);
     }}
     .checkrow {{
       display: flex;
@@ -1364,7 +1376,7 @@ def write_interactive_spectrum_viewer(
           border: 1px solid var(--border);
           border-radius: 999px;
           padding: 5px 10px;
-          background: white;
+          background: var(--panel-soft);
       color: var(--accent);
       font-size: 11px;
           cursor: pointer;
@@ -1381,10 +1393,50 @@ def write_interactive_spectrum_viewer(
       line-height: 1.3;
       margin-bottom: 2px;
     }}
+    .tabs {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }}
+    .tab-button {{
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 9px;
+      background: var(--panel-soft);
+      color: var(--accent);
+      font-size: 11px;
+      cursor: pointer;
+    }}
+    .tab-button.active {{
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }}
+    .tab-pane[hidden] {{
+      display: none;
+    }}
+    .advanced-diagnostics {{
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #0b1220;
+      margin-bottom: 6px;
+      overflow: hidden;
+    }}
+    .advanced-diagnostics > summary {{
+      cursor: pointer;
+      padding: 8px 10px;
+      color: var(--accent-amber);
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    .advanced-diagnostics-body {{
+      padding: 0 10px 10px;
+    }}
     .engine-table-wrap {{
       border: 1px solid var(--border);
-      border-radius: 14px;
-      background: rgba(255,255,255,0.78);
+      border-radius: 6px;
+      background: #0b1220;
       overflow: hidden;
       margin-bottom: 4px;
     }}
@@ -1402,7 +1454,7 @@ def write_interactive_spectrum_viewer(
       position: sticky;
       top: 0;
       z-index: 1;
-      background: #f8f4eb;
+      background: #111827;
       color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.04em;
@@ -1414,11 +1466,12 @@ def write_interactive_spectrum_viewer(
     }}
     .engine-table tbody td {{
       padding: 6px 8px;
-      border-bottom: 1px solid #efe8da;
+      border-bottom: 1px solid var(--border);
       vertical-align: top;
+      font-family: var(--mono);
     }}
     .engine-table tbody tr.active {{
-      background: rgba(15, 118, 110, 0.10);
+      background: rgba(96, 165, 250, 0.14);
     }}
     .engine-table tbody tr:last-child td {{
       border-bottom: 0;
@@ -1450,16 +1503,16 @@ def write_interactive_spectrum_viewer(
       width: 100%;
       height: 100%;
       display: block;
-      border-radius: 16px;
+      border-radius: 6px;
       border: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,245,239,0.98));
+      background: #0b1220;
     }}
     .chart-wrap {{
       position: relative;
       flex: 1 1 auto;
       min-height: 0;
-      height: 470px;
-      border-radius: 16px;
+      height: 360px;
+      border-radius: 6px;
       overflow: hidden;
     }}
     .chart-tooltip {{
@@ -1468,10 +1521,10 @@ def write_interactive_spectrum_viewer(
       min-width: 180px;
       max-width: 320px;
       padding: 8px 10px;
-      border: 1px solid rgba(15, 118, 110, 0.22);
-      border-radius: 12px;
-      background: rgba(255, 253, 248, 0.96);
-      box-shadow: 0 10px 26px rgba(31, 41, 51, 0.16);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      background: rgba(15, 23, 38, 0.96);
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
       color: var(--ink);
       font-size: 11px;
       line-height: 1.3;
@@ -1496,14 +1549,11 @@ def write_interactive_spectrum_viewer(
       position: relative;
       flex: 1 1 auto;
       width: 100%;
-      min-height: 500px;
+      min-height: 360px;
       border: 1px solid var(--border);
-      border-radius: 16px;
+      border-radius: 6px;
       overflow: hidden;
-      background:
-        radial-gradient(circle at 30% 20%, rgba(15, 118, 110, 0.08), transparent 28%),
-        radial-gradient(circle at 70% 80%, rgba(217, 119, 6, 0.08), transparent 32%),
-        linear-gradient(180deg, rgba(255,255,255,0.96), rgba(246,244,239,0.98));
+      background: #0b1220;
     }}
     #moleculeViewer canvas {{
       width: 100% !important;
@@ -1516,18 +1566,18 @@ def write_interactive_spectrum_viewer(
       display: block;
       width: 100%;
       height: 100%;
-      min-height: 500px;
+      min-height: 360px;
     }}
     .molecule-fallback-note {{
       position: absolute;
       left: 12px;
       bottom: 10px;
       max-width: calc(100% - 24px);
-      color: #677483;
+      color: var(--muted);
       font-size: 12px;
-      background: rgba(255,253,248,0.86);
-      border: 1px solid #e4ddd0;
-      border-radius: 10px;
+      background: rgba(15,23,38,0.86);
+      border: 1px solid var(--border);
+      border-radius: 6px;
       padding: 6px 8px;
     }}
     .viewer-actions {{
@@ -1541,17 +1591,17 @@ def write_interactive_spectrum_viewer(
       border: 1px solid var(--border);
       border-radius: 999px;
       padding: 6px 10px;
-      background: white;
+      background: var(--panel-soft);
       color: var(--accent);
       font-size: 11px;
     }}
     .table-wrap {{
       overflow: auto;
-      height: 520px;
-      max-height: 520px;
+      height: 360px;
+      max-height: 360px;
       border: 1px solid var(--border);
-      border-radius: 16px;
-      background: rgba(255,255,255,0.72);
+      border-radius: 6px;
+      background: #0b1220;
     }}
     table {{
       width: 100%;
@@ -1562,16 +1612,19 @@ def write_interactive_spectrum_viewer(
     thead th {{
       position: sticky;
       top: 0;
-      background: #faf7f2;
+      background: #111827;
       z-index: 1;
     }}
     th, td {{
       padding: 8px 7px;
-      border-bottom: 1px solid #ebe5d9;
+      border-bottom: 1px solid var(--border);
       text-align: left;
       vertical-align: top;
       overflow-wrap: anywhere;
       word-break: break-word;
+    }}
+    td:nth-child(1), td:nth-child(2), td:nth-child(3) {{
+      font-family: var(--mono);
     }}
     th {{
       color: var(--muted);
@@ -1584,7 +1637,7 @@ def write_interactive_spectrum_viewer(
     }}
     tbody tr:hover,
     tbody tr.active {{
-      background: rgba(15, 118, 110, 0.08);
+      background: rgba(96, 165, 250, 0.14);
     }}
     .chart-wrap.panning {{
       cursor: grabbing;
@@ -1600,14 +1653,17 @@ def write_interactive_spectrum_viewer(
         grid-template-columns: 1fr;
         grid-template-rows: auto;
       }}
-      .panel-spectrum {{
+      .panel-summary,
+      .panel-table {{
         grid-column: auto;
       }}
-      .info3d-stack {{
-        grid-template-rows: auto;
-      }}
-      .summary-grid, .mode-grid, .controls {{
+      .panel-body.info-body,
+      .controls {{
         grid-template-columns: 1fr;
+      }}
+      .summary-grid,
+      .mode-grid {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }}
       .chart-wrap {{
         height: 340px;
@@ -1618,6 +1674,19 @@ def write_interactive_spectrum_viewer(
       .table-wrap {{
         height: 420px;
         max-height: 420px;
+      }}
+    }}
+    @media (max-width: 640px) {{
+      .wrap {{
+        padding: 10px;
+      }}
+      .toolbar select {{
+        min-width: 0;
+        width: 100%;
+      }}
+      .summary-grid,
+      .mode-grid {{
+        grid-template-columns: 1fr;
       }}
     }}
   </style>
@@ -1631,6 +1700,35 @@ def write_interactive_spectrum_viewer(
     </div>
 
     <div class="grid">
+      <section class="panel panel-summary" data-section="summary-first">
+        <div class="panel-head"><h2>Summary</h2></div>
+        <div class="panel-body info-body">
+          <div id="summaryGrid" class="summary-grid"></div>
+          <div class="mode-card">
+            <h3>Selected Mode</h3>
+            <div class="tabs" role="tablist" aria-label="Selected mode detail tabs">
+              <button id="tabSummaryButton" class="tab-button active" type="button" data-tab="summary">Summary</button>
+              <button id="tabEvidenceButton" class="tab-button" type="button" data-tab="evidence">Evidence</button>
+              <button id="tabNistButton" class="tab-button" type="button" data-tab="nist">NIST / Scaling</button>
+              <button id="tabRawButton" class="tab-button" type="button" data-tab="raw">Raw diagnostics</button>
+            </div>
+            <div id="modeDetails" class="mode-grid tab-pane" data-tab-pane="summary"></div>
+            <div id="evidenceDetails" class="tab-pane" data-tab-pane="evidence" hidden>
+              <label class="control compact-control">
+                <span>Evidence Layer</span>
+                <select id="evidenceLayer">
+                  <option value="baseline" selected>Baseline PED-like</option>
+                  <option value="composed">Composed PED-like</option>
+                </select>
+              </label>
+              <div id="evidenceGrid" class="mode-grid"></div>
+            </div>
+            <div id="nistDetails" class="mode-grid tab-pane" data-tab-pane="nist" hidden></div>
+            <div id="rawDiagnostics" class="mode-grid tab-pane" data-tab-pane="raw" hidden></div>
+          </div>
+        </div>
+      </section>
+
       <section class="panel panel-spectrum">
         <div class="panel-head"><h2>Interactive Spectrum</h2></div>
         <div class="panel-body spectrum-body">
@@ -1650,6 +1748,11 @@ def write_interactive_spectrum_viewer(
                 <option value="absorbance">Absorbance</option>
               </select>
             </div>
+          </div>
+          <details id="advancedDiagnostics" class="advanced-diagnostics">
+            <summary>Advanced diagnostics</summary>
+            <div class="advanced-diagnostics-body">
+              <div class="controls">
             <div class="control">
               <label for="nistReference">NIST Reference</label>
               <select id="nistReference"></select>
@@ -1730,6 +1833,8 @@ def write_interactive_spectrum_viewer(
               </table>
             </div>
           </div>
+            </div>
+          </details>
           <div class="checkrow">
             <label><input id="showSticks" type="checkbox" checked> Show sticks</label>
             <label><input id="invertAxis" type="checkbox" checked> Invert x-axis</label>
@@ -1742,26 +1847,7 @@ def write_interactive_spectrum_viewer(
         </div>
       </section>
 
-      <div class="info3d-stack">
-        <section class="panel">
-          <div class="panel-head"><h2>File & Molecule Info</h2></div>
-          <div class="panel-body info-body">
-            <div id="summaryGrid" class="summary-grid"></div>
-            <div class="mode-card">
-              <h3>Selected Mode</h3>
-              <label class="control compact-control">
-                <span>Evidence Layer</span>
-                <select id="evidenceLayer">
-                  <option value="baseline" selected>Baseline PED</option>
-                  <option value="composed">Composed PED</option>
-                </select>
-              </label>
-              <div id="modeDetails" class="mode-grid"></div>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel">
+      <section class="panel">
           <div class="panel-head">
             <h2>3D Molecule Viewer</h2>
             <div class="viewer-actions">
@@ -1777,10 +1863,9 @@ def write_interactive_spectrum_viewer(
           <div class="panel-body viewer-body">
             <div id="moleculeViewer"></div>
           </div>
-        </section>
-      </div>
+      </section>
 
-      <section class="panel">
+      <section class="panel panel-table">
         <div class="panel-head">
           <h2>Peak Table</h2>
           <div class="viewer-actions">
@@ -1798,10 +1883,10 @@ def write_interactive_spectrum_viewer(
               <thead>
                 <tr>
                   <th>Mode</th>
-                  <th>Scaled Frequency</th>
-                  <th>IR Intensity</th>
-                  <th>Mode Interpretation</th>
-                  <th>Composed Hint</th>
+                  <th>Frequency</th>
+                  <th>Intensity</th>
+                  <th>Final Assignment</th>
+                  <th>Warning</th>
                 </tr>
               </thead>
               <tbody id="peakTable"></tbody>
@@ -1835,6 +1920,11 @@ def write_interactive_spectrum_viewer(
     const hwhmValue = document.getElementById("hwhmValue");
     const summaryGrid = document.getElementById("summaryGrid");
     const evidenceLayer = document.getElementById("evidenceLayer");
+    const evidenceGrid = document.getElementById("evidenceGrid");
+    const nistDetails = document.getElementById("nistDetails");
+    const rawDiagnostics = document.getElementById("rawDiagnostics");
+    const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
+    const tabPanes = Array.from(document.querySelectorAll(".tab-pane"));
     const composedHintFilter = document.getElementById("composedHintFilter");
     const modeDetails = document.getElementById("modeDetails");
     const peakTable = document.getElementById("peakTable");
@@ -1891,7 +1981,7 @@ def write_interactive_spectrum_viewer(
       const tr = document.createElement("tr");
       const td = appendCell(tr, text);
       td.colSpan = colspan;
-      td.style.color = "#677483";
+      td.style.color = "#9ca3af";
       td.style.padding = "8px";
       tbody.appendChild(tr);
     }}
@@ -1905,6 +1995,19 @@ def write_interactive_spectrum_viewer(
       div.appendChild(document.createTextNode(String(value ?? "")));
       container.appendChild(div);
       return div;
+    }}
+
+    function activateTab(name) {{
+      for (const button of tabButtons) {{
+        button.classList.toggle("active", String(button.dataset.tab || "") === name);
+      }}
+      for (const pane of tabPanes) {{
+        pane.hidden = String(pane.dataset.tabPane || "") !== name;
+      }}
+    }}
+
+    for (const button of tabButtons) {{
+      button.addEventListener("click", () => activateTab(String(button.dataset.tab || "summary")));
     }}
 
     function resizeChart() {{
@@ -1987,7 +2090,7 @@ def write_interactive_spectrum_viewer(
 
     function ensureMoleculeViewer() {{
       if (moleculeViewer || typeof $3Dmol === "undefined") return moleculeViewer;
-      moleculeViewer = $3Dmol.createViewer(moleculeViewerHost, {{ backgroundColor: "rgba(0,0,0,0)" }});
+      moleculeViewer = $3Dmol.createViewer(moleculeViewerHost, {{ backgroundColor: "#0b1220" }});
       return moleculeViewer;
     }}
 
@@ -2014,10 +2117,10 @@ def write_interactive_spectrum_viewer(
     function elementColor(element) {{
       return {{
         H: "#f8fafc",
-        C: "#374151",
-        N: "#2563eb",
-        O: "#dc2626",
-        S: "#ca8a04",
+        C: "#64748b",
+        N: "#60a5fa",
+        O: "#f87171",
+        S: "#fbbf24",
         P: "#f97316",
         F: "#16a34a",
         Cl: "#22c55e",
@@ -2045,12 +2148,12 @@ def write_interactive_spectrum_viewer(
       moleculeViewerHost.appendChild(note);
 
       const g = canvasEl.getContext("2d");
-      g.fillStyle = "#fffdf8";
+      g.fillStyle = "#0b1220";
       g.fillRect(0, 0, width, height);
       const atoms = Array.isArray(file?.geometry?.atoms) ? file.geometry.atoms : [];
       const bonds = Array.isArray(file?.geometry?.bonds) ? file.geometry.bonds : [];
       if (!atoms.length) {{
-        g.fillStyle = "#677483";
+        g.fillStyle = "#9ca3af";
         g.font = `${{14 * dpr}}px Segoe UI`;
         g.fillText("No geometry atoms reported.", 24 * dpr, 36 * dpr);
         return;
@@ -2079,7 +2182,7 @@ def write_interactive_spectrum_viewer(
         const a = projected[Number(bond.i)];
         const b = projected[Number(bond.j)];
         if (!a || !b) continue;
-        g.strokeStyle = "rgba(55, 65, 81, 0.45)";
+        g.strokeStyle = "rgba(156, 163, 175, 0.38)";
         g.beginPath();
         g.moveTo(a.x, a.y);
         g.lineTo(b.x, b.y);
@@ -2095,10 +2198,10 @@ def write_interactive_spectrum_viewer(
         g.arc(atom.x, atom.y, radius, 0, Math.PI * 2);
         g.fillStyle = elementColor(atom.element);
         g.fill();
-        g.strokeStyle = "rgba(31, 41, 51, 0.42)";
+        g.strokeStyle = "rgba(255,255,255,0.22)";
         g.lineWidth = 1.5 * dpr;
         g.stroke();
-        g.fillStyle = atom.element === "H" ? "#1f2933" : "#ffffff";
+        g.fillStyle = atom.element === "H" ? "#111827" : "#ffffff";
         g.font = `${{10 * dpr}}px Segoe UI`;
         g.textAlign = "center";
         g.textBaseline = "middle";
@@ -2715,6 +2818,9 @@ def write_interactive_spectrum_viewer(
       const scaledModes = getScaledModes(file, scale, engineName, engineFit);
       const mode = scaledModes.find(row => row.mode === selectedMode) || scaledModes[0];
       clearElement(modeDetails);
+      clearElement(evidenceGrid);
+      clearElement(nistDetails);
+      clearElement(rawDiagnostics);
       if (!mode) {{
         const empty = document.createElement("div");
         empty.className = "wide";
@@ -2728,49 +2834,57 @@ def write_interactive_spectrum_viewer(
       appendKv(modeDetails, "IR Intensity", Number(mode.intensity).toFixed(4));
       appendKv(modeDetails, "Final Assignment", mode.final_assignment || mode.assignment || "unassigned", true);
       appendKv(modeDetails, "Final Assignment Source", mode.final_assignment_source || "ORCAVEDA assignment audit");
-      appendKv(modeDetails, "Final Assignment Policy", mode.final_assignment_policy || "n/a", true);
-      appendKv(modeDetails, "Final Assignment Warning", mode.final_assignment_warning || "n/a", true);
-      appendKv(modeDetails, "ORCAVEDA Assignment", mode.stage3d_assignment || "n/a", true);
+      appendKv(modeDetails, "Final Assignment Policy", mode.final_assignment_policy || "n/a");
+      appendKv(modeDetails, "Final Assignment Warning", mode.final_assignment_warning || "n/a");
+      appendKv(modeDetails, "Warnings", mode.warnings || "none");
       const selectedEvidence = evidenceLayer ? String(evidenceLayer.value || "baseline") : "baseline";
       if (selectedEvidence === "composed") {{
-        appendKv(modeDetails, "Selected Evidence Layer", "Composed PED", true);
-        appendKv(modeDetails, "Selected Evidence Interpretation", mode.composed_ped_assignment || "n/a", true);
-        appendKv(modeDetails, "Selected Evidence Source", mode.composed_ped_source || "n/a", true);
-        appendKv(modeDetails, "Selected Evidence Top Contributor", mode.composed_ped_top_family ? `${{mode.composed_ped_top_family}} (${{Number(mode.composed_ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
-        appendKv(modeDetails, "Selected Evidence Contributors", mode.composed_ped_top_contributors || "n/a", true);
-        appendKv(modeDetails, "Selected Evidence Policy Hint", mode.composed_ped_policy_hint || "n/a", true);
-        appendKv(modeDetails, "Selected Evidence Warning", mode.composed_ped_warning || "n/a", true);
-        appendKv(modeDetails, "Selected Evidence Localization Delta", `${{Number(mode.composed_ped_localization_delta_percent || 0).toFixed(1)}}%`, true);
-        appendKv(modeDetails, "Selected Evidence Method", mode.composed_ped_method || "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Layer", "Composed PED-like", true);
+        appendKv(evidenceGrid, "Selected Evidence Interpretation", mode.composed_ped_assignment || "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Source", mode.composed_ped_source || "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Top Contributor", mode.composed_ped_top_family ? `${{mode.composed_ped_top_family}} (${{Number(mode.composed_ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Contributors", mode.composed_ped_top_contributors || "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Policy Hint", mode.composed_ped_policy_hint || "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Warning", mode.composed_ped_warning || "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Localization Delta", `${{Number(mode.composed_ped_localization_delta_percent || 0).toFixed(1)}}%`, true);
+        appendKv(evidenceGrid, "Selected Evidence Method", mode.composed_ped_method || "n/a", true);
       }} else {{
-        appendKv(modeDetails, "Selected Evidence Layer", "Baseline PED", true);
-        appendKv(modeDetails, "Selected Evidence Interpretation", mode.ped_assignment || "n/a", true);
-        appendKv(modeDetails, "Selected Evidence Source", mode.ped_source || "n/a", true);
-        appendKv(modeDetails, "Selected Evidence Top Contributor", mode.ped_top_family ? `${{mode.ped_top_family}} (${{Number(mode.ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
-        appendKv(modeDetails, "Selected Evidence Contributors", mode.ped_top_contributors || "n/a", true);
-        appendKv(modeDetails, "Selected Evidence Method", mode.ped_method || "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Layer", "Baseline PED-like", true);
+        appendKv(evidenceGrid, "Selected Evidence Interpretation", mode.ped_assignment || "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Source", mode.ped_source || "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Top Contributor", mode.ped_top_family ? `${{mode.ped_top_family}} (${{Number(mode.ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Contributors", mode.ped_top_contributors || "n/a", true);
+        appendKv(evidenceGrid, "Selected Evidence Method", mode.ped_method || "n/a", true);
       }}
-      appendKv(modeDetails, "PED Diagnostic Interpretation", mode.ped_assignment || "n/a", true);
-      appendKv(modeDetails, "PED Agreement Status", mode.ped_agreement_status || "n/a", true);
-      appendKv(modeDetails, "PED Policy Warning", mode.ped_policy_warning || "n/a", true);
-      appendKv(modeDetails, "PED Top Contributor", mode.ped_top_family ? `${{mode.ped_top_family}} (${{Number(mode.ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
-      appendKv(modeDetails, "PED Contributors", mode.ped_top_contributors || "n/a", true);
-      appendKv(modeDetails, "PED Method", mode.ped_method || "n/a", true);
-      appendKv(modeDetails, "Composed PED Interpretation", mode.composed_ped_assignment || "n/a", true);
-      appendKv(modeDetails, "Composed PED Source", mode.composed_ped_source || "n/a", true);
-      appendKv(modeDetails, "Composed PED Top Contributor", mode.composed_ped_top_family ? `${{mode.composed_ped_top_family}} (${{Number(mode.composed_ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
-      appendKv(modeDetails, "Composed PED Contributors", mode.composed_ped_top_contributors || "n/a", true);
-      appendKv(modeDetails, "Composed PED Policy Hint", mode.composed_ped_policy_hint || "n/a", true);
-      appendKv(modeDetails, "Composed PED Triage", mode.composed_ped_triage_category || "n/a", true);
-      appendKv(modeDetails, "Composed PED Evidence Origin", mode.composed_ped_evidence_origin || "n/a", true);
-      appendKv(modeDetails, "Composed PED Warning", mode.composed_ped_warning || "n/a", true);
-      appendKv(modeDetails, "Composed PED Warning Reason", mode.composed_ped_warning_reason || "n/a", true);
-      appendKv(modeDetails, "Composed PED Localization Delta", `${{Number(mode.composed_ped_localization_delta_percent || 0).toFixed(1)}}%`, true);
-      appendKv(modeDetails, "Composed PED Semantic Status", mode.composed_ped_semantic_status || "n/a", true);
-      appendKv(modeDetails, "Composed PED Semantic Reason", mode.composed_ped_semantic_reason || "n/a", true);
-      appendKv(modeDetails, "Composed PED Method", mode.composed_ped_method || "n/a", true);
-      appendKv(modeDetails, "Warnings", mode.warnings || "none", true);
-      appendKv(modeDetails, "ORCAVEDA Supporting Coordinates", mode.top_internal_coordinates || "n/a", true);
+      appendKv(evidenceGrid, "ORCAVEDA Assignment", mode.stage3d_assignment || "n/a", true);
+      appendKv(evidenceGrid, "PED Diagnostic Interpretation", mode.ped_assignment || "n/a", true);
+      appendKv(evidenceGrid, "PED Agreement Status", mode.ped_agreement_status || "n/a", true);
+      appendKv(evidenceGrid, "PED Policy Warning", mode.ped_policy_warning || "n/a", true);
+      appendKv(evidenceGrid, "PED Top Contributor", mode.ped_top_family ? `${{mode.ped_top_family}} (${{Number(mode.ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
+      appendKv(evidenceGrid, "PED Contributors", mode.ped_top_contributors || "n/a", true);
+      appendKv(evidenceGrid, "PED Method", mode.ped_method || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Interpretation", mode.composed_ped_assignment || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Source", mode.composed_ped_source || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Top Contributor", mode.composed_ped_top_family ? `${{mode.composed_ped_top_family}} (${{Number(mode.composed_ped_top_percent || 0).toFixed(1)}}%)` : "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Contributors", mode.composed_ped_top_contributors || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Policy Hint", mode.composed_ped_policy_hint || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Triage", mode.composed_ped_triage_category || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Evidence Origin", mode.composed_ped_evidence_origin || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Warning", mode.composed_ped_warning || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Warning Reason", mode.composed_ped_warning_reason || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Localization Delta", `${{Number(mode.composed_ped_localization_delta_percent || 0).toFixed(1)}}%`, true);
+      appendKv(evidenceGrid, "Composed PED Semantic Status", mode.composed_ped_semantic_status || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Semantic Reason", mode.composed_ped_semantic_reason || "n/a", true);
+      appendKv(evidenceGrid, "Composed PED Method", mode.composed_ped_method || "n/a", true);
+      appendKv(evidenceGrid, "ORCAVEDA Supporting Coordinates", mode.top_internal_coordinates || "n/a", true);
+      appendKv(nistDetails, "Scale Engine", engineName || "manual_static");
+      appendKv(nistDetails, "Scale Factor", engineName === "manual_static" ? Number(scale).toFixed(3) : "engine fit");
+      appendKv(nistDetails, "Matching Layer", getSelectedMatchingLayer());
+      appendKv(nistDetails, "NIST Reference", getSelectedReferenceSpectrum()?.description || getSelectedReferenceSpectrum()?.phase_label || "none", true);
+      appendKv(rawDiagnostics, "Final Assignment Policy", mode.final_assignment_policy || "n/a", true);
+      appendKv(rawDiagnostics, "Final Assignment Warning", mode.final_assignment_warning || "n/a", true);
+      appendKv(rawDiagnostics, "Warnings", mode.warnings || "none", true);
+      appendKv(rawDiagnostics, "Composed Hint", composedHintLabel(mode) || "none", true);
     }}
 
     function updatePeakTable(file, scale, x1, x2, engineName = getSelectedScaleEngine(), engineFit = getSelectedScaleEngineFit()) {{
@@ -2789,8 +2903,8 @@ def write_interactive_spectrum_viewer(
         appendCell(tr, mode.mode);
         appendCell(tr, mode.scaled.toFixed(1));
         appendCell(tr, Number(mode.intensity).toFixed(3));
-        appendCell(tr, mode.assignment || "unassigned");
-        appendCell(tr, composedHintLabel(mode));
+        appendCell(tr, mode.final_assignment || mode.assignment || "unassigned");
+        appendCell(tr, mode.final_assignment_warning || mode.warnings || composedHintLabel(mode) || "");
         tr.addEventListener("mouseenter", () => {{
           selectedMode = mode.mode;
           updateModeDetails(file, scale);
@@ -2910,10 +3024,10 @@ def write_interactive_spectrum_viewer(
       const referenceOverlay = buildReferenceOverlay(referenceSpectrum, x1, x2, axisMode);
       currentRender = {{ ...render, x1, x2, scale, gamma, axisMode, margin, plotW, plotH, file, referenceSpectrum, referenceOverlay, engineName, engineFit }};
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = "#fffdf8";
+      ctx.fillStyle = "#0b1220";
       ctx.fillRect(0, 0, width, height);
 
-      ctx.strokeStyle = "#ddd6c8";
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
       ctx.lineWidth = 1;
       for (let i = 0; i <= 6; i += 1) {{
         const y = margin.top + plotH * i / 6;
@@ -2924,7 +3038,7 @@ def write_interactive_spectrum_viewer(
       }}
 
       const tickCount = 8;
-      ctx.fillStyle = "#677483";
+      ctx.fillStyle = "#9ca3af";
       ctx.font = "12px Segoe UI";
       ctx.textAlign = "center";
       for (let i = 0; i <= tickCount; i += 1) {{
@@ -2932,14 +3046,14 @@ def write_interactive_spectrum_viewer(
         const px = margin.left + plotW * i / tickCount;
         const shown = invertAxis.checked ? x2 - (x2 - x1) * i / tickCount : value;
         ctx.beginPath();
-        ctx.strokeStyle = "#e8e1d4";
+        ctx.strokeStyle = "rgba(255,255,255,0.06)";
         ctx.moveTo(px, margin.top);
         ctx.lineTo(px, margin.top + plotH);
         ctx.stroke();
         ctx.fillText(Math.round(shown).toString(), px, margin.top + plotH + 22);
       }}
 
-      ctx.strokeStyle = "#0b5670";
+      ctx.strokeStyle = "#60a5fa";
       ctx.lineWidth = 2.2;
       ctx.beginPath();
       render.xs.forEach((x, idx) => {{
@@ -2951,7 +3065,7 @@ def write_interactive_spectrum_viewer(
       ctx.stroke();
 
       if (referenceOverlay) {{
-        ctx.strokeStyle = "rgba(154, 52, 18, 0.88)";
+        ctx.strokeStyle = "rgba(251, 191, 36, 0.88)";
         ctx.lineWidth = 1.8;
         ctx.beginPath();
         referenceOverlay.xs.forEach((x, idx) => {{
@@ -2962,7 +3076,7 @@ def write_interactive_spectrum_viewer(
         }});
         ctx.stroke();
 
-        ctx.fillStyle = "rgba(154, 52, 18, 0.88)";
+        ctx.fillStyle = "rgba(251, 191, 36, 0.88)";
         ctx.font = "12px Segoe UI";
         ctx.textAlign = "left";
         ctx.fillText(`NIST: ${{referenceOverlay.label}}`, margin.left + 6, margin.top + 16);
@@ -2977,7 +3091,7 @@ def write_interactive_spectrum_viewer(
           const baseline = axisMode === "transmittance" ? render.yMax : render.yMin;
           const stickTop = ty(stickValue, render.yMin, render.yMax, margin.top, plotH);
           const stickBase = ty(baseline, render.yMin, render.yMax, margin.top, plotH);
-          ctx.strokeStyle = mode.mode === selectedMode ? "rgba(154,52,18,0.85)" : "rgba(15,118,110,0.34)";
+          ctx.strokeStyle = mode.mode === selectedMode ? "rgba(167,139,250,0.9)" : "rgba(34,211,238,0.28)";
           ctx.lineWidth = mode.mode === selectedMode ? 2.4 : 1.2;
           ctx.beginPath();
           ctx.moveTo(px, stickBase);
@@ -2986,7 +3100,7 @@ def write_interactive_spectrum_viewer(
         }}
       }}
 
-      ctx.strokeStyle = "#1f2933";
+      ctx.strokeStyle = "rgba(243,244,246,0.74)";
       ctx.lineWidth = 1.4;
       ctx.beginPath();
       ctx.moveTo(margin.left, margin.top);
@@ -2994,7 +3108,7 @@ def write_interactive_spectrum_viewer(
       ctx.lineTo(margin.left + plotW, margin.top + plotH);
       ctx.stroke();
 
-      ctx.fillStyle = "#677483";
+      ctx.fillStyle = "#9ca3af";
       ctx.textAlign = "center";
       ctx.fillText("Wavenumber (cm-1)", margin.left + plotW / 2, height - 16);
       ctx.save();

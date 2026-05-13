@@ -118,8 +118,13 @@ def test_interactive_spectrum_viewer_artifacts():
 
     html_text = html_path.read_text(encoding="utf-8")
     assert "Interactive IR Spectrum" in html_text
+    assert 'data-section="summary-first"' in html_text
     assert "3D Molecule Viewer" in html_text
-    assert "Mode Interpretation" in html_text
+    assert "Summary" in html_text
+    assert "Evidence" in html_text
+    assert "NIST / Scaling" in html_text
+    assert "Raw diagnostics" in html_text
+    assert '<details id="advancedDiagnostics" class="advanced-diagnostics">' in html_text
     assert "Final Assignment" in html_text
     assert "Final Assignment Policy" in html_text
     assert "PED Diagnostic Interpretation" in html_text
@@ -656,6 +661,9 @@ def test_interactive_spectrum_viewer_headless_chrome_smoke_without_cdn():
     assert dom_result.returncode == 0, dom_result.stderr
     dom = dom_result.stdout
     assert 'class="panel panel-spectrum"' in dom
+    assert 'data-section="summary-first"' in dom
+    assert 'id="advancedDiagnostics" class="advanced-diagnostics"' in dom
+    assert "Final Assignment" in dom
     assert 'id="summaryGrid"' in dom
     assert 'id="moleculeViewer"' in dom
     assert 'id="peakTable"' in dom
