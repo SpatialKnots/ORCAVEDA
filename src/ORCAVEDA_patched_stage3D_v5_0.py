@@ -2084,7 +2084,7 @@ def analyze_general_hess_files(
                     hess,
                     internals,
                     B,
-                    selected_idx,
+                    wilson_gf_result.basis_indices,
                     top_n=8,
                 )
                 closed_ped_df["Source"] = f"[{source_index}]"

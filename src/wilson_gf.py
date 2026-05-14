@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import combinations
+from math import comb
 from typing import List, Sequence, Tuple
 
 import numpy as np
@@ -66,6 +68,62 @@ def _rank_condition(matrix: np.ndarray, tol: float) -> Tuple[int, float]:
         return 0, float("inf")
     nonzero = finite[finite > tol]
     return rank, float(nonzero[0] / nonzero[-1])
+
+
+def _wilson_g_rank_condition(
+    B_arr: np.ndarray,
+    internals: Sequence[InternalCoordinate],
+    basis_idx: Sequence[int],
+    masses: np.ndarray,
+    tol: float,
+) -> Tuple[int, float]:
+    basis_internals = [internals[idx] for idx in basis_idx]
+    scales = wilson_coordinate_scales(basis_internals)
+    B_internal = B_arr[list(basis_idx), :] * scales[:, None]
+    G = build_wilson_g_matrix(B_internal, masses)
+    return _rank_condition(G, tol)
+
+
+def _select_conditioned_wilson_basis(
+    B_arr: np.ndarray,
+    internals: Sequence[InternalCoordinate],
+    selected_idx: Sequence[int],
+    masses: np.ndarray,
+    expected_rank: int,
+    tol: float,
+) -> Tuple[int, ...]:
+    """Small-system fallback for a Wilson-GF-conditioned validation basis."""
+    basis_idx = tuple(int(idx) for idx in selected_idx)
+    if expected_rank <= 0 or len(basis_idx) != expected_rank:
+        return basis_idx
+
+    g_rank, g_condition = _wilson_g_rank_condition(B_arr, internals, basis_idx, masses, tol)
+    if g_rank >= expected_rank and np.isfinite(g_condition) and g_condition <= 1.0e12:
+        return basis_idx
+
+    candidate_count = len(internals)
+    if candidate_count > 24 or comb(candidate_count, expected_rank) > 250_000:
+        return basis_idx
+
+    best_basis = basis_idx
+    best_g_condition = g_condition if np.isfinite(g_condition) else float("inf")
+    for combo in combinations(range(candidate_count), expected_rank):
+        b_rank, _ = _rank_condition(B_arr[list(combo), :], 1.0e-6)
+        if b_rank < expected_rank:
+            continue
+        candidate_g_rank, candidate_g_condition = _wilson_g_rank_condition(
+            B_arr,
+            internals,
+            combo,
+            masses,
+            tol,
+        )
+        if candidate_g_rank < expected_rank or not np.isfinite(candidate_g_condition):
+            continue
+        if candidate_g_condition < best_g_condition:
+            best_basis = tuple(int(idx) for idx in combo)
+            best_g_condition = candidate_g_condition
+    return best_basis
 
 
 def symmetric_sqrt_decomp(A: np.ndarray, tol: float = 1.0e-12) -> Tuple[np.ndarray, np.ndarray]:
@@ -173,6 +231,14 @@ def wilson_gf_diagonalization(
         raise ValueError("selected_idx must contain at least one internal coordinate")
 
     expected_vibrational_rank = max(cartesian_size - 6, 0)
+    basis_idx = _select_conditioned_wilson_basis(
+        B_arr,
+        internals,
+        basis_idx,
+        hess.masses,
+        expected_vibrational_rank,
+        tol,
+    )
     basis_internals = [internals[idx] for idx in basis_idx]
     scales = wilson_coordinate_scales(basis_internals)
     B_internal = B_arr[list(basis_idx), :] * scales[:, None]

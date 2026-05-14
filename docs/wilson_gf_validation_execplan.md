@@ -19,6 +19,7 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - [x] (2026-05-14) Phase 1 standalone prototype added in `src\wilson_gf.py`, plus focused tests in `tests\test_wilson_gf.py`.
 - [x] (2026-05-14) Phase 2 H2O fixed-conversion validation passes after replacing the Euclidean PED pseudoinverse force reconstruction with a mass-metric Wilson GF internal-force reconstruction in the standalone prototype. H2O max relative error is `1.818626413830463e-05`.
 - [x] (2026-05-14) Phase 3 opt-in pipeline integration added behind `--wilson-gf-validation`. Default runs do not include Wilson GF validation tables; opt-in H2O run writes validation, closed-PED, and basis-diagnostics CSVs.
+- [x] (2026-05-14) Phase 4 target validation runs executed for H2O, NH3, formaldehyde, and ethene. An initial ethene run exposed a weak default basis (`G-rank 11`, `G-condition 2.5804969975545938e12`); after adding a small-system Wilson-GF-conditioned basis fallback, all four target molecules report `PASS`.
 
 ## Surprises & Discoveries
 
@@ -33,6 +34,9 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 
 - Observation: H2O fixed SI conversion failed when the first prototype reused the existing PED audit Euclidean pseudoinverse force reconstruction, but passed when the standalone GF prototype used the mass-metric Wilson back-transform `J = M^-1 B^T G^-1`.
   Evidence: Euclidean pseudoinverse reconstruction on `data\hess\H2O_freq.hess` gave reconstructed frequencies `1540.560643, 4049.375290, 4131.042557` cm-1 and max relative error `0.002300580590651947`. Mass-metric reconstruction gave reconstructed frequencies `1540.708842, 4049.448994, 4140.643569` cm-1 and max relative error `1.818626413830463e-05`.
+
+- Observation: Ethene required a Wilson-GF-conditioned basis fallback; the default independent-coordinate selector was full rank in B but too ill-conditioned for closed GF validation.
+  Evidence: Before the fallback, ethene selected indices `0;1;2;3;4;9;10;11;12;13;14;15` with B-rank `12` and B-condition about `3.146e6`, but Wilson G-rank `11`, G-condition `2580496997554.5938`, F-condition `5156767183685.332`, and warnings `basis_rank_below_expected; g_ill_conditioned; f_ill_conditioned`. The fallback chooses `0;4;5;6;7;9;12;13;14;15;17;18`, giving G-rank `12`, G-condition `28.556444875327514`, F-rank `12`, F-condition `65.64477191436387`, and no warnings.
 
 ## Decision Log
 
@@ -71,6 +75,15 @@ Phase 0 and the standalone Phase 1 prototype are implemented. H2O basis formatio
 H2O fixed-conversion validation is currently `PASS` for the standalone prototype. The fixed SI conversion produced max relative error `1.818626413830463e-05`, below the planned `1.0e-4` gate. The empirical ratio diagnostic is nearly constant (`median 2720.1791780974722`, `std 3.3457373459153256e-07`) and remains diagnostic-only rather than proof beyond the H2O gate.
 
 Phase 3 opt-in integration is implemented. The CLI flag `--wilson-gf-validation` writes `H2O__wilson_gf_validation.csv`, `H2O__wilson_gf_ped_audit.csv`, and `H2O__wilson_gf_basis_diagnostics.csv` for the H2O CLI run under `outputs\wilson_gf_h2o_cli`. Default `analyze_orca_ped_like` runs remain without the new `wilson_gf_*` table keys.
+
+Phase 4 target CLI runs completed on 2026-05-14. H2O, NH3, formaldehyde, and ethene pass fixed-conversion validation through the opt-in path. The ethene pass depends on the small-system Wilson-GF-conditioned basis fallback, so this remains validation-prototype evidence rather than a VEDA-equivalence claim.
+
+| Molecule | Output directory | Basis size | Expected rank | G-rank | G-condition | F-rank | F-condition | Positive ORCA modes | Positive GF eigenvalues | Max relative error | Empirical ratio median | Empirical ratio std | Status | Warnings |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| H2O | `outputs\wilson_gf_h2o` | 3 | 3 | 3 | 2.3108020332111234 | 3 | 16.098506422459817 | 3 | 3 | 1.818626413830463e-05 | 2720.1791780974722 | 3.3457373459153256e-07 | PASS | none |
+| NH3 | `outputs\wilson_gf_nh3` | 6 | 6 | 6 | 2.315274433059329 | 6 | 14.029291999970486 | 6 | 6 | 5.616351591931107e-08 | 2720.2284947182916 | 2.9370862370825758e-09 | PASS | none |
+| formaldehyde | `outputs\wilson_gf_formaldehyde` | 6 | 6 | 6 | 1293895.778784718 | 6 | 754289.3497871537 | 6 | 6 | 5.666234451789424e-08 | 2720.2284947048374 | 5.033772184914088e-07 | PASS | none |
+| ethene | `outputs\wilson_gf_ethene` | 12 | 12 | 12 | 28.556444875327514 | 12 | 65.64477191436387 | 12 | 12 | 5.61625148639572e-08 | 2720.228494729605 | 6.610274925267368e-09 | PASS | none |
 
 ## Context and Orientation
 
@@ -226,19 +239,25 @@ Initial source review placeholders:
 Command transcript placeholders:
 
 - `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py`: passed on 2026-05-14.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q`: passed on 2026-05-14, latest run `5 passed in 0.68s`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q`: passed on 2026-05-14, latest run `7 passed in 4.20s`.
 - `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py src\orcaveda_cli.py src\ORCAVEDA_patched_stage3D_v5_0.py`: passed on 2026-05-14.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q`: passed on 2026-05-14, `19 passed in 1.31s`.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14, `21 passed in 27.40s`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14, latest run `21 passed in 25.78s`.
 - H2O CLI validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\wilson_gf_h2o_cli --wilson-gf-validation`, completed on 2026-05-14.
-- NH3/formaldehyde/ethene validation runs: not run yet.
+- H2O Phase 4 validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\wilson_gf_h2o --wilson-gf-validation`, completed on 2026-05-14.
+- NH3 validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\NH3.hess --outdir outputs\wilson_gf_nh3 --wilson-gf-validation`, completed on 2026-05-14.
+- Formaldehyde validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\formaldehyde.hess --outdir outputs\wilson_gf_formaldehyde --wilson-gf-validation`, completed on 2026-05-14.
+- Ethene validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\ethene.hess --outdir outputs\wilson_gf_ethene --wilson-gf-validation`, completed on 2026-05-14.
 
 CSV evidence placeholders:
 
 - H2O `wilson_gf_validation.csv`: generated by the opt-in CLI run as `outputs\wilson_gf_h2o_cli\H2O__wilson_gf_validation.csv`; all validation rows report `PASS`, max relative error `0.000018`, no warnings.
 - H2O `wilson_gf_ped_audit.csv`: generated by the opt-in CLI run as `outputs\wilson_gf_h2o_cli\H2O__wilson_gf_ped_audit.csv`.
 - H2O `wilson_gf_basis_diagnostics.csv`: generated by the opt-in CLI run as `outputs\wilson_gf_h2o_cli\H2O__wilson_gf_basis_diagnostics.csv`.
-- Target molecule summary table: not generated yet.
+- H2O Phase 4 CSVs: generated under `outputs\wilson_gf_h2o`; validation status `PASS`, max relative error `1.818626413830463e-05`, warnings none.
+- NH3 CSVs: generated under `outputs\wilson_gf_nh3`; validation status `PASS`, max relative error `5.616351591931107e-08`, warnings none.
+- Formaldehyde CSVs: generated under `outputs\wilson_gf_formaldehyde`; validation status `PASS`, max relative error `5.666234451789424e-08`, warnings none.
+- Ethene CSVs: generated under `outputs\wilson_gf_ethene`; validation status `PASS`, selected indices `0;4;5;6;7;9;12;13;14;15;17;18`, max relative error `5.61625148639572e-08`, warnings none.
 
 Standalone H2O diagnostics from `src\wilson_gf.py`:
 

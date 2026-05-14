@@ -28,8 +28,8 @@ from wilson_gf import (  # noqa: E402
 )
 
 
-def _h2o_pipeline_basis():
-    hess = read_orca_hess(ROOT / "data" / "hess" / "H2O_freq.hess")
+def _pipeline_basis(hess_name: str):
+    hess = read_orca_hess(ROOT / "data" / "hess" / hess_name)
     annotation = annotate_chemical_system(hess.atoms, hess.coords_A)
     internals = build_internal_coordinates(
         hess.atoms,
@@ -42,6 +42,10 @@ def _h2o_pipeline_basis():
     B = finite_difference_B(hess.coords_A, internals)
     selected_idx, rank, cond, _ = select_independent_coordinates(B, internals, 3 * len(hess.atoms) - 6)
     return hess, internals, B, selected_idx, rank, cond
+
+
+def _h2o_pipeline_basis():
+    return _pipeline_basis("H2O_freq.hess")
 
 
 def test_symmetric_sqrt_decomp_identity_and_spd_matrix():
@@ -127,6 +131,28 @@ def test_h2o_closed_ped_rows_normalize_to_100_percent_per_mode():
     assert np.allclose(sums.to_numpy(dtype=float), np.full(len(sums), 100.0), atol=1.0e-6)
     normalization = ped.groupby("mode")["normalization_sum_percent"].first()
     assert np.allclose(normalization.to_numpy(dtype=float), np.full(len(normalization), 100.0), atol=1.0e-6)
+
+
+def test_ethene_wilson_gf_validation_selects_conditioned_basis():
+    hess, internals, B, selected_idx, rank, cond = _pipeline_basis("ethene.hess")
+
+    result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+    basis = build_wilson_gf_basis_diagnostics_dataframe(result)
+    ped = wilson_gf_closed_ped(result, hess, internals, B, result.basis_indices, top_n=8)
+
+    assert rank == 12
+    assert cond > 1.0e6
+    assert tuple(selected_idx) != result.basis_indices
+    assert result.validation_status == "PASS"
+    assert result.g_rank == 12
+    assert result.f_rank == 12
+    assert result.g_condition < 100.0
+    assert result.f_condition < 100.0
+    assert result.max_relative_error < 1.0e-6
+    assert result.warnings == ()
+    assert str(basis.iloc[0]["selected_indices"]) == "0;4;5;6;7;9;12;13;14;15;17;18"
+    assert not ped.empty
+    assert set(ped["validation_status"]) == {"PASS"}
 
 
 def test_pipeline_wilson_gf_validation_is_opt_in_for_h2o():
