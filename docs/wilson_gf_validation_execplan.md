@@ -20,6 +20,7 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - [x] (2026-05-14) Phase 2 H2O fixed-conversion validation passes after replacing the Euclidean PED pseudoinverse force reconstruction with a mass-metric Wilson GF internal-force reconstruction in the standalone prototype. H2O max relative error is `1.818626413830463e-05`.
 - [x] (2026-05-14) Phase 3 opt-in pipeline integration added behind `--wilson-gf-validation`. Default runs do not include Wilson GF validation tables; opt-in H2O run writes validation, closed-PED, and basis-diagnostics CSVs.
 - [x] (2026-05-14) Phase 4 target validation runs executed for H2O, NH3, formaldehyde, and ethene. An initial ethene run exposed a weak default basis (`G-rank 11`, `G-condition 2.5804969975545938e12`); after adding a small-system Wilson-GF-conditioned basis fallback, all four target molecules report `PASS`.
+- [x] (2026-05-14) Broader opt-in validation batch run for MeOH, EtOH, acetone, CH3CN, DMSO, acetamide, phenol, and benzene. Seven molecules report `PASS`; CH3CN reports `WARN` from fixed-conversion failure in the two lowest-frequency modes.
 
 ## Surprises & Discoveries
 
@@ -37,6 +38,9 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 
 - Observation: Ethene required a Wilson-GF-conditioned basis fallback; the default independent-coordinate selector was full rank in B but too ill-conditioned for closed GF validation.
   Evidence: Before the fallback, ethene selected indices `0;1;2;3;4;9;10;11;12;13;14;15` with B-rank `12` and B-condition about `3.146e6`, but Wilson G-rank `11`, G-condition `2580496997554.5938`, F-condition `5156767183685.332`, and warnings `basis_rank_below_expected; g_ill_conditioned; f_ill_conditioned`. The fallback chooses `0;4;5;6;7;9;12;13;14;15;17;18`, giving G-rank `12`, G-condition `28.556444875327514`, F-rank `12`, F-condition `65.64477191436387`, and no warnings.
+
+- Observation: CH3CN is the first broader-batch molecule where fixed conversion fails despite full G/F rank.
+  Evidence: `outputs\wilson_gf_batch_ch3cn\CH3CN__wilson_gf_validation.csv` reports `WARN`, basis size `12`, expected rank `12`, G-rank `12`, G-condition `423673515.5779151`, F-rank `12`, F-condition `4979156243.108764`, max relative error `0.018454913619246567`, and warnings `fixed_conversion_failed; empirical_ratio_only`. The largest errors are in mode 6 (`389.6377536209096` cm-1, reconstructed `382.44702253503846` cm-1, relative error `0.018454913619246567`) and mode 7 (`390.57271369641705` cm-1, reconstructed `389.46928984530246` cm-1, relative error `0.0028251432125703077`).
 
 ## Decision Log
 
@@ -84,6 +88,19 @@ Phase 4 target CLI runs completed on 2026-05-14. H2O, NH3, formaldehyde, and eth
 | NH3 | `outputs\wilson_gf_nh3` | 6 | 6 | 6 | 2.315274433059329 | 6 | 14.029291999970486 | 6 | 6 | 5.616351591931107e-08 | 2720.2284947182916 | 2.9370862370825758e-09 | PASS | none |
 | formaldehyde | `outputs\wilson_gf_formaldehyde` | 6 | 6 | 6 | 1293895.778784718 | 6 | 754289.3497871537 | 6 | 6 | 5.666234451789424e-08 | 2720.2284947048374 | 5.033772184914088e-07 | PASS | none |
 | ethene | `outputs\wilson_gf_ethene` | 12 | 12 | 12 | 28.556444875327514 | 12 | 65.64477191436387 | 12 | 12 | 5.61625148639572e-08 | 2720.228494729605 | 6.610274925267368e-09 | PASS | none |
+
+Broader validation batch completed on 2026-05-14. This batch is evidence for the prototype's current numerical envelope, not for VEDA equivalence. Seven of eight molecules passed the fixed-conversion gate; CH3CN returned `WARN`.
+
+| Molecule | Output directory | Basis size | Expected rank | G-rank | G-condition | F-rank | F-condition | Positive ORCA modes | Max relative error | Empirical ratio median | Empirical ratio std | Status | Warnings |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| MeOH | `outputs\wilson_gf_batch_meoh` | 12 | 12 | 12 | 27.457797487906166 | 12 | 236.09060650034456 | 12 | 5.616420455075335e-08 | 2720.2284947383223 | 5.294429644752303e-08 | PASS | none |
+| EtOH | `outputs\wilson_gf_batch_etoh` | 21 | 21 | 21 | 68.05073106259707 | 21 | 251.2245599416959 | 21 | 5.616697269282427e-08 | 2720.2284947275293 | 2.587721576221904e-08 | PASS | none |
+| Acetone | `outputs\wilson_gf_batch_acetone` | 24 | 24 | 24 | 586815398.5892428 | 24 | 8386033069.547947 | 24 | 5.625625863693999e-08 | 2720.228494754702 | 5.165432595206878e-05 | PASS | none |
+| CH3CN | `outputs\wilson_gf_batch_ch3cn` | 12 | 12 | 12 | 423673515.5779151 | 12 | 4979156243.108764 | 12 | 0.018454913619246567 | 2720.240441540698 | 14.063635890182173 | WARN | `fixed_conversion_failed; empirical_ratio_only` |
+| DMSO | `outputs\wilson_gf_batch_dmso` | 24 | 24 | 24 | 73.13515964560295 | 24 | 109.88705956258443 | 24 | 5.651559409564404e-08 | 2720.228494727352 | 2.34840549448295e-07 | PASS | none |
+| acetamide | `outputs\wilson_gf_batch_acetamide` | 21 | 21 | 21 | 286158581.4001269 | 21 | 5541794646.3023 | 20 | 5.6389704513833395e-08 | 2720.2284947332896 | 3.0801958065541683e-06 | PASS | none |
+| phenol | `outputs\wilson_gf_batch_phenol` | 33 | 33 | 33 | 2108.3644479210197 | 33 | 5386.926054955553 | 33 | 5.6208317650343554e-08 | 2720.2284947158196 | 2.846752966781087e-08 | PASS | none |
+| benzene | `outputs\wilson_gf_batch_benzene` | 30 | 30 | 30 | 2940.309649604426 | 30 | 3694.5604550950507 | 30 | 5.6171675848486615e-08 | 2720.2284947215594 | 1.027057300104927e-08 | PASS | none |
 
 ## Context and Orientation
 
@@ -248,6 +265,7 @@ Command transcript placeholders:
 - NH3 validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\NH3.hess --outdir outputs\wilson_gf_nh3 --wilson-gf-validation`, completed on 2026-05-14.
 - Formaldehyde validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\formaldehyde.hess --outdir outputs\wilson_gf_formaldehyde --wilson-gf-validation`, completed on 2026-05-14.
 - Ethene validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\ethene.hess --outdir outputs\wilson_gf_ethene --wilson-gf-validation`, completed on 2026-05-14.
+- Broader validation batch runs completed on 2026-05-14 for `MeOH_freq.hess`, `EtOH_freq.hess`, `Acetone_freq.hess`, `CH3CN_freq.hess`, `DMSO_freq.hess`, `acetamide.hess`, `phenol.hess`, and `benzene.hess`, each through `src\ORCAVEDA_patched_stage3D_v5_0.py --wilson-gf-validation`.
 
 CSV evidence placeholders:
 
@@ -258,6 +276,7 @@ CSV evidence placeholders:
 - NH3 CSVs: generated under `outputs\wilson_gf_nh3`; validation status `PASS`, max relative error `5.616351591931107e-08`, warnings none.
 - Formaldehyde CSVs: generated under `outputs\wilson_gf_formaldehyde`; validation status `PASS`, max relative error `5.666234451789424e-08`, warnings none.
 - Ethene CSVs: generated under `outputs\wilson_gf_ethene`; validation status `PASS`, selected indices `0;4;5;6;7;9;12;13;14;15;17;18`, max relative error `5.61625148639572e-08`, warnings none.
+- Broader batch CSVs: generated under `outputs\wilson_gf_batch_*`; MeOH, EtOH, acetone, DMSO, acetamide, phenol, and benzene report `PASS`; CH3CN reports `WARN` with `fixed_conversion_failed; empirical_ratio_only`.
 
 Standalone H2O diagnostics from `src\wilson_gf.py`:
 
