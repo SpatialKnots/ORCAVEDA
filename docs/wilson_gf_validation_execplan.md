@@ -24,6 +24,7 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - [x] (2026-05-14) Larger-molecule opt-in validation expansion run for pyridine, aniline, benzonitrile, nitrobenzene, benzoic acid, and acetophenone. All six CLI runs exited 0 and report `PASS`; aniline carries explicit positive-mode-count warnings.
 - [x] (2026-05-14) Heavy opt-in validation batch run for NMP, N-methylaniline, piperidine, cyclohexane chair, acetanilide, and three monoethanolamine dimers. An initial acetanilide run reported `FAIL` due to G-rank loss, severe ill-conditioning, and positive-mode count below expected rank.
 - [x] (2026-05-14) Added a deterministic mass-weighted residual-pivot validation fallback for large systems where exhaustive conditioned-basis search is infeasible. Acetanilide, acetophenone, and nitrobenzene now use better-conditioned validation bases and report `PASS`.
+- [x] (2026-05-14) Extended large-system fallback acceptance to consider F-condition as well as G-condition. N-methylaniline now uses a better-conditioned validation basis and no longer carries `f_ill_conditioned`.
 
 ## Surprises & Discoveries
 
@@ -59,6 +60,12 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 
 - Observation: A deterministic mass-weighted residual-pivot validation basis fixes the acetanilide G-rank failure without loosening rank thresholds.
   Evidence: After adding the large-system fallback, `outputs\wilson_gf_heavy_acetanilide\acetanilide__wilson_gf_validation.csv` reports `PASS`, basis size 51, expected rank 51, G-rank 51, G-condition `1303.6329834917049`, F-rank 51, F-condition `5026.982264219395`, positive ORCA modes 50, max relative error `5.660912987811707e-08`, and warnings only for positive mode counts below expected rank.
+
+- Observation: N-methylaniline exposed that G-only fallback acceptance can leave a severely ill-conditioned F matrix.
+  Evidence: Before extending fallback acceptance, `outputs\wilson_gf_heavy_n_methylaniline\N-methylaniline__wilson_gf_validation.csv` reported `PASS`, G-rank 45, G-condition `578040400998.682`, F-rank 45, F-condition `64189060354395.125`, max relative error `6.788418311786068e-06`, and warning `f_ill_conditioned`. A mass-weighted pivot candidate gave G-condition `1326.4122537120506`, F-condition `33201.90313372605`, and max relative error `7.075733291133912e-08`.
+
+- Observation: After F-condition-aware fallback acceptance, N-methylaniline no longer carries `f_ill_conditioned`.
+  Evidence: The rerun `outputs\wilson_gf_heavy_n_methylaniline\N-methylaniline__wilson_gf_validation.csv` reports `PASS`, basis size 45, expected rank 45, G-rank 45, G-condition `1326.4122537120506`, F-rank 45, F-condition `33201.90313372605`, positive ORCA modes 44, max relative error `7.075733291133912e-08`, and warnings only for positive mode counts below expected rank.
 
 ## Decision Log
 
@@ -96,6 +103,10 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 
 - Decision: For large validation systems where exhaustive conditioned-basis search is infeasible, add a deterministic mass-weighted residual-pivot fallback that selects rows from the scaled mass-weighted Wilson B matrix and accept it only when it restores full G-rank and improves G-condition.
   Rationale: Acetanilide showed that the default selected basis can be full-rank in unscaled B but rank-deficient in G at the Wilson GF tolerance. The residual-pivot fallback directly targets the mass metric used by `G = B M^-1 B^T` and is restricted to the opt-in Wilson GF validation path.
+  Date/Author: 2026-05-14 / Codex
+
+- Decision: Extend large-system fallback acceptance to consider F-condition when the candidate basis keeps full G/F rank and improves the internal force matrix conditioning.
+  Rationale: N-methylaniline had full G-rank and acceptable G-condition under the previous cutoff but retained an F-condition of `6.4189060354395125e13`. Since the closed GF validation depends on both `G` and the reconstructed internal `F`, the validation basis should not preserve a severely ill-conditioned F matrix when the deterministic mass-weighted pivot candidate improves it without rank loss.
   Date/Author: 2026-05-14 / Codex
 
 ## Outcomes & Retrospective
@@ -144,7 +155,7 @@ Heavy validation batch completed on 2026-05-14. This batch exposed the current p
 | Molecule | Output directory | Basis size | Expected rank | G-rank | G-condition | F-rank | F-condition | Positive ORCA modes | Max relative error | Empirical ratio std | Status | Warnings |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
 | NMP | `outputs\wilson_gf_heavy_nmp` | 42 | 42 | 42 | 32693189.82267202 | 42 | 7338681.180009891 | 42 | 5.623115220542311e-08 | 1.4374315378575958e-07 | PASS | none |
-| N-methylaniline | `outputs\wilson_gf_heavy_n_methylaniline` | 45 | 45 | 45 | 578040400998.682 | 45 | 64189060354395.125 | 44 | 6.788418311786068e-06 | 0.0037539112438043894 | PASS | `f_ill_conditioned; positive_orca_mode_count_below_expected_vibrational_rank; positive_gf_eigenvalue_count_below_expected_vibrational_rank` |
+| N-methylaniline | `outputs\wilson_gf_heavy_n_methylaniline` | 45 | 45 | 45 | 1326.4122537120506 | 45 | 33201.90313372605 | 44 | 7.075733291133912e-08 | 5.916851178679829e-06 | PASS | `positive_orca_mode_count_below_expected_vibrational_rank; positive_gf_eigenvalue_count_below_expected_vibrational_rank` |
 | piperidine | `outputs\wilson_gf_heavy_piperidine` | 45 | 45 | 45 | 235.8380018026121 | 45 | 12.88624371545388 | 45 | 5.61720943171254e-08 | 1.221115751659388e-08 | PASS | none |
 | cyclohexane chair | `outputs\wilson_gf_heavy_cyclohexane_chair` | 48 | 48 | 48 | 192.36761966245606 | 48 | 12.078000854648094 | 48 | 5.622735744573172e-08 | 2.7151408832149106e-08 | PASS | none |
 | acetanilide | `outputs\wilson_gf_heavy_acetanilide` | 51 | 51 | 51 | 1303.6329834917049 | 51 | 5026.982264219395 | 50 | 5.660912987811707e-08 | 1.7287996782479167e-07 | PASS | `positive_orca_mode_count_below_expected_vibrational_rank; positive_gf_eigenvalue_count_below_expected_vibrational_rank` |
@@ -311,11 +322,14 @@ Command transcript placeholders:
 - `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py tests\test_wilson_gf.py`: passed on 2026-05-14 after adding positive-mode-count warnings.
 - `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py tests\test_wilson_gf.py`: passed on 2026-05-14 after adding the large-system mass-weighted pivot fallback.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q`: passed on 2026-05-14 after adding the acetanilide large-system fallback test, latest run `10 passed in 28.76s`.
+- `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py tests\test_wilson_gf.py`: passed on 2026-05-14 after extending fallback acceptance to F-condition.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q`: passed on 2026-05-14 after adding the N-methylaniline F-condition fallback test, latest run `11 passed in 24.36s`.
 - `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py src\orcaveda_cli.py src\ORCAVEDA_patched_stage3D_v5_0.py`: passed on 2026-05-14.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q`: passed on 2026-05-14, `19 passed in 1.31s`.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14, latest run `21 passed in 28.08s`.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14 after adding positive-mode-count warnings, latest run `21 passed in 28.37s`.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14 after adding the large-system mass-weighted pivot fallback, latest run `21 passed in 26.31s`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14 after extending fallback acceptance to F-condition, latest run `21 passed in 25.93s`.
 - H2O CLI validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\wilson_gf_h2o_cli --wilson-gf-validation`, completed on 2026-05-14.
 - H2O Phase 4 validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\wilson_gf_h2o --wilson-gf-validation`, completed on 2026-05-14.
 - NH3 validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\NH3.hess --outdir outputs\wilson_gf_nh3 --wilson-gf-validation`, completed on 2026-05-14.
@@ -325,6 +339,7 @@ Command transcript placeholders:
 - Larger-molecule validation expansion runs completed on 2026-05-14 for `pyridine.hess`, `aniline.hess`, `benzonitrile.hess`, `nitrobenzene.hess`, `benzoic_acid.hess`, and `acetophenone.hess`, each through `src\ORCAVEDA_patched_stage3D_v5_0.py --wilson-gf-validation`.
 - Heavy validation batch runs completed on 2026-05-14 for `NMP_freq.hess`, `N-methylaniline.hess`, `piperidine.hess`, `cyclohexane_chair.hess`, `acetanilide.hess`, `monoethanolamine_dimer_cyclic_DFT.hess`, `monoethanolamine_dimer_NH_to_O_DFT.hess`, and `monoethanolamine_dimer_OH_to_N_DFT.hess`, each through `src\ORCAVEDA_patched_stage3D_v5_0.py --wilson-gf-validation`.
 - Larger-molecule and heavy validation batches were rerun on 2026-05-14 after adding the mass-weighted pivot fallback. All rerun CLI commands exited 0.
+- Larger-molecule and heavy validation batches were rerun on 2026-05-14 after extending fallback acceptance to F-condition. All rerun CLI commands exited 0.
 
 CSV evidence placeholders:
 
@@ -337,7 +352,7 @@ CSV evidence placeholders:
 - Ethene CSVs: generated under `outputs\wilson_gf_ethene`; validation status `PASS`, selected indices `0;4;5;6;7;9;12;13;14;15;17;18`, max relative error `5.61625148639572e-08`, warnings none.
 - Broader batch CSVs: generated under `outputs\wilson_gf_batch_*`; MeOH, EtOH, acetone, DMSO, acetamide, phenol, benzene, and CH3CN report `PASS`; CH3CN carries `linear_bend_coordinate_used`.
 - Larger-molecule expansion CSVs after the mass-weighted pivot fallback: generated under `outputs\wilson_gf_expand_*`; pyridine, aniline, benzonitrile, nitrobenzene, benzoic acid, and acetophenone report `PASS`. Warnings remain for aniline positive-mode counts below expected rank and benzonitrile near-linear bend.
-- Heavy batch CSVs after the mass-weighted pivot fallback: generated under `outputs\wilson_gf_heavy_*`; NMP, N-methylaniline, piperidine, cyclohexane chair, acetanilide, and the three monoethanolamine dimers report `PASS`. N-methylaniline and acetanilide retain positive-mode-count diagnostics below expected rank; N-methylaniline also retains `f_ill_conditioned`.
+- Heavy batch CSVs after F-condition-aware fallback acceptance: generated under `outputs\wilson_gf_heavy_*`; NMP, N-methylaniline, piperidine, cyclohexane chair, acetanilide, and the three monoethanolamine dimers report `PASS`. N-methylaniline and acetanilide retain positive-mode-count diagnostics below expected rank; no heavy-batch molecule currently reports `basis_rank_below_expected`, `g_ill_conditioned`, or `f_ill_conditioned`.
 - CH3CN exhaustive primitive-basis diagnostic: evaluated 1136 full-rank 12-coordinate subsets; passing subsets `0`; best max relative error `0.01845477680255841`.
 - CH3CN linear-bend CLI rerun: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\CH3CN_freq.hess --outdir outputs\wilson_gf_batch_ch3cn --wilson-gf-validation`, completed on 2026-05-14 with `PASS`, max relative error `2.948152719245503e-07`.
 

@@ -87,6 +87,24 @@ def _wilson_g_rank_condition(
     return _rank_condition(G, tol)
 
 
+def _wilson_gf_rank_condition(
+    B_arr: np.ndarray,
+    internals: Sequence[InternalCoordinate],
+    basis_idx: Sequence[int],
+    masses: np.ndarray,
+    cartesian_hessian: np.ndarray,
+    tol: float,
+) -> Tuple[int, float, int, float]:
+    basis_internals = [internals[idx] for idx in basis_idx]
+    scales = wilson_coordinate_scales(basis_internals)
+    B_internal = B_arr[list(basis_idx), :] * scales[:, None]
+    G = build_wilson_g_matrix(B_internal, masses)
+    F_internal = reconstruct_wilson_gf_internal_force_matrix(B_internal, masses, cartesian_hessian, G)
+    g_rank, g_condition = _rank_condition(G, tol)
+    f_rank, f_condition = _rank_condition(F_internal, tol)
+    return g_rank, g_condition, f_rank, f_condition
+
+
 def _select_mass_weighted_pivot_basis(
     B_arr: np.ndarray,
     internals: Sequence[InternalCoordinate],
@@ -137,6 +155,7 @@ def _select_conditioned_wilson_basis(
     expected_rank: int,
     tol: float,
     coords_A: np.ndarray | None = None,
+    cartesian_hessian: np.ndarray | None = None,
 ) -> Tuple[int, ...]:
     """Small-system fallback for a Wilson-GF-conditioned validation basis."""
     basis_idx = tuple(int(idx) for idx in selected_idx)
@@ -147,24 +166,62 @@ def _select_conditioned_wilson_basis(
     near_linear_selected = (
         coords_A is not None and _has_near_linear_bend(internals, basis_idx, np.asarray(coords_A, dtype=float))
     )
-    if g_rank >= expected_rank and np.isfinite(g_condition) and g_condition <= 1.0e12 and not near_linear_selected:
+    f_rank = 0
+    f_condition = float("inf")
+    if cartesian_hessian is not None:
+        _, _, f_rank, f_condition = _wilson_gf_rank_condition(
+            B_arr,
+            internals,
+            basis_idx,
+            masses,
+            cartesian_hessian,
+            tol,
+        )
+    current_f_acceptable = cartesian_hessian is None or (
+        f_rank >= expected_rank and np.isfinite(f_condition) and f_condition <= 1.0e12
+    )
+    if (
+        g_rank >= expected_rank
+        and np.isfinite(g_condition)
+        and g_condition <= 1.0e12
+        and current_f_acceptable
+        and not near_linear_selected
+    ):
         return basis_idx
 
     candidate_count = len(internals)
     if candidate_count > 24 or comb(candidate_count, expected_rank) > 500_000:
         pivot_basis = _select_mass_weighted_pivot_basis(B_arr, internals, masses, expected_rank)
         if len(pivot_basis) == expected_rank:
-            pivot_g_rank, pivot_g_condition = _wilson_g_rank_condition(
-                B_arr,
-                internals,
-                pivot_basis,
-                masses,
-                tol,
+            if cartesian_hessian is None:
+                pivot_g_rank, pivot_g_condition = _wilson_g_rank_condition(
+                    B_arr,
+                    internals,
+                    pivot_basis,
+                    masses,
+                    tol,
+                )
+                pivot_f_rank, pivot_f_condition = 0, float("inf")
+            else:
+                pivot_g_rank, pivot_g_condition, pivot_f_rank, pivot_f_condition = _wilson_gf_rank_condition(
+                    B_arr,
+                    internals,
+                    pivot_basis,
+                    masses,
+                    cartesian_hessian,
+                    tol,
+                )
+            improves_g = not np.isfinite(g_condition) or pivot_g_condition < g_condition
+            improves_f = (
+                cartesian_hessian is not None
+                and pivot_f_rank >= expected_rank
+                and np.isfinite(pivot_f_condition)
+                and (not np.isfinite(f_condition) or pivot_f_condition < f_condition)
             )
             if (
                 pivot_g_rank >= expected_rank
                 and np.isfinite(pivot_g_condition)
-                and (not np.isfinite(g_condition) or pivot_g_condition < g_condition)
+                and (improves_g or improves_f)
             ):
                 return pivot_basis
         return basis_idx
@@ -417,6 +474,7 @@ def wilson_gf_diagonalization(
         expected_vibrational_rank,
         tol,
         hess.coords_A,
+        hess.cartesian_hessian,
     )
     basis_internals = [validation_internals[idx] for idx in basis_idx]
     scales = wilson_coordinate_scales(basis_internals)
