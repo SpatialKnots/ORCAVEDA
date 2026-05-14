@@ -189,6 +189,31 @@ def test_aniline_wilson_gf_warns_when_positive_modes_are_below_expected_rank():
     assert int(basis.iloc[0]["positive_gf_eigenvalue_count"]) == 35
 
 
+def test_acetanilide_wilson_gf_uses_large_system_conditioned_basis():
+    hess, internals, B, selected_idx, rank, _ = _pipeline_basis("acetanilide.hess")
+
+    result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+    basis = build_wilson_gf_basis_diagnostics_dataframe(result)
+
+    assert rank == 51
+    assert result.expected_vibrational_rank == 51
+    assert result.internal_basis_size == 51
+    assert tuple(selected_idx) != result.basis_indices
+    assert result.validation_status == "PASS"
+    assert result.g_rank == 51
+    assert result.f_rank == 51
+    assert result.g_condition < 1.0e6
+    assert result.f_condition < 1.0e6
+    assert result.max_relative_error < 1.0e-6
+    assert "basis_rank_below_expected" not in result.warnings
+    assert "g_ill_conditioned" not in result.warnings
+    assert "f_ill_conditioned" not in result.warnings
+    assert int(basis.iloc[0]["positive_orca_mode_count"]) == 50
+    assert int(basis.iloc[0]["positive_gf_eigenvalue_count"]) == 50
+    assert "positive_orca_mode_count_below_expected_vibrational_rank" in result.warnings
+    assert "positive_gf_eigenvalue_count_below_expected_vibrational_rank" in result.warnings
+
+
 def test_pipeline_wilson_gf_validation_is_opt_in_for_h2o():
     default_outdir = ROOT / "outputs" / "pytest_wilson_gf_default_h2o"
     opt_in_outdir = ROOT / "outputs" / "pytest_wilson_gf_opt_in_h2o"

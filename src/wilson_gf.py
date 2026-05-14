@@ -87,6 +87,48 @@ def _wilson_g_rank_condition(
     return _rank_condition(G, tol)
 
 
+def _select_mass_weighted_pivot_basis(
+    B_arr: np.ndarray,
+    internals: Sequence[InternalCoordinate],
+    masses: np.ndarray,
+    expected_rank: int,
+) -> Tuple[int, ...]:
+    if expected_rank <= 0:
+        return ()
+    B_base = np.asarray(B_arr, dtype=float)
+    if B_base.ndim != 2 or B_base.shape[0] < expected_rank:
+        return ()
+    mass_vec = np.repeat(np.asarray(masses, dtype=float), 3)
+    if mass_vec.size != B_base.shape[1] or np.any(mass_vec <= 0.0) or not np.all(np.isfinite(mass_vec)):
+        return ()
+
+    scales = wilson_coordinate_scales(internals)
+    weighted = (B_base * scales[:, None]) / np.sqrt(mass_vec)[None, :]
+    weighted[~np.isfinite(weighted)] = 0.0
+    remaining = set(range(weighted.shape[0]))
+    selected: List[int] = []
+    q_basis = np.zeros((weighted.shape[1], 0), dtype=float)
+    for _ in range(expected_rank):
+        best_idx = None
+        best_residual_norm = 0.0
+        best_residual = None
+        for idx in remaining:
+            residual = weighted[idx, :].astype(float, copy=True)
+            if q_basis.shape[1]:
+                residual = residual - q_basis @ (q_basis.T @ residual)
+            residual_norm = float(np.linalg.norm(residual))
+            if residual_norm > best_residual_norm:
+                best_idx = int(idx)
+                best_residual_norm = residual_norm
+                best_residual = residual
+        if best_idx is None or best_residual is None or best_residual_norm <= 0.0:
+            return ()
+        selected.append(best_idx)
+        remaining.remove(best_idx)
+        q_basis = np.column_stack([q_basis, best_residual / best_residual_norm])
+    return tuple(selected)
+
+
 def _select_conditioned_wilson_basis(
     B_arr: np.ndarray,
     internals: Sequence[InternalCoordinate],
@@ -110,6 +152,21 @@ def _select_conditioned_wilson_basis(
 
     candidate_count = len(internals)
     if candidate_count > 24 or comb(candidate_count, expected_rank) > 500_000:
+        pivot_basis = _select_mass_weighted_pivot_basis(B_arr, internals, masses, expected_rank)
+        if len(pivot_basis) == expected_rank:
+            pivot_g_rank, pivot_g_condition = _wilson_g_rank_condition(
+                B_arr,
+                internals,
+                pivot_basis,
+                masses,
+                tol,
+            )
+            if (
+                pivot_g_rank >= expected_rank
+                and np.isfinite(pivot_g_condition)
+                and (not np.isfinite(g_condition) or pivot_g_condition < g_condition)
+            ):
+                return pivot_basis
         return basis_idx
 
     best_basis = basis_idx
