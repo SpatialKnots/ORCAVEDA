@@ -607,7 +607,7 @@ def classify_composed_ped_warning(
     return "", ""
 
 
-def _build_ped_viewer_mode_summary(ped_df: pd.DataFrame | None, *, top_n: int = 6) -> Dict[tuple[str, int], Dict[str, object]]:
+def _build_ped_viewer_mode_summary(ped_df: pd.DataFrame | None, *, top_n: int = 8) -> Dict[tuple[str, int], Dict[str, object]]:
     if not isinstance(ped_df, pd.DataFrame) or ped_df.empty:
         return {}
     rank_col = _ped_rank_column(ped_df)
@@ -633,10 +633,17 @@ def _build_ped_viewer_mode_summary(ped_df: pd.DataFrame | None, *, top_n: int = 
         top_row = group.iloc[0]
         terms = []
         family_totals: Dict[str, float] = {}
+        normalization_sum_percent = 100.0
         for _, row in group.iterrows():
             family = str(row.get("coordinate_family", "") or "").strip() or "internal coordinate"
             coord = str(row.get("internal_coordinate", "") or "").strip()
             pct = float(row.get("contribution_percent", 0.0) or 0.0)
+            try:
+                norm = float(row.get("normalization_sum_percent", normalization_sum_percent))
+            except (TypeError, ValueError):
+                norm = normalization_sum_percent
+            if norm > 0.0:
+                normalization_sum_percent = norm
             terms.append(f"{family} {pct:.1f}% [{coord}]")
             family_totals[family] = family_totals.get(family, 0.0) + pct
 
@@ -664,6 +671,7 @@ def _build_ped_viewer_mode_summary(ped_df: pd.DataFrame | None, *, top_n: int = 
             "ped_top_family": top_family,
             "ped_top_percent": round(float(top_percent), 3),
             "ped_top_contributors": "; ".join(terms),
+            "ped_normalization_sum_percent": round(float(normalization_sum_percent), 3),
             "ped_top_source": top_source,
             "ped_top_internal_coordinate": top_internal_coordinate,
             "ped_top_coord_index": top_coord_index,
@@ -695,6 +703,7 @@ def build_ped_stage3d_agreement_table(
         "ped_agreement_status",
         "ped_policy_warning",
         "ped_top_contributors",
+        "ped_normalization_sum_percent",
     ]
     if audit_df.empty or "Filename" not in audit_df.columns or "mode" not in audit_df.columns:
         return pd.DataFrame(columns=columns)
@@ -737,6 +746,7 @@ def build_ped_stage3d_agreement_table(
                 "ped_agreement_status": status,
                 "ped_policy_warning": warning,
                 "ped_top_contributors": str(ped_row.get("ped_top_contributors", "") or ""),
+                "ped_normalization_sum_percent": ped_row.get("ped_normalization_sum_percent", ""),
             }
         )
     return pd.DataFrame(rows, columns=columns)
@@ -761,6 +771,7 @@ def build_ped_driven_final_assignment_table(agreement_table: pd.DataFrame | None
         "ped_top_family",
         "ped_top_percent",
         "ped_top_contributors",
+        "ped_normalization_sum_percent",
     ]
     if agreement_df.empty:
         return pd.DataFrame(columns=columns)
@@ -793,6 +804,7 @@ def build_ped_driven_final_assignment_table(agreement_table: pd.DataFrame | None
                 "ped_top_family": row.get("ped_top_family", ""),
                 "ped_top_percent": row.get("ped_top_percent", ""),
                 "ped_top_contributors": row.get("ped_top_contributors", ""),
+                "ped_normalization_sum_percent": row.get("ped_normalization_sum_percent", ""),
             }
         )
     return pd.DataFrame(rows, columns=columns)
@@ -1025,12 +1037,16 @@ def build_spectrum_payload(
                     "ped_agreement_status": ped_agreement_status,
                     "ped_policy_warning": ped_policy_warning,
                     "ped_top_contributors": str(ped_row.get("ped_top_contributors", "") or ""),
+                    "ped_normalization_sum_percent": float(ped_row.get("ped_normalization_sum_percent", 0.0) or 0.0),
                     "ped_method": str(ped_row.get("ped_method", "") or ""),
                     "composed_ped_assignment": composed_ped_assignment,
                     "composed_ped_source": composed_ped_source,
                     "composed_ped_top_family": str(composed_ped_row.get("ped_top_family", "") or ""),
                     "composed_ped_top_percent": float(composed_ped_row.get("ped_top_percent", 0.0) or 0.0),
                     "composed_ped_top_contributors": str(composed_ped_row.get("ped_top_contributors", "") or ""),
+                    "composed_ped_normalization_sum_percent": float(
+                        composed_ped_row.get("ped_normalization_sum_percent", 0.0) or 0.0
+                    ),
                     "composed_ped_method": str(composed_ped_row.get("ped_method", "") or ""),
                     "composed_ped_policy_hint": composed_policy_hint,
                     "composed_ped_triage_category": composed_triage_category,
@@ -1549,6 +1565,13 @@ def write_interactive_spectrum_viewer(
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }}
+    .chart-tooltip .ped-contribution-list {{
+      margin-top: 6px;
+      gap: 3px;
+    }}
+    .chart-tooltip .ped-contribution-row {{
+      padding: 3px 5px;
+    }}
     #moleculeViewer {{
       position: relative;
       flex: 1 1 auto;
@@ -1629,6 +1652,31 @@ def write_interactive_spectrum_viewer(
     }}
     td:nth-child(1), td:nth-child(2), td:nth-child(3) {{
       font-family: var(--mono);
+    }}
+    .ped-contribution-cell {{
+      padding: 6px 7px;
+    }}
+    .ped-contribution-list {{
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }}
+    .ped-contribution-row {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(96, 165, 250, 0.16);
+      border-radius: 6px;
+      padding: 4px 6px;
+      line-height: 1.25;
+    }}
+    .ped-contribution-family {{
+      min-width: 0;
+    }}
+    .ped-contribution-percent {{
+      font-family: var(--mono);
+      white-space: nowrap;
     }}
     th {{
       color: var(--muted);
@@ -1890,8 +1938,6 @@ def write_interactive_spectrum_viewer(
                   <th>Frequency</th>
                   <th>Intensity</th>
                   <th>PED Contribution</th>
-                  <th>Final Assignment</th>
-                  <th>Warning</th>
                 </tr>
               </thead>
               <tbody id="peakTable"></tbody>
@@ -1904,6 +1950,7 @@ def write_interactive_spectrum_viewer(
 
   <script>
     const payload = {payload_json};
+    const PED_SIGNIFICANT_THRESHOLD_PERCENT = 10.0;
     const fileSelect = document.getElementById("fileSelect");
     const scaleFactor = document.getElementById("scaleFactor");
     const hwhm = document.getElementById("hwhm");
@@ -1958,6 +2005,84 @@ def write_interactive_spectrum_viewer(
       const td = document.createElement("td");
       if (className) td.className = className;
       td.textContent = String(text ?? "");
+      row.appendChild(td);
+      return td;
+    }}
+
+    function parsePedContributors(mode) {{
+      const raw = String(mode.ped_top_contributors || "").trim();
+      const byFamily = new Map();
+      let rawTotal = 0;
+      for (const part of raw.split(";")) {{
+        const text = part.trim();
+        if (!text) continue;
+        const match = text.match(/^(.*?)\\s+(-?\\d+(?:\\.\\d+)?)%\\s*(?:\\[.*\\])?$/);
+        const family = (match ? match[1] : text).trim();
+        const percent = match ? Number(match[2]) : 0;
+        if (!family) continue;
+        const safePercent = Number.isFinite(percent) ? Math.max(0, percent) : 0;
+        rawTotal += safePercent;
+        byFamily.set(family, (byFamily.get(family) || 0) + safePercent);
+      }}
+      const normalization = Number(mode.ped_normalization_sum_percent || 100);
+      const totalPercent = Number.isFinite(normalization) && normalization > 0 ? normalization : 100;
+      const rows = [];
+      let otherPercent = Math.max(0, totalPercent - rawTotal);
+      for (const [family, percent] of byFamily.entries()) {{
+        if (percent >= PED_SIGNIFICANT_THRESHOLD_PERCENT) {{
+          rows.push({{ family, percent }});
+        }} else {{
+          otherPercent += percent;
+        }}
+      }}
+      if (otherPercent >= 0.05) {{
+        rows.push({{ family: "Other", percent: otherPercent }});
+      }}
+      rows.sort((a, b) => b.percent - a.percent || a.family.localeCompare(b.family));
+      if (rows.length) return rows;
+      if (mode.ped_top_family) return [{{ family: mode.ped_top_family, percent: Number(mode.ped_top_percent || 0) }}];
+      return [];
+    }}
+
+    function createPedContributionList(mode) {{
+      const contributors = parsePedContributors(mode);
+      if (!contributors.length) {{
+        return null;
+      }}
+      const list = document.createElement("div");
+      list.className = "ped-contribution-list";
+      for (const item of contributors) {{
+        const percent = Math.max(0, Math.min(100, Number(item.percent) || 0));
+        const alpha = 0.08 + 0.42 * (percent / 100);
+        const line = document.createElement("div");
+        line.className = "ped-contribution-row";
+        line.style.background = `rgba(96, 165, 250, ${{alpha.toFixed(3)}})`;
+        line.title = mode.ped_top_contributors || "";
+
+        const family = document.createElement("span");
+        family.className = "ped-contribution-family";
+        family.textContent = item.family;
+        const value = document.createElement("span");
+        value.className = "ped-contribution-percent";
+        value.textContent = `${{percent.toFixed(1)}}%`;
+
+        line.appendChild(family);
+        line.appendChild(value);
+        list.appendChild(line);
+      }}
+      return list;
+    }}
+
+    function appendPedContributionCell(row, mode) {{
+      const td = document.createElement("td");
+      td.className = "ped-contribution-cell";
+      const list = createPedContributionList(mode);
+      if (!list) {{
+        td.textContent = "n/a";
+        row.appendChild(td);
+        return td;
+      }}
+      td.appendChild(list);
       row.appendChild(td);
       return td;
     }}
@@ -2899,7 +3024,7 @@ def write_interactive_spectrum_viewer(
         .sort((a, b) => a.scaled - b.scaled);
       clearElement(peakTable);
       if (!rows.length) {{
-        appendEmptyRow(peakTable, 6, "No modes match the selected composed hint filter.");
+        appendEmptyRow(peakTable, 4, "No modes match the selected composed hint filter.");
         return;
       }}
       for (const mode of rows) {{
@@ -2908,14 +3033,7 @@ def write_interactive_spectrum_viewer(
         appendCell(tr, mode.mode);
         appendCell(tr, mode.scaled.toFixed(1));
         appendCell(tr, Number(mode.intensity).toFixed(3));
-        const pedPercent = Number(mode.ped_top_percent || 0);
-        const pedCell = appendCell(
-          tr,
-          mode.ped_top_family ? `${{mode.ped_top_family}} (${{pedPercent.toFixed(1)}}%)` : "n/a",
-        );
-        pedCell.title = mode.ped_top_contributors || "";
-        appendCell(tr, mode.final_assignment || mode.assignment || "unassigned");
-        appendCell(tr, mode.final_assignment_warning || mode.warnings || composedHintLabel(mode) || "");
+        appendPedContributionCell(tr, mode);
         tr.addEventListener("mouseenter", () => {{
           selectedMode = mode.mode;
           updateModeDetails(file, scale);
@@ -2973,26 +3091,29 @@ def write_interactive_spectrum_viewer(
       for (const text of [
         `${{Number(mode.scaled ?? transformFrequencyByEngine(mode.frequency_cm1, currentRender.scale, currentRender.engineName, currentRender.engineFit)).toFixed(1)}} cm-1`,
         `IR: ${{Number(mode.intensity).toFixed(3)}}`,
-        mode.assignment || "unassigned",
       ]) {{
         const div = document.createElement("div");
         div.textContent = text;
         chartTooltip.appendChild(div);
       }}
+      const pedList = createPedContributionList(mode);
+      if (pedList) {{
+        chartTooltip.appendChild(pedList);
+      }}
       const rect = canvas.parentElement.getBoundingClientRect();
-      const tooltipWidth = 240;
+      const tooltipWidth = 300;
       const offsetX = 14;
       const offsetY = 12;
       let left = clientX - rect.left + offsetX;
       let top = clientY - rect.top + offsetY;
       if (left + tooltipWidth > rect.width - 8) left = rect.width - tooltipWidth - 8;
       if (left < 8) left = 8;
-      const maxTop = rect.height - 92;
+      chartTooltip.style.width = `${{tooltipWidth}}px`;
+      const maxTop = rect.height - Math.max(92, chartTooltip.offsetHeight) - 8;
       if (top > maxTop) top = maxTop;
       if (top < 8) top = 8;
       chartTooltip.style.left = `${{left}}px`;
       chartTooltip.style.top = `${{top}}px`;
-      chartTooltip.style.width = `${{tooltipWidth}}px`;
       chartTooltip.classList.add("visible");
     }}
 

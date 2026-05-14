@@ -13,6 +13,7 @@ NIST_SEARCH_URL = "https://webbook.nist.gov/cgi/cbook.cgi"
 DEFAULT_TIMEOUT = 30
 DEFAULT_MAX_RETRIES = 5
 DEFAULT_RETRY_AFTER_SECONDS = 1
+TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -56,9 +57,10 @@ def default_fetch_text(
             return raw.decode("utf-8", errors="ignore")
         except HTTPError as error:
             last_error = error
-            if int(getattr(error, "code", 0)) != 429 or attempt >= max_retries - 1:
+            status_code = int(getattr(error, "code", 0))
+            if status_code not in TRANSIENT_HTTP_STATUS_CODES or attempt >= max_retries - 1:
                 raise
-            wait_retry_after = _retry_after_seconds(error)
+            wait_retry_after = _retry_after_seconds(error) if status_code == 429 else DEFAULT_RETRY_AFTER_SECONDS
             wait_backoff = _exponential_backoff_seconds(attempt)
             time.sleep(max(wait_retry_after, wait_backoff))
     if last_error is not None:

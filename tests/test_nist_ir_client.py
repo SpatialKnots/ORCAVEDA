@@ -54,3 +54,38 @@ def test_default_fetch_text_retries_after_http_429(monkeypatch):
     assert result == "ok"
     assert calls["count"] == 2
     assert waits == [1]
+
+
+def test_default_fetch_text_retries_after_http_504(monkeypatch):
+    calls = {"count": 0}
+    waits = []
+
+    class DummyResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b"ok"
+
+    def fake_urlopen(req, timeout=0):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise HTTPError(
+                req.full_url,
+                504,
+                "Gateway Timeout",
+                {},
+                None,
+            )
+        return DummyResponse()
+
+    monkeypatch.setattr(nist_client, "urlopen", fake_urlopen)
+    monkeypatch.setattr(nist_client.time, "sleep", lambda seconds: waits.append(seconds))
+
+    result = nist_client.default_fetch_text("https://example.com/test", max_retries=2)
+    assert result == "ok"
+    assert calls["count"] == 2
+    assert waits == [1]

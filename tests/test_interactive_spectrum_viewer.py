@@ -85,9 +85,11 @@ def test_interactive_spectrum_viewer_artifacts():
     assert target_mode["stage3d_assignment"] == "O-H stretch"
     assert target_mode["ped_source"] == "Wilson GF-style PED audit"
     assert target_mode["ped_top_percent"] == 99.9
+    assert target_mode["ped_normalization_sum_percent"] == 100.0
     assert target_mode["composed_ped_source"] == "Composed-coordinate Wilson GF-style PED audit"
     assert target_mode["composed_ped_assignment"] == "composed O-H stretch"
     assert target_mode["composed_ped_top_percent"] == 99.8
+    assert target_mode["composed_ped_normalization_sum_percent"] == 100.0
     assert "composed_symmetric_XH_stretch" in target_mode["composed_ped_top_contributors"]
     assert target_mode["composed_ped_policy_hint"] == "diagnostic_hint_composed_differs_from_baseline"
     assert target_mode["composed_ped_triage_category"] == "baseline_preferred_composed_lower_localization"
@@ -141,7 +143,15 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "Better localization" in html_text
     assert "Differs from baseline" in html_text
     assert "No modes match the selected composed hint filter." in html_text
-    assert 'appendEmptyRow(peakTable, 6' in html_text
+    assert 'appendEmptyRow(peakTable, 4' in html_text
+    assert "<th>Final Assignment</th>" not in html_text
+    assert "<th>Warning</th>" not in html_text
+    assert "ped-contribution-row" in html_text
+    assert "parsePedContributors" in html_text
+    assert "createPedContributionList" in html_text
+    assert "PED_SIGNIFICANT_THRESHOLD_PERCENT = 10.0" in html_text
+    assert 'family: "Other"' in html_text
+    assert "const tooltipWidth = 300" in html_text
     assert "Selected Evidence Interpretation" in html_text
     assert "Composed PED Interpretation" in html_text
     assert "Composed PED Contributors" in html_text
@@ -163,7 +173,9 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "stage3d_assignment" in json_text
     assert "ped_agreement_status" in json_text
     assert "ped_policy_warning" in json_text
+    assert "ped_normalization_sum_percent" in json_text
     assert "composed_ped_assignment" in json_text
+    assert "composed_ped_normalization_sum_percent" in json_text
     assert "composed_ped_policy_hint" in json_text
     assert "composed_ped_triage_category" in json_text
     assert "composed_ped_evidence_origin" in json_text
