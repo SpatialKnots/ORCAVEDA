@@ -22,6 +22,7 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - [x] (2026-05-14) Phase 4 target validation runs executed for H2O, NH3, formaldehyde, and ethene. An initial ethene run exposed a weak default basis (`G-rank 11`, `G-condition 2.5804969975545938e12`); after adding a small-system Wilson-GF-conditioned basis fallback, all four target molecules report `PASS`.
 - [x] (2026-05-14) Broader opt-in validation batch run for MeOH, EtOH, acetone, CH3CN, DMSO, acetamide, phenol, and benzene. An initial CH3CN run reported `WARN`; after adding opt-in Wilson GF linear-bend components for near-linear bends, CH3CN reports `PASS` with `linear_bend_coordinate_used`.
 - [x] (2026-05-14) Larger-molecule opt-in validation expansion run for pyridine, aniline, benzonitrile, nitrobenzene, benzoic acid, and acetophenone. All six CLI runs exited 0 and report `PASS`; aniline now carries explicit positive-mode-count warnings, and acetophenone/nitrobenzene carry ill-conditioning warnings.
+- [x] (2026-05-14) Heavy opt-in validation batch run for NMP, N-methylaniline, piperidine, cyclohexane chair, acetanilide, and three monoethanolamine dimers. Seven of eight report `PASS`; acetanilide reports `FAIL` due to G-rank loss, severe ill-conditioning, and positive-mode count below expected rank.
 
 ## Surprises & Discoveries
 
@@ -51,6 +52,9 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 
 - Observation: Aniline has fewer positive modes than the non-linear `3N-6` expected vibrational rank, even though the positive GF/ORCA mode counts match each other and the fixed-conversion comparison passes.
   Evidence: `outputs\wilson_gf_expand_aniline\aniline__wilson_gf_basis_diagnostics.csv` reports `expected_vibrational_rank` 36, `positive_orca_mode_count` 35, and `positive_gf_eigenvalue_count` 35. The validation CSV reports `PASS`, max relative error `5.6175518138189824e-08`, and warnings `positive_orca_mode_count_below_expected_vibrational_rank; positive_gf_eigenvalue_count_below_expected_vibrational_rank`.
+
+- Observation: Acetanilide is the first heavy-batch failure after the linear-bend and conditioned-basis fixes.
+  Evidence: `outputs\wilson_gf_heavy_acetanilide\acetanilide__wilson_gf_validation.csv` reports `FAIL`, basis size 51, expected rank 51, G-rank 50, G-condition `2349768983412.9233`, F-rank 51, F-condition `220982845170337.12`, positive ORCA modes 50, max relative error `6.054848166520849e-05`, and warnings `basis_rank_below_expected; g_ill_conditioned; f_ill_conditioned; positive_orca_mode_count_below_expected_vibrational_rank; positive_gf_eigenvalue_count_below_expected_vibrational_rank`.
 
 ## Decision Log
 
@@ -126,6 +130,19 @@ Larger-molecule validation expansion completed on 2026-05-14. This remains opt-i
 | nitrobenzene | `outputs\wilson_gf_expand_nitrobenzene` | 36 | 36 | 36 | 1668487653335.649 | 36 | 747812627182.4325 | 36 | 4.156239762139557e-05 | 0.018745977841265922 | PASS | `g_ill_conditioned` |
 | benzoic acid | `outputs\wilson_gf_expand_benzoic_acid` | 39 | 39 | 39 | 6391195.43036815 | 39 | 5235683.357372124 | 39 | 6.102709090773594e-08 | 2.0889356718249092e-06 | PASS | none |
 | acetophenone | `outputs\wilson_gf_expand_acetophenone` | 45 | 45 | 45 | 2283228430313.684 | 45 | 3378527383296.6577 | 45 | 2.269324364287724e-06 | 0.002071721442788494 | PASS | `g_ill_conditioned; f_ill_conditioned` |
+
+Heavy validation batch completed on 2026-05-14. This batch exposed the current prototype's first clear larger-molecule failure. The failure is retained as diagnostic evidence; it should not be hidden by loosening rank checks or by promoting empirical agreement over rank diagnostics.
+
+| Molecule | Output directory | Basis size | Expected rank | G-rank | G-condition | F-rank | F-condition | Positive ORCA modes | Max relative error | Empirical ratio std | Status | Warnings |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| NMP | `outputs\wilson_gf_heavy_nmp` | 42 | 42 | 42 | 32693189.82267202 | 42 | 7338681.180009891 | 42 | 5.623115220542311e-08 | 1.4374315378575958e-07 | PASS | none |
+| N-methylaniline | `outputs\wilson_gf_heavy_n_methylaniline` | 45 | 45 | 45 | 578040400998.682 | 45 | 64189060354395.125 | 44 | 6.788418311786068e-06 | 0.0037539112438043894 | PASS | `f_ill_conditioned; positive_orca_mode_count_below_expected_vibrational_rank; positive_gf_eigenvalue_count_below_expected_vibrational_rank` |
+| piperidine | `outputs\wilson_gf_heavy_piperidine` | 45 | 45 | 45 | 235.8380018026121 | 45 | 12.88624371545388 | 45 | 5.61720943171254e-08 | 1.221115751659388e-08 | PASS | none |
+| cyclohexane chair | `outputs\wilson_gf_heavy_cyclohexane_chair` | 48 | 48 | 48 | 192.36761966245606 | 48 | 12.078000854648094 | 48 | 5.622735744573172e-08 | 2.7151408832149106e-08 | PASS | none |
+| acetanilide | `outputs\wilson_gf_heavy_acetanilide` | 51 | 51 | 50 | 2349768983412.9233 | 51 | 220982845170337.12 | 50 | 6.054848166520849e-05 | 0.03859477897001199 | FAIL | `basis_rank_below_expected; g_ill_conditioned; f_ill_conditioned; positive_orca_mode_count_below_expected_vibrational_rank; positive_gf_eigenvalue_count_below_expected_vibrational_rank` |
+| monoethanolamine dimer cyclic | `outputs\wilson_gf_heavy_mea_dimer_cyclic` | 60 | 60 | 60 | 3630.5702406229834 | 60 | 4418.419103866282 | 60 | 5.815906969891593e-08 | 1.043531947424966e-06 | PASS | none |
+| monoethanolamine dimer NH-to-O | `outputs\wilson_gf_heavy_mea_dimer_nh_to_o` | 60 | 60 | 60 | 64266.18861443776 | 60 | 159937.3061546995 | 60 | 6.347330456417468e-08 | 3.236394770993942e-06 | PASS | none |
+| monoethanolamine dimer OH-to-N | `outputs\wilson_gf_heavy_mea_dimer_oh_to_n` | 60 | 60 | 60 | 349912.9918617817 | 60 | 998117.478527149 | 60 | 6.232690848679069e-08 | 5.435162527030724e-06 | PASS | none |
 
 ## Context and Orientation
 
@@ -295,6 +312,7 @@ Command transcript placeholders:
 - Ethene validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\ethene.hess --outdir outputs\wilson_gf_ethene --wilson-gf-validation`, completed on 2026-05-14.
 - Broader validation batch runs completed on 2026-05-14 for `MeOH_freq.hess`, `EtOH_freq.hess`, `Acetone_freq.hess`, `CH3CN_freq.hess`, `DMSO_freq.hess`, `acetamide.hess`, `phenol.hess`, and `benzene.hess`, each through `src\ORCAVEDA_patched_stage3D_v5_0.py --wilson-gf-validation`.
 - Larger-molecule validation expansion runs completed on 2026-05-14 for `pyridine.hess`, `aniline.hess`, `benzonitrile.hess`, `nitrobenzene.hess`, `benzoic_acid.hess`, and `acetophenone.hess`, each through `src\ORCAVEDA_patched_stage3D_v5_0.py --wilson-gf-validation`.
+- Heavy validation batch runs completed on 2026-05-14 for `NMP_freq.hess`, `N-methylaniline.hess`, `piperidine.hess`, `cyclohexane_chair.hess`, `acetanilide.hess`, `monoethanolamine_dimer_cyclic_DFT.hess`, `monoethanolamine_dimer_NH_to_O_DFT.hess`, and `monoethanolamine_dimer_OH_to_N_DFT.hess`, each through `src\ORCAVEDA_patched_stage3D_v5_0.py --wilson-gf-validation`.
 
 CSV evidence placeholders:
 
@@ -307,6 +325,7 @@ CSV evidence placeholders:
 - Ethene CSVs: generated under `outputs\wilson_gf_ethene`; validation status `PASS`, selected indices `0;4;5;6;7;9;12;13;14;15;17;18`, max relative error `5.61625148639572e-08`, warnings none.
 - Broader batch CSVs: generated under `outputs\wilson_gf_batch_*`; MeOH, EtOH, acetone, DMSO, acetamide, phenol, benzene, and CH3CN report `PASS`; CH3CN carries `linear_bend_coordinate_used`.
 - Larger-molecule expansion CSVs: generated under `outputs\wilson_gf_expand_*`; pyridine, aniline, benzonitrile, nitrobenzene, benzoic acid, and acetophenone report `PASS`. Warnings are present for aniline positive-mode counts below expected rank, benzonitrile near-linear bend, nitrobenzene G ill-conditioning, and acetophenone G/F ill-conditioning.
+- Heavy batch CSVs: generated under `outputs\wilson_gf_heavy_*`; NMP, N-methylaniline, piperidine, cyclohexane chair, and the three monoethanolamine dimers report `PASS`; acetanilide reports `FAIL` with G-rank 50 against expected rank 51 and severe G/F ill-conditioning.
 - CH3CN exhaustive primitive-basis diagnostic: evaluated 1136 full-rank 12-coordinate subsets; passing subsets `0`; best max relative error `0.01845477680255841`.
 - CH3CN linear-bend CLI rerun: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\CH3CN_freq.hess --outdir outputs\wilson_gf_batch_ch3cn --wilson-gf-validation`, completed on 2026-05-14 with `PASS`, max relative error `2.948152719245503e-07`.
 
