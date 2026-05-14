@@ -26,6 +26,7 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - [x] (2026-05-14) Added a deterministic mass-weighted residual-pivot validation fallback for large systems where exhaustive conditioned-basis search is infeasible. Acetanilide, acetophenone, and nitrobenzene now use better-conditioned validation bases and report `PASS`.
 - [x] (2026-05-14) Extended large-system fallback acceptance to consider F-condition as well as G-condition. N-methylaniline now uses a better-conditioned validation basis and no longer carries `f_ill_conditioned`.
 - [x] (2026-05-14) Hardened positive-mode-count diagnostics. Aniline, N-methylaniline, and acetanilide each have six zero ORCA modes plus one negative ORCA mode, so the opt-in Wilson GF CSVs now report nonpositive ORCA/GF counts and minimum nonpositive values.
+- [x] (2026-05-14) Full local opt-in Wilson GF sweep completed for all 55 `data\hess\*.hess` files. CLI exit status was 0 for every file; summary is `53 PASS`, `2 WARN`, `0 FAIL`.
 
 ## Surprises & Discoveries
 
@@ -74,6 +75,12 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - Observation: The closed GF validation mirrors the same one-mode nonpositive count in the affected cases.
   Evidence: The rerun basis diagnostics CSVs report `gf_nonpositive_eigenvalue_count` 1 for aniline, N-methylaniline, and acetanilide. The corresponding minimum nonpositive GF eigenvalues are `-0.01823750951305075`, `-0.00530596637314424`, and `-0.0003323259303203356`.
 
+- Observation: The full local sweep has no `FAIL` rows, but two fixed-conversion `WARN` rows remain.
+  Evidence: `outputs\wilson_gf_full_sweep_summary.csv` contains 55 rows from `data\hess\*.hess`: 53 `PASS`, 2 `WARN`, and 0 `FAIL`. The `WARN` rows are `ethyne.hess` with max relative error `0.6241034304063765` and warnings `linear_bend_coordinate_used; fixed_conversion_failed; empirical_ratio_only`, and `propyne.hess` with max relative error `0.1490032052809773` and warnings `near_linear_bend_coordinate; fixed_conversion_failed; empirical_ratio_only`.
+
+- Observation: Full-sweep warning rows are now limited to nonpositive-mode diagnostics and linear/near-linear coordinate diagnostics.
+  Evidence: `outputs\wilson_gf_full_sweep_summary.csv` has 12 rows with non-empty warnings. Eight rows have positive/nonpositive mode-count diagnostics: `acetaldehyde.hess`, `acetamide.hess`, `acetanilide.hess`, `aniline.hess`, `DMF_freq.hess`, `H2O2_freq.hess`, `N-methylaniline.hess`, and `toluene.hess`. `CH3CN_freq.hess` carries `linear_bend_coordinate_used`; `benzonitrile.hess` carries `near_linear_bend_coordinate`; `ethyne.hess` and `propyne.hess` are the two fixed-conversion WARN rows.
+
 ## Decision Log
 
 - Decision: Implement the upgrade as a separate module, `src/wilson_gf.py`, instead of extending `src/ped.py` first.
@@ -118,6 +125,10 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 
 - Decision: Keep positive-mode-count warnings as `PASS` diagnostics when positive ORCA and GF counts match and fixed conversion passes, but add explicit nonpositive-mode fields and warnings to the opt-in Wilson GF CSVs.
   Rationale: The affected source `.hess` files contain one negative vibrational frequency in addition to six zero translational/rotational modes. This is source evidence that the positive count is below `3N-6`; hiding it or converting it to a parser failure would be unsupported.
+  Date/Author: 2026-05-14 / Codex
+
+- Decision: Treat the full local sweep as validation-envelope evidence, not as default promotion evidence.
+  Rationale: The sweep exercises all currently available local `.hess` inputs through the opt-in Wilson GF validation path and shows no `FAIL` rows, but two linear/near-linear molecules still have fixed-conversion `WARN` status. This supports the current prototype's diagnostic envelope, not VEDA equivalence or default assignment-policy changes.
   Date/Author: 2026-05-14 / Codex
 
 ## Outcomes & Retrospective
@@ -173,6 +184,28 @@ Heavy validation batch completed on 2026-05-14. This batch exposed the current p
 | monoethanolamine dimer cyclic | `outputs\wilson_gf_heavy_mea_dimer_cyclic` | 60 | 60 | 60 | 3630.5702406229834 | 60 | 4418.419103866282 | 60 | 5.815906969891593e-08 | 1.043531947424966e-06 | PASS | none |
 | monoethanolamine dimer NH-to-O | `outputs\wilson_gf_heavy_mea_dimer_nh_to_o` | 60 | 60 | 60 | 64266.18861443776 | 60 | 159937.3061546995 | 60 | 6.347330456417468e-08 | 3.236394770993942e-06 | PASS | none |
 | monoethanolamine dimer OH-to-N | `outputs\wilson_gf_heavy_mea_dimer_oh_to_n` | 60 | 60 | 60 | 349912.9918617817 | 60 | 998117.478527149 | 60 | 6.232690848679069e-08 | 5.435162527030724e-06 | PASS | none |
+
+Full local sweep completed on 2026-05-14 for all 55 files under `data\hess`. The generated summary is `outputs\wilson_gf_full_sweep_summary.csv`. All CLI commands exited 0. The status count is `53 PASS`, `2 WARN`, and `0 FAIL`.
+
+The two `WARN` rows are:
+
+| Molecule | Output directory | Basis size | Expected rank | G-rank | G-condition | F-rank | F-condition | Positive ORCA modes | Max relative error | Status | Warnings |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| ethyne | `outputs\wilson_gf_sweep_ethyne` | 6 | 6 | 6 | 1.519692340618164 | 6 | 33.4453423690831 | 6 | 0.6241034304063765 | WARN | `linear_bend_coordinate_used; fixed_conversion_failed; empirical_ratio_only` |
+| propyne | `outputs\wilson_gf_sweep_propyne` | 15 | 15 | 15 | 1509098042.0768104 | 15 | 16991685316.497149 | 15 | 0.1490032052809773 | WARN | `near_linear_bend_coordinate; fixed_conversion_failed; empirical_ratio_only` |
+
+Full-sweep warning class counts:
+
+| Warning | Row count |
+| --- | ---: |
+| `positive_orca_mode_count_below_expected_vibrational_rank` | 8 |
+| `nonpositive_orca_modes_within_expected_vibrational_space` | 8 |
+| `positive_gf_eigenvalue_count_below_expected_vibrational_rank` | 8 |
+| `nonpositive_gf_eigenvalues_within_expected_vibrational_space` | 8 |
+| `linear_bend_coordinate_used` | 2 |
+| `near_linear_bend_coordinate` | 2 |
+| `fixed_conversion_failed` | 2 |
+| `empirical_ratio_only` | 2 |
 
 ## Context and Orientation
 
@@ -355,6 +388,7 @@ Command transcript placeholders:
 - Larger-molecule and heavy validation batches were rerun on 2026-05-14 after adding the mass-weighted pivot fallback. All rerun CLI commands exited 0.
 - Larger-molecule and heavy validation batches were rerun on 2026-05-14 after extending fallback acceptance to F-condition. All rerun CLI commands exited 0.
 - Affected warning-case validation outputs were rerun on 2026-05-14 after adding nonpositive-mode diagnostics for `aniline.hess`, `N-methylaniline.hess`, and `acetanilide.hess`; all rerun CLI commands exited 0.
+- Full local sweep completed on 2026-05-14 for all 55 `data\hess\*.hess` files with `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py <hess> --outdir outputs\wilson_gf_sweep_<name> --wilson-gf-validation`; all CLI commands exited 0.
 
 CSV evidence placeholders:
 
@@ -369,6 +403,7 @@ CSV evidence placeholders:
 - Larger-molecule expansion CSVs after the mass-weighted pivot fallback: generated under `outputs\wilson_gf_expand_*`; pyridine, aniline, benzonitrile, nitrobenzene, benzoic acid, and acetophenone report `PASS`. Warnings remain for aniline positive-mode counts below expected rank and benzonitrile near-linear bend.
 - Heavy batch CSVs after F-condition-aware fallback acceptance: generated under `outputs\wilson_gf_heavy_*`; NMP, N-methylaniline, piperidine, cyclohexane chair, acetanilide, and the three monoethanolamine dimers report `PASS`. N-methylaniline and acetanilide retain positive-mode-count diagnostics below expected rank; no heavy-batch molecule currently reports `basis_rank_below_expected`, `g_ill_conditioned`, or `f_ill_conditioned`.
 - Nonpositive-mode diagnostics: `outputs\wilson_gf_expand_aniline\aniline__wilson_gf_basis_diagnostics.csv`, `outputs\wilson_gf_heavy_n_methylaniline\N-methylaniline__wilson_gf_basis_diagnostics.csv`, and `outputs\wilson_gf_heavy_acetanilide\acetanilide__wilson_gf_basis_diagnostics.csv` now include `orca_nonpositive_mode_count`, `orca_min_nonpositive_frequency_cm-1`, `gf_nonpositive_eigenvalue_count`, and `gf_min_nonpositive_eigenvalue`. The affected rows carry `nonpositive_orca_modes_within_expected_vibrational_space` and `nonpositive_gf_eigenvalues_within_expected_vibrational_space`.
+- Full-sweep summary CSV: `outputs\wilson_gf_full_sweep_summary.csv`, generated from the per-molecule `*__wilson_gf_validation.csv` and `*__wilson_gf_basis_diagnostics.csv` files under `outputs\wilson_gf_sweep_*`. It has 55 rows, one for each local `.hess` input.
 - CH3CN exhaustive primitive-basis diagnostic: evaluated 1136 full-rank 12-coordinate subsets; passing subsets `0`; best max relative error `0.01845477680255841`.
 - CH3CN linear-bend CLI rerun: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\CH3CN_freq.hess --outdir outputs\wilson_gf_batch_ch3cn --wilson-gf-validation`, completed on 2026-05-14 with `PASS`, max relative error `2.948152719245503e-07`.
 
