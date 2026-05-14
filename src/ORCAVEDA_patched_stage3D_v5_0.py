@@ -78,6 +78,13 @@ from ped import (
     build_ped_v2_force_audit_dataframe as ped_build_ped_v2_force_audit_dataframe,
     build_wilson_ped_audit_dataframe as ped_build_wilson_ped_audit_dataframe,
 )
+from wilson_gf import (
+    WILSON_GF_VALIDATION_METHOD,
+    build_wilson_gf_basis_diagnostics_dataframe as wilson_gf_build_basis_diagnostics_dataframe,
+    build_wilson_gf_validation_dataframe as wilson_gf_build_validation_dataframe,
+    wilson_gf_closed_ped as wilson_gf_closed_ped,
+    wilson_gf_diagonalization as wilson_gf_diagonalization,
+)
 from orca_parser import (
     parse_atoms as parser_parse_atoms,
     parse_block_matrix as parser_parse_block_matrix,
@@ -1865,6 +1872,7 @@ def analyze_general_hess_files(
     out_paths: Optional[Sequence[str | Path]] = None,
     *,
     experimental_composed_primitive_substitution_constraint: bool = False,
+    wilson_gf_validation: bool = False,
 ):
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -1881,6 +1889,7 @@ def analyze_general_hess_files(
     hbond_rows, mode_frames, assignment_frames, ped_frames, ped_v2_frames, wilson_ped_frames, basis_rows, selected_rows, optimized_ped_rows = [], [], [], [], [], [], [], [], []
     composed_ped_frames, composed_ped_v2_frames, composed_wilson_ped_frames = [], [], []
     composed_ped_basis_rows, composed_ped_diagnostic_rows = [], []
+    wilson_gf_validation_frames, wilson_gf_ped_frames, wilson_gf_basis_frames = [], [], []
     sanity_rows = []
 
     for source_index, hpath in enumerate(hess_paths, start=1):
@@ -2021,6 +2030,65 @@ def analyze_general_hess_files(
                 top_n=8,
             )
             composed_wilson_ped_frames.append(composed_wilson_ped_df)
+
+        if wilson_gf_validation:
+            if hess.cartesian_hessian is None:
+                wilson_gf_validation_frames.append(pd.DataFrame([{
+                    "Source": f"[{source_index}]",
+                    "Filename": hess.filename,
+                    "mode_index": "",
+                    "orca_frequency_cm-1": "",
+                    "gf_eigenvalue": "",
+                    "reconstructed_frequency_cm-1": "",
+                    "fixed_conversion_relative_error": "",
+                    "empirical_ratio_frequency_cm1_per_sqrt_lambda": "",
+                    "mapping_method": "",
+                    "conversion_method": "",
+                    "validation_status": "FAIL",
+                    "max_relative_error": "",
+                    "empirical_ratio_median": "",
+                    "empirical_ratio_std": "",
+                    "basis_size": len(selected_idx),
+                    "expected_vibrational_rank": expected_rank,
+                    "g_rank": "",
+                    "g_condition": "",
+                    "f_rank": "",
+                    "f_condition": "",
+                    "warnings": "missing_cartesian_hessian",
+                    "method": WILSON_GF_VALIDATION_METHOD,
+                }]))
+                wilson_gf_basis_frames.append(pd.DataFrame([{
+                    "Source": f"[{source_index}]",
+                    "Filename": hess.filename,
+                    "basis_size": len(selected_idx),
+                    "expected_vibrational_rank": expected_rank,
+                    "selected_indices": ";".join(str(idx) for idx in selected_idx),
+                    "g_rank": "",
+                    "g_condition": "",
+                    "f_rank": "",
+                    "f_condition": "",
+                    "positive_orca_mode_count": int(len(positive_mode_indices)),
+                    "positive_gf_eigenvalue_count": "",
+                    "warnings": "missing_cartesian_hessian",
+                }]))
+            else:
+                wilson_gf_result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+                validation_df = wilson_gf_build_validation_dataframe(wilson_gf_result)
+                validation_df["Source"] = f"[{source_index}]"
+                wilson_gf_validation_frames.append(validation_df)
+                basis_df = wilson_gf_build_basis_diagnostics_dataframe(wilson_gf_result)
+                basis_df["Source"] = f"[{source_index}]"
+                wilson_gf_basis_frames.append(basis_df)
+                closed_ped_df = wilson_gf_closed_ped(
+                    wilson_gf_result,
+                    hess,
+                    internals,
+                    B,
+                    selected_idx,
+                    top_n=8,
+                )
+                closed_ped_df["Source"] = f"[{source_index}]"
+                wilson_gf_ped_frames.append(closed_ped_df)
 
         sanity_df = build_sanity_check_monoethanolamine_monomer(
             hess,
@@ -2231,6 +2299,16 @@ def analyze_general_hess_files(
         "composed_ped_basis_diagnostics": pd.DataFrame(composed_ped_diagnostic_rows),
         "composed_ped_basis": pd.DataFrame(composed_ped_basis_rows),
     }
+    if wilson_gf_validation:
+        tables["wilson_gf_validation"] = (
+            pd.concat(wilson_gf_validation_frames, ignore_index=True) if wilson_gf_validation_frames else pd.DataFrame()
+        )
+        tables["wilson_gf_ped_audit"] = (
+            pd.concat(wilson_gf_ped_frames, ignore_index=True) if wilson_gf_ped_frames else pd.DataFrame()
+        )
+        tables["wilson_gf_basis_diagnostics"] = (
+            pd.concat(wilson_gf_basis_frames, ignore_index=True) if wilson_gf_basis_frames else pd.DataFrame()
+        )
     tables["ped_stage3d_agreement"] = reports_build_ped_stage3d_agreement_table(
         tables["assignment_audit"],
         wilson_ped_audit=tables["wilson_ped_audit"],
@@ -2248,8 +2326,7 @@ def analyze_general_hess_files(
     for name, df in tables.items():
         df.to_csv(outdir / f"{output_prefix}__{name}.csv", index=False)
 
-    (outdir / f"{output_prefix}__general_engine_manifest.json").write_text(
-        json.dumps({
+    general_manifest = {
             "status": "Stage 3A general organic engine + Stage 3D assignment audit completed; output filenames are prefixed by input .hess stem",
             "tables": list(tables),
             "chemistry_backend": chemistry_get_active_backend_name(),
@@ -2266,7 +2343,13 @@ def analyze_general_hess_files(
             "ped_final_assignment": "PED-driven final assignment table; uses PED when policy confirms/adds context and Stage 3D fallback when PED is unavailable, diffuse, or contradictory",
             "composed_ped_policy_diagnostics": "Conservative composed-coordinate PED diagnostic policy table; does not rewrite assignment_audit, ped_stage3d_agreement, or ped_final_assignment labels",
             "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
-        }, indent=2),
+    }
+    if wilson_gf_validation:
+        general_manifest["wilson_gf_validation"] = (
+            "Opt-in Wilson GF diagonalization validation prototype CSVs generated; diagnostic only, not VEDA-equivalent PED"
+        )
+    (outdir / f"{output_prefix}__general_engine_manifest.json").write_text(
+        json.dumps(general_manifest, indent=2),
         encoding="utf-8"
     )
     return tables
@@ -2763,6 +2846,7 @@ def general_outputs_for_hess_files(
     out_paths: Optional[Sequence[str | Path]] = None,
     *,
     experimental_composed_primitive_substitution_constraint: bool = False,
+    wilson_gf_validation: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """
     Pipeline hook for the main PED workflow.
@@ -2777,6 +2861,7 @@ def general_outputs_for_hess_files(
         outdir,
         out_paths,
         experimental_composed_primitive_substitution_constraint=experimental_composed_primitive_substitution_constraint,
+        wilson_gf_validation=wilson_gf_validation,
     )
 
 
@@ -2786,6 +2871,7 @@ def analyze_orca_ped_like(
     out_paths: Optional[Sequence[str | Path]] = None,
     *,
     experimental_composed_primitive_substitution_constraint: bool = False,
+    wilson_gf_validation: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """
     Integrated entry point for the current development version.
@@ -2810,6 +2896,7 @@ def analyze_orca_ped_like(
         outdir,
         out_paths,
         experimental_composed_primitive_substitution_constraint=experimental_composed_primitive_substitution_constraint,
+        wilson_gf_validation=wilson_gf_validation,
     )
 
     # Stage 3C mode tracking is meaningful only when two or more .hess files are supplied.
@@ -2858,6 +2945,10 @@ def analyze_orca_ped_like(
         "ped_final_assignment": "prefixed ped_final_assignment table generated; PED-driven final labels with Stage 3D fallback policy",
         "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
     }
+    if wilson_gf_validation:
+        manifest["wilson_gf_validation"] = (
+            "Opt-in Wilson GF diagonalization validation prototype CSVs generated; diagnostic only, not VEDA-equivalent PED"
+        )
     (outdir / f"{output_prefix}__integration_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return tables
 

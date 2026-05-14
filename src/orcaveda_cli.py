@@ -27,6 +27,14 @@ def cli_main(
             "without changing assignment_audit, ped_stage3d_agreement, or ped_final_assignment policy."
         ),
     )
+    parser.add_argument(
+        "--wilson-gf-validation",
+        action="store_true",
+        help=(
+            "Opt-in diagnostic prototype: emit Wilson GF diagonalization validation CSVs. "
+            "Does not change default Stage 3D or PED outputs."
+        ),
+    )
 
     args, _unknown = parser.parse_known_args()
     if args.list_chem_backends:
@@ -62,6 +70,7 @@ def cli_main(
         hess_paths,
         args.outdir,
         experimental_composed_primitive_substitution_constraint=args.experimental_composed_primitive_substitution_constraint,
+        wilson_gf_validation=args.wilson_gf_validation,
     )
 
 
