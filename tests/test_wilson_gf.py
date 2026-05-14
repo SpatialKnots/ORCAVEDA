@@ -184,9 +184,15 @@ def test_aniline_wilson_gf_warns_when_positive_modes_are_below_expected_rank():
     assert result.validation_status == "PASS"
     assert "positive_orca_mode_count_below_expected_vibrational_rank" in result.warnings
     assert "positive_gf_eigenvalue_count_below_expected_vibrational_rank" in result.warnings
+    assert "nonpositive_orca_modes_within_expected_vibrational_space" in result.warnings
+    assert "nonpositive_gf_eigenvalues_within_expected_vibrational_space" in result.warnings
+    assert result.orca_nonpositive_mode_count == 7
+    assert result.orca_min_nonpositive_frequency_cm1 == pytest.approx(-367.3568575130425)
+    assert result.gf_nonpositive_eigenvalue_count == 1
     assert "mode_count_mismatch" not in result.warnings
     assert int(basis.iloc[0]["positive_orca_mode_count"]) == 35
     assert int(basis.iloc[0]["positive_gf_eigenvalue_count"]) == 35
+    assert int(basis.iloc[0]["orca_nonpositive_mode_count"]) == 7
 
 
 def test_acetanilide_wilson_gf_uses_large_system_conditioned_basis():
@@ -212,6 +218,12 @@ def test_acetanilide_wilson_gf_uses_large_system_conditioned_basis():
     assert int(basis.iloc[0]["positive_gf_eigenvalue_count"]) == 50
     assert "positive_orca_mode_count_below_expected_vibrational_rank" in result.warnings
     assert "positive_gf_eigenvalue_count_below_expected_vibrational_rank" in result.warnings
+    assert "nonpositive_orca_modes_within_expected_vibrational_space" in result.warnings
+    assert "nonpositive_gf_eigenvalues_within_expected_vibrational_space" in result.warnings
+    assert result.orca_nonpositive_mode_count == 7
+    assert result.orca_min_nonpositive_frequency_cm1 == pytest.approx(-49.58924532088554)
+    assert result.gf_nonpositive_eigenvalue_count == 1
+    assert int(basis.iloc[0]["orca_nonpositive_mode_count"]) == 7
 
 
 def test_n_methylaniline_wilson_gf_large_system_basis_improves_f_condition():
@@ -236,6 +248,12 @@ def test_n_methylaniline_wilson_gf_large_system_basis_improves_f_condition():
     assert int(basis.iloc[0]["positive_gf_eigenvalue_count"]) == 44
     assert "positive_orca_mode_count_below_expected_vibrational_rank" in result.warnings
     assert "positive_gf_eigenvalue_count_below_expected_vibrational_rank" in result.warnings
+    assert "nonpositive_orca_modes_within_expected_vibrational_space" in result.warnings
+    assert "nonpositive_gf_eigenvalues_within_expected_vibrational_space" in result.warnings
+    assert result.orca_nonpositive_mode_count == 7
+    assert result.orca_min_nonpositive_frequency_cm1 == pytest.approx(-198.14705984767406)
+    assert result.gf_nonpositive_eigenvalue_count == 1
+    assert int(basis.iloc[0]["orca_nonpositive_mode_count"]) == 7
 
 
 def test_pipeline_wilson_gf_validation_is_opt_in_for_h2o():

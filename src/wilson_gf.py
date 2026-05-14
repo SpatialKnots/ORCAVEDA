@@ -51,6 +51,10 @@ class WilsonGFResult:
     max_relative_error: float
     empirical_ratio_median: float
     empirical_ratio_std: float
+    orca_nonpositive_mode_count: int
+    orca_min_nonpositive_frequency_cm1: float
+    gf_nonpositive_eigenvalue_count: int
+    gf_min_nonpositive_eigenvalue: float
     validation_status: str
     warnings: Tuple[str, ...]
     mapping_method: str
@@ -499,9 +503,11 @@ def wilson_gf_diagonalization(
 
     eigenvalues, eigenvectors, _ = solve_symmetric_gf_eigenproblem(G, F_internal, tol=tol)
     positive_mask = np.isfinite(eigenvalues) & (eigenvalues > tol)
+    nonpositive_gf = eigenvalues[np.isfinite(eigenvalues) & (eigenvalues <= tol)]
     positive_gf = eigenvalues[positive_mask]
     positive_eigenvectors = eigenvectors[:, positive_mask]
     positive_freq_mask = np.isfinite(hess.frequencies_cm1) & (hess.frequencies_cm1 > tol)
+    nonpositive_orca = np.asarray(hess.frequencies_cm1[np.isfinite(hess.frequencies_cm1) & (hess.frequencies_cm1 <= tol)], dtype=float)
     orca_mode_indices = np.where(positive_freq_mask)[0].astype(int)
     orca_freqs = np.asarray(hess.frequencies_cm1[positive_freq_mask], dtype=float)
     gf_order = np.argsort(positive_gf)
@@ -514,8 +520,12 @@ def wilson_gf_diagonalization(
     pair_count = min(len(positive_gf), len(orca_freqs))
     if len(orca_freqs) < expected_vibrational_rank:
         warnings.append("positive_orca_mode_count_below_expected_vibrational_rank")
+        if len(nonpositive_orca) > 6:
+            warnings.append("nonpositive_orca_modes_within_expected_vibrational_space")
     if len(positive_gf) < expected_vibrational_rank:
         warnings.append("positive_gf_eigenvalue_count_below_expected_vibrational_rank")
+        if len(nonpositive_gf) > 0:
+            warnings.append("nonpositive_gf_eigenvalues_within_expected_vibrational_space")
     if len(positive_gf) != len(orca_freqs):
         warnings.append("mode_count_mismatch")
     positive_gf = positive_gf[:pair_count]
@@ -532,6 +542,8 @@ def wilson_gf_diagonalization(
     max_relative_error = float(np.max(finite_errors)) if finite_errors.size else float("inf")
     empirical_median = float(np.median(finite_empirical)) if finite_empirical.size else float("nan")
     empirical_std = float(np.std(finite_empirical)) if finite_empirical.size else float("nan")
+    orca_min_nonpositive = float(np.min(nonpositive_orca)) if nonpositive_orca.size else float("nan")
+    gf_min_nonpositive = float(np.min(nonpositive_gf)) if nonpositive_gf.size else float("nan")
 
     fixed_conversion_failed = not np.isfinite(max_relative_error) or max_relative_error > frequency_tol_relative
     if fixed_conversion_failed:
@@ -568,6 +580,10 @@ def wilson_gf_diagonalization(
         max_relative_error=max_relative_error,
         empirical_ratio_median=empirical_median,
         empirical_ratio_std=empirical_std,
+        orca_nonpositive_mode_count=int(nonpositive_orca.size),
+        orca_min_nonpositive_frequency_cm1=orca_min_nonpositive,
+        gf_nonpositive_eigenvalue_count=int(nonpositive_gf.size),
+        gf_min_nonpositive_eigenvalue=gf_min_nonpositive,
         validation_status=status,
         warnings=tuple(dict.fromkeys(warnings)),
         mapping_method="sorted_positive_gf_eigenvalues_to_sorted_positive_orca_frequencies",
@@ -600,6 +616,10 @@ def build_wilson_gf_validation_dataframe(result: WilsonGFResult) -> pd.DataFrame
                 "max_relative_error": result.max_relative_error,
                 "empirical_ratio_median": result.empirical_ratio_median,
                 "empirical_ratio_std": result.empirical_ratio_std,
+                "orca_nonpositive_mode_count": result.orca_nonpositive_mode_count,
+                "orca_min_nonpositive_frequency_cm-1": result.orca_min_nonpositive_frequency_cm1,
+                "gf_nonpositive_eigenvalue_count": result.gf_nonpositive_eigenvalue_count,
+                "gf_min_nonpositive_eigenvalue": result.gf_min_nonpositive_eigenvalue,
                 "basis_size": result.internal_basis_size,
                 "expected_vibrational_rank": result.expected_vibrational_rank,
                 "g_rank": result.g_rank,
@@ -629,6 +649,10 @@ def build_wilson_gf_validation_dataframe(result: WilsonGFResult) -> pd.DataFrame
                 "max_relative_error": result.max_relative_error,
                 "empirical_ratio_median": result.empirical_ratio_median,
                 "empirical_ratio_std": result.empirical_ratio_std,
+                "orca_nonpositive_mode_count": result.orca_nonpositive_mode_count,
+                "orca_min_nonpositive_frequency_cm-1": result.orca_min_nonpositive_frequency_cm1,
+                "gf_nonpositive_eigenvalue_count": result.gf_nonpositive_eigenvalue_count,
+                "gf_min_nonpositive_eigenvalue": result.gf_min_nonpositive_eigenvalue,
                 "basis_size": result.internal_basis_size,
                 "expected_vibrational_rank": result.expected_vibrational_rank,
                 "g_rank": result.g_rank,
@@ -657,6 +681,10 @@ def build_wilson_gf_basis_diagnostics_dataframe(result: WilsonGFResult) -> pd.Da
                 "f_condition": result.f_condition,
                 "positive_orca_mode_count": int(len(result.orca_frequencies_cm1)),
                 "positive_gf_eigenvalue_count": int(len(result.gf_eigenvalues)),
+                "orca_nonpositive_mode_count": result.orca_nonpositive_mode_count,
+                "orca_min_nonpositive_frequency_cm-1": result.orca_min_nonpositive_frequency_cm1,
+                "gf_nonpositive_eigenvalue_count": result.gf_nonpositive_eigenvalue_count,
+                "gf_min_nonpositive_eigenvalue": result.gf_min_nonpositive_eigenvalue,
                 "warnings": "; ".join(result.warnings),
             }
         ]

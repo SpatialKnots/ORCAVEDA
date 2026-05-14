@@ -25,6 +25,7 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - [x] (2026-05-14) Heavy opt-in validation batch run for NMP, N-methylaniline, piperidine, cyclohexane chair, acetanilide, and three monoethanolamine dimers. An initial acetanilide run reported `FAIL` due to G-rank loss, severe ill-conditioning, and positive-mode count below expected rank.
 - [x] (2026-05-14) Added a deterministic mass-weighted residual-pivot validation fallback for large systems where exhaustive conditioned-basis search is infeasible. Acetanilide, acetophenone, and nitrobenzene now use better-conditioned validation bases and report `PASS`.
 - [x] (2026-05-14) Extended large-system fallback acceptance to consider F-condition as well as G-condition. N-methylaniline now uses a better-conditioned validation basis and no longer carries `f_ill_conditioned`.
+- [x] (2026-05-14) Hardened positive-mode-count diagnostics. Aniline, N-methylaniline, and acetanilide each have six zero ORCA modes plus one negative ORCA mode, so the opt-in Wilson GF CSVs now report nonpositive ORCA/GF counts and minimum nonpositive values.
 
 ## Surprises & Discoveries
 
@@ -67,6 +68,12 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - Observation: After F-condition-aware fallback acceptance, N-methylaniline no longer carries `f_ill_conditioned`.
   Evidence: The rerun `outputs\wilson_gf_heavy_n_methylaniline\N-methylaniline__wilson_gf_validation.csv` reports `PASS`, basis size 45, expected rank 45, G-rank 45, G-condition `1326.4122537120506`, F-rank 45, F-condition `33201.90313372605`, positive ORCA modes 44, max relative error `7.075733291133912e-08`, and warnings only for positive mode counts below expected rank.
 
+- Observation: The remaining positive-mode-count warnings are caused by one negative ORCA vibrational mode in each affected `.hess`, not by missing parser rows.
+  Evidence: `aniline.hess` has 42 frequencies, expected rank 36, six exact zero frequencies at indices 0-5, and one negative frequency at index 6 (`-367.3568575130425` cm-1). `N-methylaniline.hess` has 51 frequencies, expected rank 45, six exact zero frequencies at indices 0-5, and one negative frequency at index 6 (`-198.14705984767406` cm-1). `acetanilide.hess` has 57 frequencies, expected rank 51, six exact zero frequencies at indices 0-5, and one negative frequency at index 6 (`-49.58924532088554` cm-1).
+
+- Observation: The closed GF validation mirrors the same one-mode nonpositive count in the affected cases.
+  Evidence: The rerun basis diagnostics CSVs report `gf_nonpositive_eigenvalue_count` 1 for aniline, N-methylaniline, and acetanilide. The corresponding minimum nonpositive GF eigenvalues are `-0.01823750951305075`, `-0.00530596637314424`, and `-0.0003323259303203356`.
+
 ## Decision Log
 
 - Decision: Implement the upgrade as a separate module, `src/wilson_gf.py`, instead of extending `src/ped.py` first.
@@ -107,6 +114,10 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 
 - Decision: Extend large-system fallback acceptance to consider F-condition when the candidate basis keeps full G/F rank and improves the internal force matrix conditioning.
   Rationale: N-methylaniline had full G-rank and acceptable G-condition under the previous cutoff but retained an F-condition of `6.4189060354395125e13`. Since the closed GF validation depends on both `G` and the reconstructed internal `F`, the validation basis should not preserve a severely ill-conditioned F matrix when the deterministic mass-weighted pivot candidate improves it without rank loss.
+  Date/Author: 2026-05-14 / Codex
+
+- Decision: Keep positive-mode-count warnings as `PASS` diagnostics when positive ORCA and GF counts match and fixed conversion passes, but add explicit nonpositive-mode fields and warnings to the opt-in Wilson GF CSVs.
+  Rationale: The affected source `.hess` files contain one negative vibrational frequency in addition to six zero translational/rotational modes. This is source evidence that the positive count is below `3N-6`; hiding it or converting it to a parser failure would be unsupported.
   Date/Author: 2026-05-14 / Codex
 
 ## Outcomes & Retrospective
@@ -324,12 +335,15 @@ Command transcript placeholders:
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q`: passed on 2026-05-14 after adding the acetanilide large-system fallback test, latest run `10 passed in 28.76s`.
 - `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py tests\test_wilson_gf.py`: passed on 2026-05-14 after extending fallback acceptance to F-condition.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q`: passed on 2026-05-14 after adding the N-methylaniline F-condition fallback test, latest run `11 passed in 24.36s`.
+- `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py tests\test_wilson_gf.py`: passed on 2026-05-14 after adding nonpositive-mode diagnostics.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q`: passed on 2026-05-14 after adding nonpositive-mode diagnostic assertions, latest run `11 passed in 22.92s`.
 - `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py src\orcaveda_cli.py src\ORCAVEDA_patched_stage3D_v5_0.py`: passed on 2026-05-14.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q`: passed on 2026-05-14, `19 passed in 1.31s`.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14, latest run `21 passed in 28.08s`.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14 after adding positive-mode-count warnings, latest run `21 passed in 28.37s`.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14 after adding the large-system mass-weighted pivot fallback, latest run `21 passed in 26.31s`.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14 after extending fallback acceptance to F-condition, latest run `21 passed in 25.93s`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14 after adding nonpositive-mode diagnostics, latest run `21 passed in 25.80s`.
 - H2O CLI validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\wilson_gf_h2o_cli --wilson-gf-validation`, completed on 2026-05-14.
 - H2O Phase 4 validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\wilson_gf_h2o --wilson-gf-validation`, completed on 2026-05-14.
 - NH3 validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\NH3.hess --outdir outputs\wilson_gf_nh3 --wilson-gf-validation`, completed on 2026-05-14.
@@ -340,6 +354,7 @@ Command transcript placeholders:
 - Heavy validation batch runs completed on 2026-05-14 for `NMP_freq.hess`, `N-methylaniline.hess`, `piperidine.hess`, `cyclohexane_chair.hess`, `acetanilide.hess`, `monoethanolamine_dimer_cyclic_DFT.hess`, `monoethanolamine_dimer_NH_to_O_DFT.hess`, and `monoethanolamine_dimer_OH_to_N_DFT.hess`, each through `src\ORCAVEDA_patched_stage3D_v5_0.py --wilson-gf-validation`.
 - Larger-molecule and heavy validation batches were rerun on 2026-05-14 after adding the mass-weighted pivot fallback. All rerun CLI commands exited 0.
 - Larger-molecule and heavy validation batches were rerun on 2026-05-14 after extending fallback acceptance to F-condition. All rerun CLI commands exited 0.
+- Affected warning-case validation outputs were rerun on 2026-05-14 after adding nonpositive-mode diagnostics for `aniline.hess`, `N-methylaniline.hess`, and `acetanilide.hess`; all rerun CLI commands exited 0.
 
 CSV evidence placeholders:
 
@@ -353,6 +368,7 @@ CSV evidence placeholders:
 - Broader batch CSVs: generated under `outputs\wilson_gf_batch_*`; MeOH, EtOH, acetone, DMSO, acetamide, phenol, benzene, and CH3CN report `PASS`; CH3CN carries `linear_bend_coordinate_used`.
 - Larger-molecule expansion CSVs after the mass-weighted pivot fallback: generated under `outputs\wilson_gf_expand_*`; pyridine, aniline, benzonitrile, nitrobenzene, benzoic acid, and acetophenone report `PASS`. Warnings remain for aniline positive-mode counts below expected rank and benzonitrile near-linear bend.
 - Heavy batch CSVs after F-condition-aware fallback acceptance: generated under `outputs\wilson_gf_heavy_*`; NMP, N-methylaniline, piperidine, cyclohexane chair, acetanilide, and the three monoethanolamine dimers report `PASS`. N-methylaniline and acetanilide retain positive-mode-count diagnostics below expected rank; no heavy-batch molecule currently reports `basis_rank_below_expected`, `g_ill_conditioned`, or `f_ill_conditioned`.
+- Nonpositive-mode diagnostics: `outputs\wilson_gf_expand_aniline\aniline__wilson_gf_basis_diagnostics.csv`, `outputs\wilson_gf_heavy_n_methylaniline\N-methylaniline__wilson_gf_basis_diagnostics.csv`, and `outputs\wilson_gf_heavy_acetanilide\acetanilide__wilson_gf_basis_diagnostics.csv` now include `orca_nonpositive_mode_count`, `orca_min_nonpositive_frequency_cm-1`, `gf_nonpositive_eigenvalue_count`, and `gf_min_nonpositive_eigenvalue`. The affected rows carry `nonpositive_orca_modes_within_expected_vibrational_space` and `nonpositive_gf_eigenvalues_within_expected_vibrational_space`.
 - CH3CN exhaustive primitive-basis diagnostic: evaluated 1136 full-rank 12-coordinate subsets; passing subsets `0`; best max relative error `0.01845477680255841`.
 - CH3CN linear-bend CLI rerun: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\CH3CN_freq.hess --outdir outputs\wilson_gf_batch_ch3cn --wilson-gf-validation`, completed on 2026-05-14 with `PASS`, max relative error `2.948152719245503e-07`.
 
@@ -406,6 +422,10 @@ New optional output schemas:
 - `max_relative_error`
 - `empirical_ratio_median`
 - `empirical_ratio_std`
+- `orca_nonpositive_mode_count`
+- `orca_min_nonpositive_frequency_cm-1`
+- `gf_nonpositive_eigenvalue_count`
+- `gf_min_nonpositive_eigenvalue`
 - `basis_size`
 - `expected_vibrational_rank`
 - `g_rank`
@@ -448,6 +468,10 @@ New optional output schemas:
 - `f_condition`
 - `positive_orca_mode_count`
 - `positive_gf_eigenvalue_count`
+- `orca_nonpositive_mode_count`
+- `orca_min_nonpositive_frequency_cm-1`
+- `gf_nonpositive_eigenvalue_count`
+- `gf_min_nonpositive_eigenvalue`
 - `warnings`
 
 No new dependency is allowed beyond NumPy, Pandas, and existing ORCAVEDA code unless this plan is updated with a specific rationale and validation impact.
