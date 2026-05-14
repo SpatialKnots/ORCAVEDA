@@ -155,6 +155,21 @@ def test_ethene_wilson_gf_validation_selects_conditioned_basis():
     assert set(ped["validation_status"]) == {"PASS"}
 
 
+def test_ch3cn_wilson_gf_warns_on_near_linear_bend_coordinate():
+    hess, internals, B, selected_idx, rank, _ = _pipeline_basis("CH3CN_freq.hess")
+
+    result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+    basis = build_wilson_gf_basis_diagnostics_dataframe(result)
+
+    assert rank == 12
+    assert result.validation_status == "WARN"
+    assert result.max_relative_error > 1.0e-4
+    assert "near_linear_bend_coordinate" in result.warnings
+    assert "fixed_conversion_failed" in result.warnings
+    assert "empirical_ratio_only" in result.warnings
+    assert "near_linear_bend_coordinate" in str(basis.iloc[0]["warnings"])
+
+
 def test_pipeline_wilson_gf_validation_is_opt_in_for_h2o():
     default_outdir = ROOT / "outputs" / "pytest_wilson_gf_default_h2o"
     opt_in_outdir = ROOT / "outputs" / "pytest_wilson_gf_opt_in_h2o"

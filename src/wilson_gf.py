@@ -126,6 +126,31 @@ def _select_conditioned_wilson_basis(
     return best_basis
 
 
+def _has_near_linear_bend(
+    internals: Sequence[InternalCoordinate],
+    basis_idx: Sequence[int],
+    coords_A: np.ndarray,
+    *,
+    angle_tol_degrees: float = 5.0,
+) -> bool:
+    coords = np.asarray(coords_A, dtype=float)
+    for idx in basis_idx:
+        internal = internals[int(idx)]
+        if internal.kind != "bend" or len(internal.atoms0) != 3:
+            continue
+        a, b, c = internal.atoms0
+        v1 = coords[a] - coords[b]
+        v2 = coords[c] - coords[b]
+        norm = np.linalg.norm(v1) * np.linalg.norm(v2)
+        if norm <= 0.0:
+            continue
+        cos_angle = float(np.dot(v1, v2) / norm)
+        angle = float(np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0))))
+        if angle <= angle_tol_degrees or angle >= 180.0 - angle_tol_degrees:
+            return True
+    return False
+
+
 def symmetric_sqrt_decomp(A: np.ndarray, tol: float = 1.0e-12) -> Tuple[np.ndarray, np.ndarray]:
     arr = np.asarray(A, dtype=float)
     if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
@@ -249,6 +274,8 @@ def wilson_gf_diagonalization(
 
     if len(basis_idx) != expected_vibrational_rank:
         warnings.append("basis_size_mismatch_expected_vibrational_rank")
+    if _has_near_linear_bend(internals, basis_idx, hess.coords_A):
+        warnings.append("near_linear_bend_coordinate")
     if g_rank < min(len(basis_idx), expected_vibrational_rank):
         warnings.append("basis_rank_below_expected")
     if not np.isfinite(g_condition) or g_condition > 1.0e12:

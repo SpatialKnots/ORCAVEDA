@@ -40,7 +40,10 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
   Evidence: Before the fallback, ethene selected indices `0;1;2;3;4;9;10;11;12;13;14;15` with B-rank `12` and B-condition about `3.146e6`, but Wilson G-rank `11`, G-condition `2580496997554.5938`, F-condition `5156767183685.332`, and warnings `basis_rank_below_expected; g_ill_conditioned; f_ill_conditioned`. The fallback chooses `0;4;5;6;7;9;12;13;14;15;17;18`, giving G-rank `12`, G-condition `28.556444875327514`, F-rank `12`, F-condition `65.64477191436387`, and no warnings.
 
 - Observation: CH3CN is the first broader-batch molecule where fixed conversion fails despite full G/F rank.
-  Evidence: `outputs\wilson_gf_batch_ch3cn\CH3CN__wilson_gf_validation.csv` reports `WARN`, basis size `12`, expected rank `12`, G-rank `12`, G-condition `423673515.5779151`, F-rank `12`, F-condition `4979156243.108764`, max relative error `0.018454913619246567`, and warnings `fixed_conversion_failed; empirical_ratio_only`. The largest errors are in mode 6 (`389.6377536209096` cm-1, reconstructed `382.44702253503846` cm-1, relative error `0.018454913619246567`) and mode 7 (`390.57271369641705` cm-1, reconstructed `389.46928984530246` cm-1, relative error `0.0028251432125703077`).
+  Evidence: `outputs\wilson_gf_batch_ch3cn\CH3CN__wilson_gf_validation.csv` reports `WARN`, basis size `12`, expected rank `12`, G-rank `12`, G-condition `423673515.5779151`, F-rank `12`, F-condition `4979156243.108764`, max relative error `0.018454913619246567`, and warnings `near_linear_bend_coordinate; fixed_conversion_failed; empirical_ratio_only`. The largest errors are in mode 6 (`389.6377536209096` cm-1, reconstructed `382.44702253503846` cm-1, relative error `0.018454913619246567`) and mode 7 (`390.57271369641705` cm-1, reconstructed `389.46928984530246` cm-1, relative error `0.0028251432125703077`).
+
+- Observation: Exhaustive primitive-basis search did not fix CH3CN.
+  Evidence: An exhaustive diagnostic over all 1136 full-rank 12-coordinate primitive subsets for `data\hess\CH3CN_freq.hess` found zero subsets with `PASS` status and `max_relative_error <= 1.0e-4`. The best observed max relative error was `0.01845477680255841`. The CH3CN geometry contains a near-linear `ang(C1-C2-N3)` coordinate at `179.9940447723222` degrees, and the low-frequency warning modes are dominated by this near-linear bend/torsion subspace.
 
 ## Decision Log
 
@@ -96,7 +99,7 @@ Broader validation batch completed on 2026-05-14. This batch is evidence for the
 | MeOH | `outputs\wilson_gf_batch_meoh` | 12 | 12 | 12 | 27.457797487906166 | 12 | 236.09060650034456 | 12 | 5.616420455075335e-08 | 2720.2284947383223 | 5.294429644752303e-08 | PASS | none |
 | EtOH | `outputs\wilson_gf_batch_etoh` | 21 | 21 | 21 | 68.05073106259707 | 21 | 251.2245599416959 | 21 | 5.616697269282427e-08 | 2720.2284947275293 | 2.587721576221904e-08 | PASS | none |
 | Acetone | `outputs\wilson_gf_batch_acetone` | 24 | 24 | 24 | 586815398.5892428 | 24 | 8386033069.547947 | 24 | 5.625625863693999e-08 | 2720.228494754702 | 5.165432595206878e-05 | PASS | none |
-| CH3CN | `outputs\wilson_gf_batch_ch3cn` | 12 | 12 | 12 | 423673515.5779151 | 12 | 4979156243.108764 | 12 | 0.018454913619246567 | 2720.240441540698 | 14.063635890182173 | WARN | `fixed_conversion_failed; empirical_ratio_only` |
+| CH3CN | `outputs\wilson_gf_batch_ch3cn` | 12 | 12 | 12 | 423673515.5779151 | 12 | 4979156243.108764 | 12 | 0.018454913619246567 | 2720.240441540698 | 14.063635890182173 | WARN | `near_linear_bend_coordinate; fixed_conversion_failed; empirical_ratio_only` |
 | DMSO | `outputs\wilson_gf_batch_dmso` | 24 | 24 | 24 | 73.13515964560295 | 24 | 109.88705956258443 | 24 | 5.651559409564404e-08 | 2720.228494727352 | 2.34840549448295e-07 | PASS | none |
 | acetamide | `outputs\wilson_gf_batch_acetamide` | 21 | 21 | 21 | 286158581.4001269 | 21 | 5541794646.3023 | 20 | 5.6389704513833395e-08 | 2720.2284947332896 | 3.0801958065541683e-06 | PASS | none |
 | phenol | `outputs\wilson_gf_batch_phenol` | 33 | 33 | 33 | 2108.3644479210197 | 33 | 5386.926054955553 | 33 | 5.6208317650343554e-08 | 2720.2284947158196 | 2.846752966781087e-08 | PASS | none |
@@ -276,7 +279,8 @@ CSV evidence placeholders:
 - NH3 CSVs: generated under `outputs\wilson_gf_nh3`; validation status `PASS`, max relative error `5.616351591931107e-08`, warnings none.
 - Formaldehyde CSVs: generated under `outputs\wilson_gf_formaldehyde`; validation status `PASS`, max relative error `5.666234451789424e-08`, warnings none.
 - Ethene CSVs: generated under `outputs\wilson_gf_ethene`; validation status `PASS`, selected indices `0;4;5;6;7;9;12;13;14;15;17;18`, max relative error `5.61625148639572e-08`, warnings none.
-- Broader batch CSVs: generated under `outputs\wilson_gf_batch_*`; MeOH, EtOH, acetone, DMSO, acetamide, phenol, and benzene report `PASS`; CH3CN reports `WARN` with `fixed_conversion_failed; empirical_ratio_only`.
+- Broader batch CSVs: generated under `outputs\wilson_gf_batch_*`; MeOH, EtOH, acetone, DMSO, acetamide, phenol, and benzene report `PASS`; CH3CN reports `WARN` with `near_linear_bend_coordinate; fixed_conversion_failed; empirical_ratio_only`.
+- CH3CN exhaustive primitive-basis diagnostic: evaluated 1136 full-rank 12-coordinate subsets; passing subsets `0`; best max relative error `0.01845477680255841`.
 
 Standalone H2O diagnostics from `src\wilson_gf.py`:
 
