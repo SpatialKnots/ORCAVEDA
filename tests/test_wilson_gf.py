@@ -172,6 +172,23 @@ def test_ch3cn_wilson_gf_uses_linear_bend_components_for_near_linear_bend():
     assert "linear_bend_coordinate_used" in str(basis.iloc[0]["warnings"])
 
 
+def test_aniline_wilson_gf_warns_when_positive_modes_are_below_expected_rank():
+    hess, internals, B, selected_idx, _, _ = _pipeline_basis("aniline.hess")
+
+    result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+    basis = build_wilson_gf_basis_diagnostics_dataframe(result)
+
+    assert result.expected_vibrational_rank == 36
+    assert len(result.orca_frequencies_cm1) == 35
+    assert len(result.gf_eigenvalues) == 35
+    assert result.validation_status == "PASS"
+    assert "positive_orca_mode_count_below_expected_vibrational_rank" in result.warnings
+    assert "positive_gf_eigenvalue_count_below_expected_vibrational_rank" in result.warnings
+    assert "mode_count_mismatch" not in result.warnings
+    assert int(basis.iloc[0]["positive_orca_mode_count"]) == 35
+    assert int(basis.iloc[0]["positive_gf_eigenvalue_count"]) == 35
+
+
 def test_pipeline_wilson_gf_validation_is_opt_in_for_h2o():
     default_outdir = ROOT / "outputs" / "pytest_wilson_gf_default_h2o"
     opt_in_outdir = ROOT / "outputs" / "pytest_wilson_gf_opt_in_h2o"

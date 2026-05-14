@@ -397,6 +397,10 @@ def wilson_gf_diagonalization(
     orca_freqs = orca_freqs[orca_order]
 
     pair_count = min(len(positive_gf), len(orca_freqs))
+    if len(orca_freqs) < expected_vibrational_rank:
+        warnings.append("positive_orca_mode_count_below_expected_vibrational_rank")
+    if len(positive_gf) < expected_vibrational_rank:
+        warnings.append("positive_gf_eigenvalue_count_below_expected_vibrational_rank")
     if len(positive_gf) != len(orca_freqs):
         warnings.append("mode_count_mismatch")
     positive_gf = positive_gf[:pair_count]
