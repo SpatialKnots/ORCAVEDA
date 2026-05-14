@@ -8,6 +8,7 @@ from typing import List, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from b_matrix import finite_difference_B
 from mode_assignment import _assignment_family_from_internal, _compact_coord_label, _stage3d_coord_class
 from orcaveda_models import HessData, InternalCoordinate
 from orca_parser import BOHR_TO_ANGSTROM
@@ -54,6 +55,8 @@ class WilsonGFResult:
     warnings: Tuple[str, ...]
     mapping_method: str
     conversion_method: str
+    validation_internals: Tuple[InternalCoordinate, ...] = ()
+    validation_B: np.ndarray | None = None
 
 
 def _rank_condition(matrix: np.ndarray, tol: float) -> Tuple[int, float]:
@@ -91,6 +94,7 @@ def _select_conditioned_wilson_basis(
     masses: np.ndarray,
     expected_rank: int,
     tol: float,
+    coords_A: np.ndarray | None = None,
 ) -> Tuple[int, ...]:
     """Small-system fallback for a Wilson-GF-conditioned validation basis."""
     basis_idx = tuple(int(idx) for idx in selected_idx)
@@ -98,11 +102,14 @@ def _select_conditioned_wilson_basis(
         return basis_idx
 
     g_rank, g_condition = _wilson_g_rank_condition(B_arr, internals, basis_idx, masses, tol)
-    if g_rank >= expected_rank and np.isfinite(g_condition) and g_condition <= 1.0e12:
+    near_linear_selected = (
+        coords_A is not None and _has_near_linear_bend(internals, basis_idx, np.asarray(coords_A, dtype=float))
+    )
+    if g_rank >= expected_rank and np.isfinite(g_condition) and g_condition <= 1.0e12 and not near_linear_selected:
         return basis_idx
 
     candidate_count = len(internals)
-    if candidate_count > 24 or comb(candidate_count, expected_rank) > 250_000:
+    if candidate_count > 24 or comb(candidate_count, expected_rank) > 500_000:
         return basis_idx
 
     best_basis = basis_idx
@@ -124,6 +131,90 @@ def _select_conditioned_wilson_basis(
             best_basis = tuple(int(idx) for idx in combo)
             best_g_condition = candidate_g_condition
     return best_basis
+
+
+def _orthonormal_perpendicular_frame(axis: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    axis_arr = np.asarray(axis, dtype=float)
+    norm = np.linalg.norm(axis_arr)
+    if norm <= 0.0:
+        raise ValueError("linear bend reference axis has zero length")
+    unit_axis = axis_arr / norm
+    ref = min(np.eye(3), key=lambda candidate: abs(float(np.dot(candidate, unit_axis))))
+    first = ref - np.dot(ref, unit_axis) * unit_axis
+    first /= np.linalg.norm(first)
+    second = np.cross(unit_axis, first)
+    second /= np.linalg.norm(second)
+    return first, second
+
+
+def _linear_bend_component_fn(i: int, j: int, k: int, component_axis: np.ndarray):
+    component = np.asarray(component_axis, dtype=float)
+
+    def coordinate(xyz: np.ndarray) -> float:
+        left = xyz[i] - xyz[j]
+        right = xyz[k] - xyz[j]
+        left_norm = np.linalg.norm(left)
+        right_norm = np.linalg.norm(right)
+        if left_norm <= 0.0 or right_norm <= 0.0:
+            return float("nan")
+        bend_vector = left / left_norm + right / right_norm
+        return float(np.dot(bend_vector, component) * 180.0 / np.pi)
+
+    return coordinate
+
+
+def _augment_linear_bend_coordinates(
+    internals: Sequence[InternalCoordinate],
+    B_arr: np.ndarray,
+    coords_A: np.ndarray,
+    *,
+    angle_tol_degrees: float = 5.0,
+) -> Tuple[List[InternalCoordinate], np.ndarray]:
+    augmented = list(internals)
+    if any(internal.kind == "linear_bend_component" for internal in augmented):
+        return augmented, np.asarray(B_arr, dtype=float)
+    extra: List[InternalCoordinate] = []
+    coords = np.asarray(coords_A, dtype=float)
+    for internal in internals:
+        if internal.kind != "bend" or len(internal.atoms0) != 3:
+            continue
+        i, j, k = internal.atoms0
+        left = coords[i] - coords[j]
+        right = coords[k] - coords[j]
+        norm = np.linalg.norm(left) * np.linalg.norm(right)
+        if norm <= 0.0:
+            continue
+        angle = float(np.degrees(np.arccos(np.clip(float(np.dot(left, right) / norm), -1.0, 1.0))))
+        if angle_tol_degrees < angle < 180.0 - angle_tol_degrees:
+            continue
+        first, second = _orthonormal_perpendicular_frame(left)
+        label = internal.name.replace("ang(", "linbend(")
+        extra.append(
+            InternalCoordinate(
+                f"{label}:perp1)",
+                "linear_bend_component",
+                internal.atoms0,
+                max(1, int(internal.priority) - 1),
+                _linear_bend_component_fn(i, j, k, first),
+                "wilson_gf_validation",
+                generation_rule="near_linear_bend_perpendicular_components",
+            )
+        )
+        extra.append(
+            InternalCoordinate(
+                f"{label}:perp2)",
+                "linear_bend_component",
+                internal.atoms0,
+                max(1, int(internal.priority) - 1),
+                _linear_bend_component_fn(i, j, k, second),
+                "wilson_gf_validation",
+                generation_rule="near_linear_bend_perpendicular_components",
+            )
+        )
+    if not extra:
+        return augmented, np.asarray(B_arr, dtype=float)
+    B_extra = finite_difference_B(coords, extra)
+    return augmented + extra, np.vstack([np.asarray(B_arr, dtype=float), B_extra])
 
 
 def _has_near_linear_bend(
@@ -149,6 +240,10 @@ def _has_near_linear_bend(
         if angle <= angle_tol_degrees or angle >= 180.0 - angle_tol_degrees:
             return True
     return False
+
+
+def _uses_linear_bend_component(internals: Sequence[InternalCoordinate], basis_idx: Sequence[int]) -> bool:
+    return any(internals[int(idx)].kind == "linear_bend_component" for idx in basis_idx)
 
 
 def symmetric_sqrt_decomp(A: np.ndarray, tol: float = 1.0e-12) -> Tuple[np.ndarray, np.ndarray]:
@@ -249,6 +344,7 @@ def wilson_gf_diagonalization(
     if B_arr.shape[1] != cartesian_size:
         raise ValueError(f"B column count {B_arr.shape[1]} does not match 3N={cartesian_size}")
 
+    validation_internals, validation_B = _augment_linear_bend_coordinates(internals, B_arr, hess.coords_A)
     basis_idx = tuple(int(idx) for idx in selected_idx)
     if any(idx < 0 or idx >= len(internals) for idx in basis_idx):
         raise ValueError("selected_idx contains an out-of-range internal coordinate index")
@@ -257,16 +353,17 @@ def wilson_gf_diagonalization(
 
     expected_vibrational_rank = max(cartesian_size - 6, 0)
     basis_idx = _select_conditioned_wilson_basis(
-        B_arr,
-        internals,
+        validation_B,
+        validation_internals,
         basis_idx,
         hess.masses,
         expected_vibrational_rank,
         tol,
+        hess.coords_A,
     )
-    basis_internals = [internals[idx] for idx in basis_idx]
+    basis_internals = [validation_internals[idx] for idx in basis_idx]
     scales = wilson_coordinate_scales(basis_internals)
-    B_internal = B_arr[list(basis_idx), :] * scales[:, None]
+    B_internal = validation_B[list(basis_idx), :] * scales[:, None]
     G = build_wilson_g_matrix(B_internal, hess.masses)
     F_internal = reconstruct_wilson_gf_internal_force_matrix(B_internal, hess.masses, hess.cartesian_hessian, G)
     g_rank, g_condition = _rank_condition(G, tol)
@@ -274,8 +371,10 @@ def wilson_gf_diagonalization(
 
     if len(basis_idx) != expected_vibrational_rank:
         warnings.append("basis_size_mismatch_expected_vibrational_rank")
-    if _has_near_linear_bend(internals, basis_idx, hess.coords_A):
+    if _has_near_linear_bend(validation_internals, basis_idx, hess.coords_A):
         warnings.append("near_linear_bend_coordinate")
+    if _uses_linear_bend_component(validation_internals, basis_idx):
+        warnings.append("linear_bend_coordinate_used")
     if g_rank < min(len(basis_idx), expected_vibrational_rank):
         warnings.append("basis_rank_below_expected")
     if not np.isfinite(g_condition) or g_condition > 1.0e12:
@@ -354,6 +453,8 @@ def wilson_gf_diagonalization(
         warnings=tuple(dict.fromkeys(warnings)),
         mapping_method="sorted_positive_gf_eigenvalues_to_sorted_positive_orca_frequencies",
         conversion_method=f"fixed_SI_hartree_per_amu_angstrom2_to_cm-1:{WILSON_GF_FIXED_CONVERSION_CM1:.12g}",
+        validation_internals=tuple(validation_internals),
+        validation_B=validation_B,
     )
 
 

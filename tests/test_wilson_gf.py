@@ -155,19 +155,21 @@ def test_ethene_wilson_gf_validation_selects_conditioned_basis():
     assert set(ped["validation_status"]) == {"PASS"}
 
 
-def test_ch3cn_wilson_gf_warns_on_near_linear_bend_coordinate():
+def test_ch3cn_wilson_gf_uses_linear_bend_components_for_near_linear_bend():
     hess, internals, B, selected_idx, rank, _ = _pipeline_basis("CH3CN_freq.hess")
 
     result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
     basis = build_wilson_gf_basis_diagnostics_dataframe(result)
 
     assert rank == 12
-    assert result.validation_status == "WARN"
-    assert result.max_relative_error > 1.0e-4
-    assert "near_linear_bend_coordinate" in result.warnings
-    assert "fixed_conversion_failed" in result.warnings
-    assert "empirical_ratio_only" in result.warnings
-    assert "near_linear_bend_coordinate" in str(basis.iloc[0]["warnings"])
+    assert result.validation_status == "PASS"
+    assert result.max_relative_error < 1.0e-6
+    assert "linear_bend_coordinate_used" in result.warnings
+    assert "near_linear_bend_coordinate" not in result.warnings
+    assert "fixed_conversion_failed" not in result.warnings
+    assert "empirical_ratio_only" not in result.warnings
+    assert str(basis.iloc[0]["selected_indices"]) == "1;2;4;5;6;10;11;12;13;14;19;20"
+    assert "linear_bend_coordinate_used" in str(basis.iloc[0]["warnings"])
 
 
 def test_pipeline_wilson_gf_validation_is_opt_in_for_h2o():

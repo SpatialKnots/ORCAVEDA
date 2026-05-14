@@ -20,7 +20,7 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - [x] (2026-05-14) Phase 2 H2O fixed-conversion validation passes after replacing the Euclidean PED pseudoinverse force reconstruction with a mass-metric Wilson GF internal-force reconstruction in the standalone prototype. H2O max relative error is `1.818626413830463e-05`.
 - [x] (2026-05-14) Phase 3 opt-in pipeline integration added behind `--wilson-gf-validation`. Default runs do not include Wilson GF validation tables; opt-in H2O run writes validation, closed-PED, and basis-diagnostics CSVs.
 - [x] (2026-05-14) Phase 4 target validation runs executed for H2O, NH3, formaldehyde, and ethene. An initial ethene run exposed a weak default basis (`G-rank 11`, `G-condition 2.5804969975545938e12`); after adding a small-system Wilson-GF-conditioned basis fallback, all four target molecules report `PASS`.
-- [x] (2026-05-14) Broader opt-in validation batch run for MeOH, EtOH, acetone, CH3CN, DMSO, acetamide, phenol, and benzene. Seven molecules report `PASS`; CH3CN reports `WARN` from fixed-conversion failure in the two lowest-frequency modes.
+- [x] (2026-05-14) Broader opt-in validation batch run for MeOH, EtOH, acetone, CH3CN, DMSO, acetamide, phenol, and benzene. An initial CH3CN run reported `WARN`; after adding opt-in Wilson GF linear-bend components for near-linear bends, CH3CN reports `PASS` with `linear_bend_coordinate_used`.
 
 ## Surprises & Discoveries
 
@@ -44,6 +44,9 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 
 - Observation: Exhaustive primitive-basis search did not fix CH3CN.
   Evidence: An exhaustive diagnostic over all 1136 full-rank 12-coordinate primitive subsets for `data\hess\CH3CN_freq.hess` found zero subsets with `PASS` status and `max_relative_error <= 1.0e-4`. The best observed max relative error was `0.01845477680255841`. The CH3CN geometry contains a near-linear `ang(C1-C2-N3)` coordinate at `179.9940447723222` degrees, and the low-frequency warning modes are dominated by this near-linear bend/torsion subspace.
+
+- Observation: Opt-in Wilson GF linear-bend components fix the CH3CN fixed-conversion failure.
+  Evidence: The Wilson GF validation path now appends two perpendicular linear-bend components for near-linear primitive bends without mutating the default Stage 3D primitive coordinate list. For CH3CN, selected indices change to `1;2;4;5;6;10;11;12;13;14;19;20`, where `19` and `20` are `linear_bend_component` rows for `C1-C2-N3`. `outputs\wilson_gf_batch_ch3cn\CH3CN__wilson_gf_validation.csv` reports `PASS`, max relative error `2.948152719245503e-07`, G-condition `33.4146494976297`, F-condition `53.48211609003476`, and warning `linear_bend_coordinate_used`.
 
 ## Decision Log
 
@@ -92,14 +95,14 @@ Phase 4 target CLI runs completed on 2026-05-14. H2O, NH3, formaldehyde, and eth
 | formaldehyde | `outputs\wilson_gf_formaldehyde` | 6 | 6 | 6 | 1293895.778784718 | 6 | 754289.3497871537 | 6 | 6 | 5.666234451789424e-08 | 2720.2284947048374 | 5.033772184914088e-07 | PASS | none |
 | ethene | `outputs\wilson_gf_ethene` | 12 | 12 | 12 | 28.556444875327514 | 12 | 65.64477191436387 | 12 | 12 | 5.61625148639572e-08 | 2720.228494729605 | 6.610274925267368e-09 | PASS | none |
 
-Broader validation batch completed on 2026-05-14. This batch is evidence for the prototype's current numerical envelope, not for VEDA equivalence. Seven of eight molecules passed the fixed-conversion gate; CH3CN returned `WARN`.
+Broader validation batch completed on 2026-05-14. This batch is evidence for the prototype's current numerical envelope, not for VEDA equivalence. After opt-in linear-bend augmentation for near-linear bends, all eight broader-batch molecules pass fixed-conversion validation; CH3CN carries the diagnostic warning `linear_bend_coordinate_used`.
 
 | Molecule | Output directory | Basis size | Expected rank | G-rank | G-condition | F-rank | F-condition | Positive ORCA modes | Max relative error | Empirical ratio median | Empirical ratio std | Status | Warnings |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
 | MeOH | `outputs\wilson_gf_batch_meoh` | 12 | 12 | 12 | 27.457797487906166 | 12 | 236.09060650034456 | 12 | 5.616420455075335e-08 | 2720.2284947383223 | 5.294429644752303e-08 | PASS | none |
 | EtOH | `outputs\wilson_gf_batch_etoh` | 21 | 21 | 21 | 68.05073106259707 | 21 | 251.2245599416959 | 21 | 5.616697269282427e-08 | 2720.2284947275293 | 2.587721576221904e-08 | PASS | none |
 | Acetone | `outputs\wilson_gf_batch_acetone` | 24 | 24 | 24 | 586815398.5892428 | 24 | 8386033069.547947 | 24 | 5.625625863693999e-08 | 2720.228494754702 | 5.165432595206878e-05 | PASS | none |
-| CH3CN | `outputs\wilson_gf_batch_ch3cn` | 12 | 12 | 12 | 423673515.5779151 | 12 | 4979156243.108764 | 12 | 0.018454913619246567 | 2720.240441540698 | 14.063635890182173 | WARN | `near_linear_bend_coordinate; fixed_conversion_failed; empirical_ratio_only` |
+| CH3CN | `outputs\wilson_gf_batch_ch3cn` | 12 | 12 | 12 | 33.4146494976297 | 12 | 53.48211609003476 | 12 | 2.948152719245503e-07 | 2720.2284947126723 | 0.0002652499396613242 | PASS | `linear_bend_coordinate_used` |
 | DMSO | `outputs\wilson_gf_batch_dmso` | 24 | 24 | 24 | 73.13515964560295 | 24 | 109.88705956258443 | 24 | 5.651559409564404e-08 | 2720.228494727352 | 2.34840549448295e-07 | PASS | none |
 | acetamide | `outputs\wilson_gf_batch_acetamide` | 21 | 21 | 21 | 286158581.4001269 | 21 | 5541794646.3023 | 20 | 5.6389704513833395e-08 | 2720.2284947332896 | 3.0801958065541683e-06 | PASS | none |
 | phenol | `outputs\wilson_gf_batch_phenol` | 33 | 33 | 33 | 2108.3644479210197 | 33 | 5386.926054955553 | 33 | 5.6208317650343554e-08 | 2720.2284947158196 | 2.846752966781087e-08 | PASS | none |
@@ -259,10 +262,10 @@ Initial source review placeholders:
 Command transcript placeholders:
 
 - `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py`: passed on 2026-05-14.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q`: passed on 2026-05-14, latest run `7 passed in 4.20s`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q`: passed on 2026-05-14, latest run `8 passed in 24.57s`.
 - `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py src\orcaveda_cli.py src\ORCAVEDA_patched_stage3D_v5_0.py`: passed on 2026-05-14.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q`: passed on 2026-05-14, `19 passed in 1.31s`.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14, latest run `21 passed in 25.78s`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q`: passed on 2026-05-14, latest run `21 passed in 28.08s`.
 - H2O CLI validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\wilson_gf_h2o_cli --wilson-gf-validation`, completed on 2026-05-14.
 - H2O Phase 4 validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\wilson_gf_h2o --wilson-gf-validation`, completed on 2026-05-14.
 - NH3 validation run: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\NH3.hess --outdir outputs\wilson_gf_nh3 --wilson-gf-validation`, completed on 2026-05-14.
@@ -279,8 +282,9 @@ CSV evidence placeholders:
 - NH3 CSVs: generated under `outputs\wilson_gf_nh3`; validation status `PASS`, max relative error `5.616351591931107e-08`, warnings none.
 - Formaldehyde CSVs: generated under `outputs\wilson_gf_formaldehyde`; validation status `PASS`, max relative error `5.666234451789424e-08`, warnings none.
 - Ethene CSVs: generated under `outputs\wilson_gf_ethene`; validation status `PASS`, selected indices `0;4;5;6;7;9;12;13;14;15;17;18`, max relative error `5.61625148639572e-08`, warnings none.
-- Broader batch CSVs: generated under `outputs\wilson_gf_batch_*`; MeOH, EtOH, acetone, DMSO, acetamide, phenol, and benzene report `PASS`; CH3CN reports `WARN` with `near_linear_bend_coordinate; fixed_conversion_failed; empirical_ratio_only`.
+- Broader batch CSVs: generated under `outputs\wilson_gf_batch_*`; MeOH, EtOH, acetone, DMSO, acetamide, phenol, benzene, and CH3CN report `PASS`; CH3CN carries `linear_bend_coordinate_used`.
 - CH3CN exhaustive primitive-basis diagnostic: evaluated 1136 full-rank 12-coordinate subsets; passing subsets `0`; best max relative error `0.01845477680255841`.
+- CH3CN linear-bend CLI rerun: `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\CH3CN_freq.hess --outdir outputs\wilson_gf_batch_ch3cn --wilson-gf-validation`, completed on 2026-05-14 with `PASS`, max relative error `2.948152719245503e-07`.
 
 Standalone H2O diagnostics from `src\wilson_gf.py`:
 

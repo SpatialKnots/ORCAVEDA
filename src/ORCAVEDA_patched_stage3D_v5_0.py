@@ -2082,8 +2082,8 @@ def analyze_general_hess_files(
                 closed_ped_df = wilson_gf_closed_ped(
                     wilson_gf_result,
                     hess,
-                    internals,
-                    B,
+                    wilson_gf_result.validation_internals or internals,
+                    wilson_gf_result.validation_B if wilson_gf_result.validation_B is not None else B,
                     wilson_gf_result.basis_indices,
                     top_n=8,
                 )
