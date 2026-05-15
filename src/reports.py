@@ -1213,8 +1213,9 @@ def write_interactive_spectrum_viewer(
     }}
     .toolbar h1 {{
       margin: 0;
-      font-size: 20px;
-      letter-spacing: 0.01em;
+      font-size: 18px;
+      letter-spacing: 0;
+      color: var(--ink);
     }}
     .toolbar p {{
       display: none;
@@ -1222,11 +1223,12 @@ def write_interactive_spectrum_viewer(
     .toolbar select {{
       min-width: 280px;
       border: 1px solid var(--border);
-      border-radius: 999px;
+      border-radius: 6px;
       padding: 8px 12px;
       background: var(--panel-soft);
       color: var(--ink);
       font-size: 13px;
+      font-family: var(--mono);
     }}
     .grid {{
       display: grid;
@@ -1240,10 +1242,6 @@ def write_interactive_spectrum_viewer(
       grid-column: 1 / -1;
     }}
     .panel-spectrum {{
-      grid-column: 1 / -1;
-      width: 100vw;
-      margin-left: calc(50% - 50vw);
-      margin-right: calc(50% - 50vw);
       min-height: 0;
     }}
     .panel {{
@@ -1264,6 +1262,7 @@ def write_interactive_spectrum_viewer(
       padding: 9px 12px;
       border-bottom: 1px solid var(--border);
       background: var(--panel-elevated);
+      min-height: 42px;
     }}
     .panel-head h2 {{
       margin: 0;
@@ -1295,7 +1294,7 @@ def write_interactive_spectrum_viewer(
     }}
     .summary-grid {{
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       align-self: start;
       align-content: start;
       grid-auto-rows: minmax(0, auto);
@@ -1338,7 +1337,7 @@ def write_interactive_spectrum_viewer(
     }}
     .mode-grid {{
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
       font-size: 12px;
     }}
@@ -1370,7 +1369,7 @@ def write_interactive_spectrum_viewer(
     .control select {{
       padding: 6px 10px;
       border: 1px solid var(--border);
-      border-radius: 999px;
+      border-radius: 6px;
       background: var(--panel-soft);
       color: var(--accent);
       font-size: 11px;
@@ -1394,7 +1393,7 @@ def write_interactive_spectrum_viewer(
     }}
         .ghost-btn {{
           border: 1px solid var(--border);
-          border-radius: 999px;
+          border-radius: 6px;
           padding: 5px 10px;
           background: var(--panel-soft);
       color: var(--accent);
@@ -1421,7 +1420,7 @@ def write_interactive_spectrum_viewer(
     }}
     .tab-button {{
       border: 1px solid var(--border);
-      border-radius: 999px;
+      border-radius: 6px;
       padding: 5px 9px;
       background: var(--panel-soft);
       color: var(--accent);
@@ -1531,7 +1530,7 @@ def write_interactive_spectrum_viewer(
       position: relative;
       flex: 1 1 auto;
       min-height: 0;
-      height: 420px;
+      height: 520px;
       border-radius: 6px;
       overflow: hidden;
     }}
@@ -1576,7 +1575,7 @@ def write_interactive_spectrum_viewer(
       position: relative;
       flex: 1 1 auto;
       width: 100%;
-      min-height: 360px;
+      min-height: 520px;
       border: 1px solid var(--border);
       border-radius: 6px;
       overflow: hidden;
@@ -1612,11 +1611,12 @@ def write_interactive_spectrum_viewer(
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
+      min-width: 0;
     }}
     .viewer-actions select,
     .viewer-actions button {{
       border: 1px solid var(--border);
-      border-radius: 999px;
+      border-radius: 6px;
       padding: 6px 10px;
       background: var(--panel-soft);
       color: var(--accent);
@@ -1624,8 +1624,8 @@ def write_interactive_spectrum_viewer(
     }}
     .table-wrap {{
       overflow: auto;
-      height: 360px;
-      max-height: 360px;
+      height: 420px;
+      max-height: 420px;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: #0b1220;
@@ -1652,6 +1652,12 @@ def write_interactive_spectrum_viewer(
     }}
     td:nth-child(1), td:nth-child(2), td:nth-child(3) {{
       font-family: var(--mono);
+    }}
+    .assignment-cell {{
+      color: var(--accent-green);
+    }}
+    .warning-cell {{
+      color: var(--accent-amber);
     }}
     .ped-contribution-cell {{
       padding: 6px 7px;
@@ -1695,6 +1701,7 @@ def write_interactive_spectrum_viewer(
       cursor: grabbing;
     }}
     .hint {{
+      display: none;
       color: var(--muted);
       font-size: 11px;
       margin-top: 2px;
@@ -1718,7 +1725,7 @@ def write_interactive_spectrum_viewer(
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }}
       .chart-wrap {{
-        height: 340px;
+        height: 380px;
       }}
       #moleculeViewer {{
         min-height: 420px;
@@ -1746,7 +1753,7 @@ def write_interactive_spectrum_viewer(
 <body>
   <div class="wrap">
     <div class="toolbar">
-      <h1>ORCAVEDA Viewer</h1>
+      <h1>ORCAVEDA Interactive IR Spectrum</h1>
       <p>Interactive spectrum viewer with file summary, 3D molecular view, clean peak table, and mode-specific detail panel.</p>
       <select id="fileSelect"></select>
     </div>
@@ -1937,7 +1944,8 @@ def write_interactive_spectrum_viewer(
                   <th>Mode</th>
                   <th>Frequency</th>
                   <th>Intensity</th>
-                  <th>PED Contribution</th>
+                  <th>Final Assignment</th>
+                  <th>Warning</th>
                 </tr>
               </thead>
               <tbody id="peakTable"></tbody>
@@ -3024,7 +3032,7 @@ def write_interactive_spectrum_viewer(
         .sort((a, b) => a.scaled - b.scaled);
       clearElement(peakTable);
       if (!rows.length) {{
-        appendEmptyRow(peakTable, 4, "No modes match the selected composed hint filter.");
+        appendEmptyRow(peakTable, 5, "No modes match the selected composed hint filter.");
         return;
       }}
       for (const mode of rows) {{
@@ -3033,7 +3041,8 @@ def write_interactive_spectrum_viewer(
         appendCell(tr, mode.mode);
         appendCell(tr, mode.scaled.toFixed(1));
         appendCell(tr, Number(mode.intensity).toFixed(3));
-        appendPedContributionCell(tr, mode);
+        appendCell(tr, mode.final_assignment || mode.assignment || "unassigned", "assignment-cell");
+        appendCell(tr, mode.final_assignment_warning || mode.warnings || "none", "warning-cell");
         tr.addEventListener("mouseenter", () => {{
           selectedMode = mode.mode;
           updateModeDetails(file, scale);

@@ -143,13 +143,13 @@ def _index_html() -> str:
     }
     * { box-sizing: border-box; }
     body { font-family: Inter, "Segoe UI", system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
-    main { width: min(1680px, calc(100vw - 32px)); margin: 16px auto; padding: 0 0 24px; }
-    .topbar { display: grid; grid-template-columns: auto minmax(320px, 1fr) minmax(220px, auto); gap: 14px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; position: sticky; top: 8px; z-index: 5; box-shadow: var(--shadow); }
-    h1 { font-size: 20px; margin: 0; white-space: nowrap; }
+    main { width: min(1720px, calc(100vw - 32px)); margin: 12px auto; padding: 0 0 24px; }
+    .topbar { display: grid; grid-template-columns: auto minmax(320px, 1fr) minmax(220px, auto); gap: 14px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-top: 2px solid rgba(96,165,250,0.55); border-radius: 8px; padding: 10px 12px; position: sticky; top: 8px; z-index: 5; box-shadow: var(--shadow); }
+    h1 { font-size: 18px; margin: 0; white-space: nowrap; letter-spacing: 0; }
     form { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .file-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
     input[type=file] { min-width: 220px; max-width: 420px; color: var(--text-secondary); }
-    input[type=file]::file-selector-button { background: var(--panel-soft); color: var(--accent-blue); border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px; margin-right: 10px; cursor: pointer; }
+    input[type=file]::file-selector-button { background: var(--panel-soft); color: var(--accent-blue); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin-right: 10px; cursor: pointer; }
     .nist-option { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--text-secondary); font-size: 14px; }
     input[type=checkbox] { accent-color: var(--accent-cyan); }
     button { background: var(--accent-blue); color: #07111f; border: 1px solid rgba(96,165,250,0.55); border-radius: 6px; padding: 8px 12px; cursor: pointer; white-space: nowrap; font-weight: 700; }
@@ -169,7 +169,7 @@ def _index_html() -> str:
     .run-header h2 { margin: 0; font-size: 16px; }
     .meta { color: var(--text-secondary); font-size: 14px; font-family: var(--mono); }
     .artifact-strip { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: var(--panel-elevated); border-left: 1px solid var(--border); border-right: 1px solid var(--border); padding: 6px 10px; }
-    .artifact-strip a, .diagnostics-toggle { border: 1px solid var(--border); border-radius: 999px; padding: 4px 9px; background: var(--panel-soft); color: var(--accent-blue); text-decoration: none; font-size: 13px; }
+    .artifact-strip a, .diagnostics-toggle { border: 1px solid var(--border); border-radius: 6px; padding: 4px 9px; background: var(--panel-soft); color: var(--accent-blue); text-decoration: none; font-size: 13px; }
     .diagnostics-toggle { cursor: pointer; font-family: inherit; }
     .diagnostics { background: #0b1220; color: var(--text-secondary); border-left: 1px solid var(--border); border-right: 1px solid var(--border); padding: 8px 12px; overflow: auto; max-height: 120px; font-size: 12px; font-family: var(--mono); }
     .viewer-frame { display: block; width: 100%; height: calc(100vh - 142px); min-height: 820px; border: 1px solid var(--border); border-radius: 0 0 8px 8px; background: #0b1020; }
@@ -191,7 +191,7 @@ def _index_html() -> str:
       <label class="file-label" for="files">ORCA .hess files</label>
       <input id="files" name="files" type="file" accept=".hess" multiple required>
       <label class="nist-option"><input id="includeNist" name="include_nist_ir" type="checkbox"> NIST IR</label>
-      <button id="submitButton" type="submit">Run Import</button>
+      <button id="submitButton" type="submit">Analyze</button>
     </form>
     <div id="status" class="status"></div>
   </div>
