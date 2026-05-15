@@ -81,6 +81,9 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - Observation: Full-sweep warning rows are now limited to nonpositive-mode diagnostics and linear/near-linear coordinate diagnostics.
   Evidence: `outputs\wilson_gf_full_sweep_summary.csv` has 12 rows with non-empty warnings. Eight rows have positive/nonpositive mode-count diagnostics: `acetaldehyde.hess`, `acetamide.hess`, `acetanilide.hess`, `aniline.hess`, `DMF_freq.hess`, `H2O2_freq.hess`, `N-methylaniline.hess`, and `toluene.hess`. `CH3CN_freq.hess` carries `linear_bend_coordinate_used`; `benzonitrile.hess` carries `near_linear_bend_coordinate`; `ethyne.hess` and `propyne.hess` are the two fixed-conversion WARN rows.
 
+- Observation: The 2026-05-15 follow-up triage did not identify a safe threshold-free patch for the two full-sweep fixed-conversion `WARN` rows.
+  Evidence: A geometry/rank diagnostic run found `ethyne.hess` has singular values `[2.52387158e+00, 7.78492530e-05, 1.08525405e-06]`, so the geometry is effectively linear, but the parsed ORCA frequencies contain only six positive modes and six nonpositive modes. Selecting seven augmented Wilson GF coordinates gives seven positive GF eigenvalues against six positive ORCA frequencies, producing a mode-count mismatch rather than a validated fixed-conversion pass. The same diagnostic found `propyne.hess` has singular values `[4.16812785, 1.25953191, 1.25950146]`, so the molecule is not globally linear; its remaining `WARN` is tied to a near-linear internal-coordinate subspace. A run with augmented linear-bend components for propyne still reported fixed-conversion error above the `1.0e-4` gate, so no PASS promotion is supported by current evidence.
+
 ## Decision Log
 
 - Decision: Implement the upgrade as a separate module, `src/wilson_gf.py`, instead of extending `src/ped.py` first.
@@ -130,6 +133,10 @@ The first scientific goal is modest and testable: for H2O, verify whether the pr
 - Decision: Treat the full local sweep as validation-envelope evidence, not as default promotion evidence.
   Rationale: The sweep exercises all currently available local `.hess` inputs through the opt-in Wilson GF validation path and shows no `FAIL` rows, but two linear/near-linear molecules still have fixed-conversion `WARN` status. This supports the current prototype's diagnostic envelope, not VEDA equivalence or default assignment-policy changes.
   Date/Author: 2026-05-14 / Codex
+
+- Decision: Preserve the `ethyne.hess` and `propyne.hess` fixed-conversion `WARN` statuses after the 2026-05-15 triage.
+  Rationale: Ethyne exposes a source-data/mode-count boundary for a globally linear molecule, and propyne exposes a near-linear-coordinate limitation. Neither case currently has evidence for a minimal scientific patch that passes the fixed SI conversion gate without changing validation meaning or hiding diagnostics.
+  Date/Author: 2026-05-15 / Codex
 
 ## Outcomes & Retrospective
 
@@ -206,6 +213,8 @@ Full-sweep warning class counts:
 | `near_linear_bend_coordinate` | 2 |
 | `fixed_conversion_failed` | 2 |
 | `empirical_ratio_only` | 2 |
+
+The 2026-05-15 WARN triage preserved these two rows as limitations rather than weakening validation criteria. Ethyne is effectively linear by coordinate SVD, but the parsed ORCA data has only six positive frequencies; a seven-coordinate augmented Wilson GF comparison creates a GF/ORCA positive-mode-count mismatch. Propyne is not globally linear and remains a near-linear internal-coordinate limitation under the current validation basis machinery.
 
 ## Context and Orientation
 
