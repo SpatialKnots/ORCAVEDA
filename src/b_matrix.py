@@ -40,6 +40,7 @@ def analytical_B(
     *,
     eps: float = EPS_FD_A,
     singular_tol: float = 1.0e-12,
+    angle_sin_tol: float = 1.0e-3,
 ) -> tuple[np.ndarray, Dict[str, object]]:
     """
     Build a hybrid analytical B matrix with finite-difference fallback.
@@ -47,9 +48,9 @@ def analytical_B(
     The first GAP 2 implementation is deliberately narrow and additive:
     distance-like two-atom coordinates and regular angle/bend three-atom
     coordinates are analytical; torsions, composed coordinates, linear-bend
-    components, and singular geometries fall back to the existing finite
-    difference row. This function does not replace `finite_difference_B` in the
-    production pipeline.
+    components, and singular or near-linear angle geometries fall back to the
+    existing finite difference row. This function does not replace
+    `finite_difference_B` in the production pipeline.
     """
     coords = np.asarray(coords_A, dtype=float)
     if coords.ndim != 2 or coords.shape[1] != 3:
@@ -62,7 +63,12 @@ def analytical_B(
     fallback_reasons: Dict[str, int] = {}
     row_methods: List[str] = []
     for row_idx, internal in enumerate(internals):
-        row, method, reason = _analytical_internal_coordinate_row(coords, internal, singular_tol=singular_tol)
+        row, method, reason = _analytical_internal_coordinate_row(
+            coords,
+            internal,
+            singular_tol=singular_tol,
+            angle_sin_tol=angle_sin_tol,
+        )
         if row is None:
             row = finite_difference_B(coords, [internal], eps=eps)[0]
             method = "finite_difference_fallback"
@@ -85,6 +91,7 @@ def _analytical_internal_coordinate_row(
     internal: InternalCoordinate,
     *,
     singular_tol: float,
+    angle_sin_tol: float,
 ) -> tuple[np.ndarray | None, str, str]:
     if internal.source == "composed_coordinate":
         return None, "", "composed_coordinate"
@@ -100,9 +107,16 @@ def _analytical_internal_coordinate_row(
             return None, "", "zero_length_distance"
         return row, "analytical_distance", ""
     if len(atoms) == 3 and _is_regular_angle_kind(kind):
-        row = _angle_analytical_row(coords_A, atoms[0], atoms[1], atoms[2], singular_tol=singular_tol)
+        row = _angle_analytical_row(
+            coords_A,
+            atoms[0],
+            atoms[1],
+            atoms[2],
+            singular_tol=singular_tol,
+            angle_sin_tol=angle_sin_tol,
+        )
         if row is None:
-            return None, "", "singular_angle"
+            return None, "", "singular_or_near_linear_angle"
         return row, "analytical_angle", ""
     return None, "", "unsupported_coordinate_kind"
 
@@ -149,6 +163,7 @@ def _angle_analytical_row(
     k: int,
     *,
     singular_tol: float,
+    angle_sin_tol: float,
 ) -> np.ndarray | None:
     u = coords_A[i] - coords_A[j]
     v = coords_A[k] - coords_A[j]
@@ -159,7 +174,7 @@ def _angle_analytical_row(
     cosine = float(np.dot(u, v) / (u_norm * v_norm))
     cosine = max(-1.0, min(1.0, cosine))
     sine = math.sqrt(max(0.0, 1.0 - cosine * cosine))
-    if sine <= singular_tol:
+    if sine <= max(singular_tol, angle_sin_tol):
         return None
 
     dtheta_du = -(

@@ -95,5 +95,26 @@ def test_analytical_b_matrix_falls_back_for_linear_angle_singularity():
     finite = finite_difference_B(coords, internals)
 
     assert diagnostics["method_counts"] == {"finite_difference_fallback": 1}
-    assert diagnostics["fallback_reasons"] == {"singular_angle": 1}
+    assert diagnostics["fallback_reasons"] == {"singular_or_near_linear_angle": 1}
+    assert np.allclose(analytical, finite, atol=1.0e-6, rtol=1.0e-6)
+
+
+def test_analytical_b_matrix_falls_back_for_near_linear_angle():
+    coords = np.array(
+        [
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0e-4, 0.0],
+        ],
+        dtype=float,
+    )
+    internals = [
+        InternalCoordinate("ang(A1-A2-A3)", "bend", (0, 1, 2), 30, angle_fn(0, 1, 2)),
+    ]
+
+    analytical, diagnostics = analytical_B(coords, internals)
+    finite = finite_difference_B(coords, internals)
+
+    assert diagnostics["method_counts"] == {"finite_difference_fallback": 1}
+    assert diagnostics["fallback_reasons"] == {"singular_or_near_linear_angle": 1}
     assert np.allclose(analytical, finite, atol=1.0e-6, rtol=1.0e-6)

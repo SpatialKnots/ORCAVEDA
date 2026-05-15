@@ -72,3 +72,31 @@ Validation:
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_wilson_gf.py -q` -> 42 passed.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> collection failed with `ModuleNotFoundError: No module named 'ORCAVEDA_patched_stage3D_v5_0'` because `PYTHONPATH` was not set.
 - `$env:PYTHONPATH='src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> 2 passed.
+
+---
+Task ID: 5
+Agent: Codex
+Task: Add GAP 2 finite-difference vs hybrid analytical B-matrix comparison harness
+
+Work Log:
+- Added `benchmarks/bmatrix_compare/compare_bmatrix_methods.py` and README.
+- Added `tests/test_b_matrix_method_compare.py`.
+- Extended `analytical_B(...)` with `angle_sin_tol=1.0e-3` so singular or near-linear angle rows fall back to finite differences with `singular_or_near_linear_angle` diagnostics.
+- Added focused near-linear angle fallback coverage in `tests/test_b_matrix_analytical.py`.
+- Updated `docs/analytical_bmatrix_execplan.md` with comparison results and remaining risks.
+- Updated stale GAP status table in `COLLABORATION.md`.
+- Production Stage 3D / Wilson GF pipeline remains on `finite_difference_B`; no pipeline switch was made.
+
+Validation:
+- `.\.venv312\Scripts\python.exe -m py_compile src\b_matrix.py benchmarks\bmatrix_compare\compare_bmatrix_methods.py tests\test_b_matrix_analytical.py tests\test_b_matrix_method_compare.py` -> completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_b_matrix_analytical.py tests\test_b_matrix_method_compare.py -q` -> 6 passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_b_matrix_analytical.py tests\test_b_matrix_method_compare.py tests\test_ped.py tests\test_wilson_gf.py -q` -> 48 passed.
+- `$env:PYTHONPATH='src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> 2 passed.
+- `.\.venv312\Scripts\python.exe benchmarks\bmatrix_compare\compare_bmatrix_methods.py --out outputs\bmatrix_compare_minimal` -> `file_count=4`, `files_with_rows_above_tolerance=0`, `files_with_redundant_rank_change=0`, `files_with_selected_rank_change=0`.
+- `.\.venv312\Scripts\python.exe benchmarks\bmatrix_compare\compare_bmatrix_methods.py --full-sweep --out outputs\bmatrix_compare_full` -> `file_count=55`, `files_with_rows_above_tolerance=3`, `files_with_redundant_rank_change=0`, `files_with_selected_rank_change=0`, `files_with_selected_basis_index_change=4`.
+
+Remaining:
+- Full sweep still reports small angle-row deltas above `1e-5` in 3 files, max `8.065514768418325e-05`.
+- 4 files select different basis indices at the same selected rank.
+- Torsion analytical rows remain unimplemented and use finite-difference fallback.
+- Do not switch the production pipeline to hybrid analytical B without reviewing these diagnostics.

@@ -36,9 +36,9 @@ main (stable, user-merged)
 
 | GAP | Description | Branch | Status | Agent | Last Updated |
 |-----|-------------|--------|--------|-------|-------------|
-| GAP 1 | EPM optimization (GF-PED-aware basis swap) | `gap1/epm-optimization` | Implementation complete, CLI added, needs wiring to `run_orca_ped_like` | Codex + Super Z | 2026-05-15 |
-| GAP 2 | Analytical B-matrix | `gap2/analytical-bmatrix` | Not started | — | — |
-| GAP 3 | VEDA reference validation | `gap3/veda-validation` | Not started | — | — |
+| GAP 1 | EPM optimization (GF-PED-aware basis swap) | `codex-gap1-epm-optimization` / merged to `main` | Complete and merged by user | Codex + Super Z | 2026-05-15 |
+| GAP 2 | Analytical B-matrix | `codex-gap2-analytical-bmatrix` | First additive hybrid API plus comparison harness in progress; production pipeline not switched | Codex | 2026-05-15 |
+| GAP 3 | VEDA reference validation | `codex-gap3-veda-validation` | Reference comparison harness added and pushed; awaiting original VEDA reference outputs | Codex | 2026-05-15 |
 
 ## Agent Capabilities
 
