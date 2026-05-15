@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations
 from math import comb
-from typing import List, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -64,8 +64,27 @@ class WilsonGFResult:
     warnings: Tuple[str, ...]
     mapping_method: str
     conversion_method: str
+    epm_optimized: bool = False
+    epm_swaps: int = 0
+    epm_initial_localization_score: float = 0.0
+    epm_optimized_localization_score: float = 0.0
+    epm_initial_mean_top_percent: float = 0.0
+    epm_optimized_mean_top_percent: float = 0.0
+    epm_initial_diffuse_mode_fraction: float = 1.0
+    epm_optimized_diffuse_mode_fraction: float = 1.0
     validation_internals: Tuple[InternalCoordinate, ...] = ()
     validation_B: np.ndarray | None = None
+
+
+def _empty_wilson_gf_epm_metrics() -> Dict[str, float]:
+    return {
+        "mode_count": 0.0,
+        "mean_top_percent": 0.0,
+        "median_top_percent": 0.0,
+        "min_top_percent": 0.0,
+        "diffuse_mode_fraction": 1.0,
+        "localization_score": 0.0,
+    }
 
 
 def _rank_condition(matrix: np.ndarray, tol: float) -> Tuple[int, float]:
@@ -454,6 +473,202 @@ def reconstruct_wilson_gf_internal_force_matrix(
     return F_internal
 
 
+def wilson_gf_ped_localization_metrics(
+    hess: HessData,
+    internals: Sequence[InternalCoordinate],
+    B: np.ndarray,
+    basis_idx: Sequence[int],
+    *,
+    tol: float = 1.0e-12,
+) -> Dict[str, float]:
+    """
+    Score a nonredundant basis using closed Wilson GF/PED contributions.
+
+    This is an opt-in EPM-like diagnostic objective for ORCAVEDA's VEDA-like
+    audit layer. It maximizes dominant closed GF/PED terms and is not evidence
+    of original VEDA reproduction.
+    """
+    if hess.cartesian_hessian is None:
+        raise ValueError("Wilson GF EPM optimization requires HessData.cartesian_hessian parsed from ORCA $hessian")
+    B_arr = np.asarray(B, dtype=float)
+    idx = tuple(int(i) for i in basis_idx)
+    if B_arr.ndim != 2:
+        raise ValueError(f"B must be a 2D matrix, got shape {B_arr.shape}")
+    if B_arr.shape[0] != len(internals):
+        raise ValueError(f"B row count {B_arr.shape[0]} does not match internal coordinate count {len(internals)}")
+    if any(i < 0 or i >= len(internals) for i in idx):
+        raise ValueError("basis_idx contains an out-of-range internal coordinate index")
+    if not idx:
+        return _empty_wilson_gf_epm_metrics()
+
+    basis_internals = [internals[i] for i in idx]
+    scales = wilson_coordinate_scales(basis_internals)
+    B_internal = B_arr[list(idx), :] * scales[:, None]
+    G = build_wilson_g_matrix(B_internal, hess.masses)
+    F_internal = reconstruct_wilson_gf_internal_force_matrix(B_internal, hess.masses, hess.cartesian_hessian, G)
+    eigenvalues, eigenvectors, _ = solve_symmetric_gf_eigenproblem(G, F_internal, tol=tol)
+    positive_cols = np.where(np.isfinite(eigenvalues) & (eigenvalues > tol))[0]
+    positive_freq_mask = np.isfinite(hess.frequencies_cm1) & (hess.frequencies_cm1 > tol)
+    pair_count = min(len(positive_cols), int(np.sum(positive_freq_mask)))
+    if pair_count <= 0:
+        return _empty_wilson_gf_epm_metrics()
+
+    top_values: List[float] = []
+    for col in positive_cols[:pair_count]:
+        vector = np.asarray(eigenvectors[:, col], dtype=float)
+        force_response = F_internal @ vector
+        signed_terms = vector * force_response
+        signed_terms[~np.isfinite(signed_terms)] = 0.0
+        weights = np.abs(signed_terms)
+        total = float(np.sum(weights))
+        if total <= tol or not np.isfinite(total):
+            continue
+        pct = 100.0 * weights / total
+        top_values.append(float(np.max(pct)))
+    if not top_values:
+        return _empty_wilson_gf_epm_metrics()
+
+    top = np.asarray(top_values, dtype=float)
+    mean_top = float(np.mean(top))
+    median_top = float(np.median(top))
+    min_top = float(np.min(top))
+    diffuse_fraction = float(np.mean(top < 25.0))
+    localization_score = mean_top + 0.25 * median_top - 10.0 * diffuse_fraction
+    return {
+        "mode_count": float(top.size),
+        "mean_top_percent": mean_top,
+        "median_top_percent": median_top,
+        "min_top_percent": min_top,
+        "diffuse_mode_fraction": diffuse_fraction,
+        "localization_score": float(localization_score),
+    }
+
+
+def optimize_wilson_gf_basis_for_epm(
+    hess: HessData,
+    internals: Sequence[InternalCoordinate],
+    B: np.ndarray,
+    selected_idx: Sequence[int],
+    *,
+    target_rank: int | None = None,
+    tol: float = 1.0e-12,
+    max_passes: int = 2,
+    improvement_tol: float = 1.0e-6,
+) -> Tuple[Tuple[int, ...], Dict[str, float]]:
+    """
+    Greedily swap internal coordinates to improve closed Wilson GF/PED locality.
+
+    Rank preservation is mandatory. This optimizer is opt-in and scoped to the
+    Wilson GF/VEDA-like diagnostic basis; it does not change Stage 3D assignment
+    audit labels.
+    """
+    B_arr = np.asarray(B, dtype=float)
+    selected = [int(i) for i in selected_idx]
+    if B_arr.ndim != 2:
+        raise ValueError(f"B must be a 2D matrix, got shape {B_arr.shape}")
+    if B_arr.shape[0] != len(internals):
+        raise ValueError(f"B row count {B_arr.shape[0]} does not match internal coordinate count {len(internals)}")
+    if any(i < 0 or i >= len(internals) for i in selected):
+        raise ValueError("selected_idx contains an out-of-range internal coordinate index")
+    if not selected:
+        metrics = _empty_wilson_gf_epm_metrics()
+        report = {"changed": False, "swaps": 0, "rank": 0, "condition": float("inf"), "initial_rank": 0, "initial_condition": float("inf")}
+        report.update({f"initial_{key}": value for key, value in metrics.items()})
+        report.update({f"optimized_{key}": value for key, value in metrics.items()})
+        return (), report
+
+    start_rank, start_condition, start_f_rank, start_f_condition = _wilson_gf_rank_condition(
+        B_arr,
+        internals,
+        selected,
+        hess.masses,
+        hess.cartesian_hessian,
+        tol,
+    )
+    required_rank = int(target_rank) if target_rank is not None else int(start_rank)
+    required_rank = min(required_rank, int(start_rank))
+    initial_metrics = wilson_gf_ped_localization_metrics(hess, internals, B_arr, selected, tol=tol)
+    best_score = float(initial_metrics["localization_score"])
+    swaps = 0
+
+    candidate_pool = [
+        idx for idx in range(len(internals))
+        if idx not in set(selected) and np.linalg.norm(B_arr[idx, :]) > tol
+    ]
+    candidate_pool = sorted(candidate_pool, key=lambda i: (internals[i].priority, internals[i].name))
+
+    for _pass in range(max(0, int(max_passes))):
+        improved = False
+        for pos, _old_idx in enumerate(list(selected)):
+            best_replacement: tuple[float, int, Dict[str, float]] | None = None
+            for candidate_idx in candidate_pool:
+                if candidate_idx in selected:
+                    continue
+                trial = list(selected)
+                trial[pos] = candidate_idx
+                if len(set(trial)) != len(trial):
+                    continue
+                rank, condition, f_rank, f_condition = _wilson_gf_rank_condition(
+                    B_arr,
+                    internals,
+                    trial,
+                    hess.masses,
+                    hess.cartesian_hessian,
+                    tol,
+                )
+                if (
+                    rank < required_rank
+                    or f_rank < required_rank
+                    or not np.isfinite(condition)
+                    or not np.isfinite(f_condition)
+                ):
+                    continue
+                metrics = wilson_gf_ped_localization_metrics(hess, internals, B_arr, trial, tol=tol)
+                score = float(metrics["localization_score"])
+                if score <= best_score + improvement_tol:
+                    continue
+                if best_replacement is None or score > best_replacement[0] + improvement_tol:
+                    best_replacement = (score, candidate_idx, metrics)
+                elif abs(score - best_replacement[0]) <= improvement_tol:
+                    tie_break = (internals[candidate_idx].priority, internals[candidate_idx].name)
+                    current_tie = (internals[best_replacement[1]].priority, internals[best_replacement[1]].name)
+                    if tie_break < current_tie:
+                        best_replacement = (score, candidate_idx, metrics)
+            if best_replacement is None:
+                continue
+            selected[pos] = best_replacement[1]
+            best_score = best_replacement[0]
+            swaps += 1
+            improved = True
+        if not improved:
+            break
+
+    optimized_rank, optimized_condition, optimized_f_rank, optimized_f_condition = _wilson_gf_rank_condition(
+        B_arr,
+        internals,
+        selected,
+        hess.masses,
+        hess.cartesian_hessian,
+        tol,
+    )
+    optimized_metrics = wilson_gf_ped_localization_metrics(hess, internals, B_arr, selected, tol=tol)
+    report = {
+        "changed": bool(swaps > 0),
+        "swaps": int(swaps),
+        "rank": int(optimized_rank),
+        "condition": float(optimized_condition),
+        "f_rank": int(optimized_f_rank),
+        "f_condition": float(optimized_f_condition),
+        "initial_rank": int(start_rank),
+        "initial_condition": float(start_condition),
+        "initial_f_rank": int(start_f_rank),
+        "initial_f_condition": float(start_f_condition),
+    }
+    report.update({f"initial_{key}": value for key, value in initial_metrics.items()})
+    report.update({f"optimized_{key}": value for key, value in optimized_metrics.items()})
+    return tuple(int(idx) for idx in selected), report
+
+
 def wilson_gf_diagonalization(
     hess: HessData,
     internals: Sequence[InternalCoordinate],
@@ -462,6 +677,9 @@ def wilson_gf_diagonalization(
     *,
     tol: float = 1.0e-12,
     frequency_tol_relative: float = 1.0e-4,
+    epm_optimize: bool = False,
+    epm_max_passes: int = 2,
+    epm_improvement_tol: float = 1.0e-6,
 ) -> WilsonGFResult:
     warnings: List[str] = []
     if hess.cartesian_hessian is None:
@@ -495,6 +713,18 @@ def wilson_gf_diagonalization(
         hess.coords_A,
         hess.cartesian_hessian,
     )
+    epm_report: Dict[str, float | int | bool] = {}
+    if epm_optimize:
+        basis_idx, epm_report = optimize_wilson_gf_basis_for_epm(
+            hess,
+            validation_internals,
+            validation_B,
+            basis_idx,
+            target_rank=expected_vibrational_rank,
+            tol=tol,
+            max_passes=epm_max_passes,
+            improvement_tol=epm_improvement_tol,
+        )
     basis_internals = [validation_internals[idx] for idx in basis_idx]
     scales = wilson_coordinate_scales(basis_internals)
     B_internal = validation_B[list(basis_idx), :] * scales[:, None]
@@ -605,6 +835,14 @@ def wilson_gf_diagonalization(
         warnings=tuple(dict.fromkeys(warnings)),
         mapping_method="sorted_positive_gf_eigenvalues_to_sorted_positive_orca_frequencies",
         conversion_method=f"fixed_SI_hartree_per_amu_angstrom2_to_cm-1:{WILSON_GF_FIXED_CONVERSION_CM1:.12g}",
+        epm_optimized=bool(epm_report.get("changed", False)),
+        epm_swaps=int(epm_report.get("swaps", 0)),
+        epm_initial_localization_score=float(epm_report.get("initial_localization_score", 0.0)),
+        epm_optimized_localization_score=float(epm_report.get("optimized_localization_score", 0.0)),
+        epm_initial_mean_top_percent=float(epm_report.get("initial_mean_top_percent", 0.0)),
+        epm_optimized_mean_top_percent=float(epm_report.get("optimized_mean_top_percent", 0.0)),
+        epm_initial_diffuse_mode_fraction=float(epm_report.get("initial_diffuse_mode_fraction", 1.0)),
+        epm_optimized_diffuse_mode_fraction=float(epm_report.get("optimized_diffuse_mode_fraction", 1.0)),
         validation_internals=tuple(validation_internals),
         validation_B=validation_B,
     )
@@ -676,6 +914,14 @@ def build_wilson_gf_validation_dataframe(result: WilsonGFResult) -> pd.DataFrame
                 "g_condition": result.g_condition,
                 "f_rank": result.f_rank,
                 "f_condition": result.f_condition,
+                "epm_optimized": result.epm_optimized,
+                "epm_swaps": result.epm_swaps,
+                "epm_initial_localization_score": result.epm_initial_localization_score,
+                "epm_optimized_localization_score": result.epm_optimized_localization_score,
+                "epm_initial_mean_top_percent": result.epm_initial_mean_top_percent,
+                "epm_optimized_mean_top_percent": result.epm_optimized_mean_top_percent,
+                "epm_initial_diffuse_mode_fraction": result.epm_initial_diffuse_mode_fraction,
+                "epm_optimized_diffuse_mode_fraction": result.epm_optimized_diffuse_mode_fraction,
                 "warnings": warnings,
                 "method": WILSON_GF_VALIDATION_METHOD,
             }
@@ -702,6 +948,14 @@ def build_wilson_gf_basis_diagnostics_dataframe(result: WilsonGFResult) -> pd.Da
                 "orca_min_nonpositive_frequency_cm-1": result.orca_min_nonpositive_frequency_cm1,
                 "gf_nonpositive_eigenvalue_count": result.gf_nonpositive_eigenvalue_count,
                 "gf_min_nonpositive_eigenvalue": result.gf_min_nonpositive_eigenvalue,
+                "epm_optimized": result.epm_optimized,
+                "epm_swaps": result.epm_swaps,
+                "epm_initial_localization_score": result.epm_initial_localization_score,
+                "epm_optimized_localization_score": result.epm_optimized_localization_score,
+                "epm_initial_mean_top_percent": result.epm_initial_mean_top_percent,
+                "epm_optimized_mean_top_percent": result.epm_optimized_mean_top_percent,
+                "epm_initial_diffuse_mode_fraction": result.epm_initial_diffuse_mode_fraction,
+                "epm_optimized_diffuse_mode_fraction": result.epm_optimized_diffuse_mode_fraction,
                 "warnings": "; ".join(result.warnings),
             }
         ]
@@ -1105,6 +1359,14 @@ def build_veda_like_metadata(
         "selected_indices": list(result.basis_indices),
         "validation_status": result.validation_status,
         "warnings": list(result.warnings),
+        "epm_optimized": result.epm_optimized,
+        "epm_swaps": result.epm_swaps,
+        "epm_initial_localization_score": result.epm_initial_localization_score,
+        "epm_optimized_localization_score": result.epm_optimized_localization_score,
+        "epm_initial_mean_top_percent": result.epm_initial_mean_top_percent,
+        "epm_optimized_mean_top_percent": result.epm_optimized_mean_top_percent,
+        "epm_initial_diffuse_mode_fraction": result.epm_initial_diffuse_mode_fraction,
+        "epm_optimized_diffuse_mode_fraction": result.epm_optimized_diffuse_mode_fraction,
         "mapping_method": result.mapping_method,
         "conversion_method": result.conversion_method,
         "max_relative_error": result.max_relative_error,

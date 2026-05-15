@@ -43,6 +43,21 @@ def cli_main(
             "Diagnostic only; does not claim original VEDA reproduction."
         ),
     )
+    parser.add_argument(
+        "--epm-optimize",
+        action="store_true",
+        help=(
+            "Opt-in EPM-like Wilson GF/PED basis optimization for Wilson GF validation and VEDA-like diagnostics. "
+            "Does not change default Stage 3D assignment audit labels."
+        ),
+    )
+    parser.add_argument("--epm-max-passes", type=int, default=2, help="Maximum greedy EPM optimization passes.")
+    parser.add_argument(
+        "--epm-improvement-tol",
+        type=float,
+        default=1.0e-6,
+        help="Minimum Wilson GF/PED localization-score improvement required for an EPM swap.",
+    )
 
     args, _unknown = parser.parse_known_args()
     if args.list_chem_backends:
@@ -80,6 +95,9 @@ def cli_main(
         experimental_composed_primitive_substitution_constraint=args.experimental_composed_primitive_substitution_constraint,
         wilson_gf_validation=args.wilson_gf_validation,
         veda_like_ped=args.veda_like_ped,
+        epm_optimize=args.epm_optimize,
+        epm_max_passes=args.epm_max_passes,
+        epm_improvement_tol=args.epm_improvement_tol,
     )
 
 

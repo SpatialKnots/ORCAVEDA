@@ -164,3 +164,71 @@ Disable Caveman when the user says:
 - `normal mode`
 - `stop caveman`
 - `обычный режим`
+
+## Multi-Agent Collaboration
+
+ORCAVEDA is developed by three agents: User (owner), Codex (primary implementer), and Super Z (architecture/review). See `COLLABORATION.md` for the full protocol, branch strategy, and handoff rules.
+
+Every session must start by reading `COLLABORATION.md` and `WORKLOG.md`. Every session must end by appending to `WORKLOG.md`.
+
+## GAP 1: EPM Optimization — Implementation Context
+
+### What Is EPM?
+
+EPM (Eigenvector Projection Maximization) is VEDA's iterative basis-optimization strategy. It swaps internal coordinates in the nonredundant basis to maximize dominant PED contributions. The real VEDA uses force-constant-weighted PED from the GF eigenproblem, not geometric projections.
+
+### Current Implementation (as of 2026-05-15)
+
+The GF-PED-aware EPM optimizer is implemented in `src/wilson_gf.py` (lines ~1148-1408):
+
+1. **`wilson_gf_ped_localization_metrics()`** — GF-PED-aware score function.
+   - Builds G and F_internal for the trial basis.
+   - Solves the GF eigenproblem.
+   - Computes PED percentages per positive mode using `|q_i * (F*q)_i| / sum|q_j * (F*q)_j|`.
+   - Returns localization_score = mean_top + 0.25 * median_top - 10.0 * diffuse_fraction.
+   - This is the **correct** EPM metric (force-constant-weighted), unlike the geometric-only `ped_basis_localization_metrics()` in `b_matrix.py`.
+
+2. **`optimize_wilson_gf_basis_for_epm()`** — Iterative swap optimizer.
+   - Takes `initial_basis_idx`, tries swapping each position with all candidates.
+   - Safety checks: G-matrix rank preservation, condition number cap (1e10).
+   - Each swap must improve localization_score by at least `improvement_tol` (default 0.1).
+   - Up to `max_passes` (default 3) passes over all positions.
+   - Returns optimized basis indices and a report dict with swap log.
+
+3. **Integration in `wilson_gf_diagonalization()`** — Opt-in via `epm_optimize=False`.
+   - After `_select_conditioned_wilson_basis()`, if `epm_optimize=True`, runs the swap optimizer.
+   - Verifies G-rank is preserved before accepting the optimized basis.
+   - Adds `"epm_basis_optimized"` or `"epm_optimization_rejected_rank_loss"` to warnings.
+
+4. **CLI flags** — `--epm-optimize`, `--epm-max-passes`, `--epm-improvement-tol` in `orcaveda_cli.py`.
+
+### GAP 1 Status
+
+Current status after Codex validation:
+
+- Completed: EPM core, CLI flags, pipeline wiring through `run_orca_ped_like()`, and focused tests for `H2O_freq.hess` plus `ethene.hess`.
+- Not done: CH4-specific test, because no CH4 `.hess` fixture exists in `data/hess`.
+- Optional future work: emit a dedicated EPM swap-log CSV and benchmark large-molecule runtime.
+
+Historical notes from the Super Z handoff follow; completed items may be listed there for traceability.
+
+### Historical GAP 1 Handoff Notes
+
+- **Wire `epm_optimize` through `run_orca_ped_like()`**: The `ORCAVEDA_patched_stage3D_v5_0.py` calls `wilson_gf_diagonalization()` at lines 2085 and 2192 without passing `epm_optimize`. These call sites need to forward the CLI flag.
+- **Write EPM-specific tests**: Test `wilson_gf_ped_localization_metrics()` and `optimize_wilson_gf_basis_for_epm()` with small molecules (H2O, CH4).
+- **Diagnostic CSV output**: Optionally emit EPM swap log as a CSV alongside existing VEDA-like outputs.
+- **Performance benchmark**: The swap optimizer solves a full GF eigenproblem per candidate per position. For large molecules this may be slow. Consider caching or early-exit heuristics.
+
+### Key Design Decisions
+
+1. **Swap-based, not combinatorial**: O(n_basis * n_candidates) per pass, not C(n, k). This is tractable for typical molecules (3N-6 <= ~30 basis coordinates, ~50-100 candidates).
+
+2. **GF-PED-aware scoring, not geometric**: The old `ped_basis_localization_metrics()` in `b_matrix.py` uses `(B_unit @ mode_unit)^2` — geometric projections only, no force constants. The new `wilson_gf_ped_localization_metrics()` uses the actual GF eigenproblem with F_internal, which is what VEDA does.
+
+3. **Safety-first**: G-rank and condition-number checks at every swap. If rank is lost, the optimization is rejected entirely.
+
+4. **Opt-in, never default**: `epm_optimize=False` by default. This cannot break existing workflows.
+
+### Relationship to `b_matrix.py` Optimizer
+
+`b_matrix.optimize_independent_coordinates_for_ped()` is the OLD geometric EPM optimizer. It is NOT connected to the VEDA-like pipeline and uses the WRONG objective function. Do NOT connect it to `wilson_gf_diagonalization()`. The new `optimize_wilson_gf_basis_for_epm()` replaces it for GF-PED-aware optimization.
