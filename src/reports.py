@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 import re
 from typing import Dict, Sequence
@@ -965,9 +966,22 @@ def build_spectrum_payload(
                 except (TypeError, ValueError):
                     continue
 
+        positive_intensities = [
+            max(0.0, float(intensity))
+            for freq, intensity in zip(hess.frequencies_cm1, hess.ir_intensities)
+            if pd.notna(freq)
+            and float(freq) > 0.0
+            and pd.notna(intensity)
+            and math.isfinite(float(intensity))
+        ]
+        max_positive_intensity = max(positive_intensities, default=0.0)
+
         for mode, (freq, intensity) in enumerate(zip(hess.frequencies_cm1, hess.ir_intensities)):
             if not pd.notna(freq) or float(freq) <= 0.0:
                 continue
+            raw_intensity = float(intensity) if pd.notna(intensity) and math.isfinite(float(intensity)) else 0.0
+            clipped_intensity = max(0.0, raw_intensity)
+            relative_intensity = clipped_intensity / max_positive_intensity if max_positive_intensity > 0.0 else 0.0
             audit_row = audit_by_mode.get(mode)
             ped_row = ped_by_mode.get((str(hess.filename), int(mode)), {})
             composed_ped_row = composed_ped_by_mode.get((str(hess.filename), int(mode)), {})
@@ -1023,7 +1037,8 @@ def build_spectrum_payload(
                 {
                     "mode": int(mode),
                     "frequency_cm1": float(freq),
-                    "intensity": float(intensity),
+                    "intensity": raw_intensity,
+                    "relative_intensity": float(relative_intensity),
                     "assignment": final_assignment,
                     "final_assignment": final_assignment,
                     "final_assignment_source": final_source,
@@ -1238,6 +1253,7 @@ def write_interactive_spectrum_viewer(
       align-items: start;
     }}
     .panel-summary,
+    .panel-spectrum,
     .panel-table {{
       grid-column: 1 / -1;
     }}
@@ -1943,9 +1959,8 @@ def write_interactive_spectrum_viewer(
                 <tr>
                   <th>Mode</th>
                   <th>Frequency</th>
-                  <th>Intensity</th>
+                  <th>Rel. Intensity</th>
                   <th>Final Assignment</th>
-                  <th>Warning</th>
                 </tr>
               </thead>
               <tbody id="peakTable"></tbody>
@@ -2224,6 +2239,17 @@ def write_interactive_spectrum_viewer(
       const g2 = gamma * gamma;
       const dx = x - x0;
       return intensity * (g2 / (dx * dx + g2));
+    }}
+
+    function rawIntensity(mode) {{
+      const value = Number(mode?.intensity);
+      return Number.isFinite(value) ? value : 0;
+    }}
+
+    function relativeIntensity(mode) {{
+      const value = Number(mode?.relative_intensity);
+      if (Number.isFinite(value)) return Math.max(0, value);
+      return Math.max(0, rawIntensity(mode));
     }}
 
     function ensureMoleculeViewer() {{
@@ -2798,7 +2824,7 @@ def write_interactive_spectrum_viewer(
         .map(mode => ({{
           ...mode,
           scaled: Number(mode.frequency_cm1) * scale,
-          weight: Math.max(1e-6, Number(mode.intensity) || 0),
+          weight: Math.max(1e-6, relativeIntensity(mode)),
         }}))
         .sort((a, b) => b.weight - a.weight);
       if (!modes.length) return null;
@@ -2909,7 +2935,7 @@ def write_interactive_spectrum_viewer(
         const x = x1 + (x2 - x1) * i / (n - 1);
         let y = 0;
         for (const mode of scaledModes) {{
-          y += lorentz(x, mode.scaled, Math.max(0, mode.intensity), gamma);
+          y += lorentz(x, mode.scaled, relativeIntensity(mode), gamma);
         }}
         xs.push(x);
         rawYs.push(y);
@@ -2969,7 +2995,8 @@ def write_interactive_spectrum_viewer(
       appendKv(modeDetails, "Mode", mode.mode);
       appendKv(modeDetails, "Scaled Frequency", `${{mode.scaled.toFixed(2)}} cm-1`);
       appendKv(modeDetails, "Original Frequency", `${{mode.frequency_cm1.toFixed(2)}} cm-1`);
-      appendKv(modeDetails, "IR Intensity", Number(mode.intensity).toFixed(4));
+      appendKv(modeDetails, "Relative IR Intensity", relativeIntensity(mode).toFixed(4));
+      appendKv(modeDetails, "Raw ORCA IR Intensity", rawIntensity(mode).toFixed(4));
       appendKv(modeDetails, "Final Assignment", mode.final_assignment || mode.assignment || "unassigned", true);
       appendKv(modeDetails, "Final Assignment Source", mode.final_assignment_source || "ORCAVEDA assignment audit");
       appendKv(modeDetails, "Final Assignment Policy", mode.final_assignment_policy || "n/a");
@@ -3032,7 +3059,7 @@ def write_interactive_spectrum_viewer(
         .sort((a, b) => a.scaled - b.scaled);
       clearElement(peakTable);
       if (!rows.length) {{
-        appendEmptyRow(peakTable, 5, "No modes match the selected composed hint filter.");
+        appendEmptyRow(peakTable, 4, "No modes match the selected composed hint filter.");
         return;
       }}
       for (const mode of rows) {{
@@ -3040,9 +3067,8 @@ def write_interactive_spectrum_viewer(
         if (mode.mode === selectedMode) tr.classList.add("active");
         appendCell(tr, mode.mode);
         appendCell(tr, mode.scaled.toFixed(1));
-        appendCell(tr, Number(mode.intensity).toFixed(3));
+        appendCell(tr, relativeIntensity(mode).toFixed(3));
         appendCell(tr, mode.final_assignment || mode.assignment || "unassigned", "assignment-cell");
-        appendCell(tr, mode.final_assignment_warning || mode.warnings || "none", "warning-cell");
         tr.addEventListener("mouseenter", () => {{
           selectedMode = mode.mode;
           updateModeDetails(file, scale);
@@ -3099,7 +3125,7 @@ def write_interactive_spectrum_viewer(
       chartTooltip.appendChild(strong);
       for (const text of [
         `${{Number(mode.scaled ?? transformFrequencyByEngine(mode.frequency_cm1, currentRender.scale, currentRender.engineName, currentRender.engineFit)).toFixed(1)}} cm-1`,
-        `IR: ${{Number(mode.intensity).toFixed(3)}}`,
+        `Rel. IR: ${{relativeIntensity(mode).toFixed(3)}}`,
       ]) {{
         const div = document.createElement("div");
         div.textContent = text;
@@ -3228,7 +3254,7 @@ def write_interactive_spectrum_viewer(
           const center = mode.scaled;
           if (center < x1 || center > x2) continue;
           const px = tx(center, x1, x2, margin.left, plotW, invertAxis.checked);
-          const stickValue = transformYValue(Math.max(0, mode.intensity), axisMode, Math.max(render.rawMax, 1e-6));
+          const stickValue = transformYValue(relativeIntensity(mode), axisMode, Math.max(render.rawMax, 1e-6));
           const baseline = axisMode === "transmittance" ? render.yMax : render.yMin;
           const stickTop = ty(stickValue, render.yMin, render.yMax, margin.top, plotH);
           const stickBase = ty(baseline, render.yMin, render.yMax, margin.top, plotH);

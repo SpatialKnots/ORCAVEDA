@@ -204,13 +204,6 @@ const statusBox = document.getElementById("status");
 const resultBox = document.getElementById("result");
 const submitButton = document.getElementById("submitButton");
 
-const artifactLabels = {
-  interactive_spectrum_html: "Interactive spectrum viewer",
-  interactive_spectrum_data_json: "Spectrum data JSON",
-  run_manifest_json: "Run manifest JSON",
-  xlsx_report: "XLSX report",
-};
-
 let statusTimer = null;
 const runningMessages = [
   "Uploading .hess file...",
@@ -235,14 +228,6 @@ function renderResult(payload) {
   const artifactUrls = payload.artifact_urls || {};
   const viewerUrl = artifactUrls.interactive_spectrum_html || "";
   const inputFiles = (payload.input_files || []).map(escapeHtml).join(", ");
-  const diagnosticsItems = [`run_id:${payload.run_id || "not_reported"}`, ...(payload.diagnostics || [])];
-  const diagnostics = diagnosticsItems.map((item) => `<div>${escapeHtml(item)}</div>`).join("");
-  const links = Object.entries(artifactUrls)
-    .map(([key, url]) => {
-      const label = artifactLabels[key] || (key.startsWith("nist_reference_set_") ? `NIST reference set (${key.replace("nist_reference_set_", "")})` : key);
-      return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
-    })
-    .join("");
   const viewerBlock = viewerUrl
     ? `<iframe id="resultViewer" class="viewer-frame" src="${viewerUrl}" title="ORCAVEDA interactive spectrum viewer"></iframe>`
     : `<div class="error">Interactive spectrum viewer artifact was not reported.</div>`;
@@ -252,11 +237,6 @@ function renderResult(payload) {
       <h2>Results</h2>
       <div class="meta">${inputFiles || "Input file not reported"}</div>
     </div>
-    <div class="artifact-strip">
-      ${links}
-      <button class="diagnostics-toggle" type="button" onclick="document.getElementById('diagnosticsPanel').hidden = !document.getElementById('diagnosticsPanel').hidden">Diagnostics</button>
-    </div>
-    <div id="diagnosticsPanel" class="diagnostics" hidden>${diagnostics || "No diagnostics reported."}</div>
     ${viewerBlock}
   `;
   resultBox.hidden = false;

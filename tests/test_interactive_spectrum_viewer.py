@@ -78,6 +78,17 @@ def test_interactive_spectrum_viewer_artifacts():
         composed_wilson_ped_audit=composed_wilson_ped,
     )
     target_mode = next(mode for mode in payload["files"][0]["modes"] if mode["mode"] == positive_mode)
+    positive_intensities = [
+        max(0.0, float(intensity))
+        for freq, intensity in zip(hess.frequencies_cm1, hess.ir_intensities)
+        if float(freq) > 0.0
+    ]
+    max_positive_intensity = max(positive_intensities)
+    assert target_mode["intensity"] == float(hess.ir_intensities[positive_mode])
+    assert target_mode["relative_intensity"] == pytest.approx(
+        max(0.0, float(hess.ir_intensities[positive_mode])) / max_positive_intensity
+    )
+    assert max(mode["relative_intensity"] for mode in payload["files"][0]["modes"]) == pytest.approx(1.0)
     assert target_mode["assignment"] == "O-H stretch"
     assert target_mode["final_assignment"] == "O-H stretch"
     assert target_mode["final_assignment_source"] == "ORCAVEDA assignment audit"
@@ -130,7 +141,10 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "Final Assignment" in html_text
     assert "Final Assignment Policy" in html_text
     assert "<th>Final Assignment</th>" in html_text
-    assert "<th>Warning</th>" in html_text
+    assert "<th>Warning</th>" not in html_text
+    assert "<th>Rel. Intensity</th>" in html_text
+    assert "Relative IR Intensity" in html_text
+    assert "Raw ORCA IR Intensity" in html_text
     assert "PED Diagnostic Interpretation" in html_text
     assert "PED Agreement Status" in html_text
     assert "PED Policy Warning" in html_text
@@ -144,7 +158,7 @@ def test_interactive_spectrum_viewer_artifacts():
     assert "Better localization" in html_text
     assert "Differs from baseline" in html_text
     assert "No modes match the selected composed hint filter." in html_text
-    assert 'appendEmptyRow(peakTable, 5' in html_text
+    assert 'appendEmptyRow(peakTable, 4' in html_text
     assert "assignment-cell" in html_text
     assert "warning-cell" in html_text
     assert "ped-contribution-row" in html_text

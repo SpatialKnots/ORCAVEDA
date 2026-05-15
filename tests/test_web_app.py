@@ -72,13 +72,13 @@ def test_web_import_page_embeds_interactive_viewer_after_upload():
 
         assert response.status == 200
         assert "resultViewer" in html
-        assert "Interactive spectrum viewer" in html
+        assert "ORCAVEDA interactive spectrum viewer" in html
         assert "renderResult(payload)" in html
-        assert "Diagnostics" in html
+        assert "Diagnostics" not in html
         assert "include_nist_ir" in html
         assert 'class="topbar"' in html
-        assert 'class="artifact-strip"' in html
-        assert 'class="diagnostics-toggle"' in html
+        assert 'class="artifact-strip"' not in html
+        assert 'class="diagnostics-toggle"' not in html
         assert "height: calc(100vh - 142px)" in html
         assert "<h1>ORCAVEDA</h1>" in html
         assert "setRunningStatus()" in html
