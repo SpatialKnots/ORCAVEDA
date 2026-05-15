@@ -35,6 +35,14 @@ def cli_main(
             "Does not change default Stage 3D or PED outputs."
         ),
     )
+    parser.add_argument(
+        "--veda-like-ped",
+        action="store_true",
+        help=(
+            "Opt-in comparable VEDA-like closed Wilson GF/PED CSVs. "
+            "Diagnostic only; does not claim original VEDA reproduction."
+        ),
+    )
 
     args, _unknown = parser.parse_known_args()
     if args.list_chem_backends:
@@ -71,6 +79,7 @@ def cli_main(
         args.outdir,
         experimental_composed_primitive_substitution_constraint=args.experimental_composed_primitive_substitution_constraint,
         wilson_gf_validation=args.wilson_gf_validation,
+        veda_like_ped=args.veda_like_ped,
     )
 
 

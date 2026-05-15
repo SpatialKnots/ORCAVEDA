@@ -19,6 +19,11 @@ WILSON_GF_VALIDATION_METHOD = (
     "Wilson GF diagonalization validation prototype using selected nonredundant "
     "internal-coordinate basis; diagnostic only, not VEDA-equivalent PED"
 )
+VEDA_LIKE_PED_METHOD = (
+    "Comparable VEDA-like closed Wilson GF/PED audit using ORCAVEDA-selected "
+    "nonredundant internal-coordinate basis; diagnostic only, does not reproduce original VEDA"
+)
+VEDA_LIKE_PED_MATRIX_ORIENTATION = "mode_rows_by_coordinate_columns_long_form"
 
 HARTREE_J = 4.3597447222071e-18
 AMU_KG = 1.66053906892e-27
@@ -778,3 +783,273 @@ def wilson_gf_closed_ped(
                 }
             )
     return pd.DataFrame(rows)
+
+
+def _veda_like_signed_terms(
+    result: WilsonGFResult,
+    hess: HessData,
+    internals: Sequence[InternalCoordinate],
+    B: np.ndarray,
+    selected_idx: Sequence[int],
+    *,
+    tol: float = 1.0e-12,
+) -> Tuple[Tuple[int, ...], List[InternalCoordinate], np.ndarray, np.ndarray]:
+    basis_idx = tuple(int(idx) for idx in selected_idx)
+    if tuple(basis_idx) != result.basis_indices:
+        raise ValueError("selected_idx must match result.basis_indices")
+    if hess.cartesian_hessian is None:
+        raise ValueError("VEDA-like PED requires HessData.cartesian_hessian parsed from ORCA $hessian")
+    basis_internals = [internals[idx] for idx in basis_idx]
+    scales = wilson_coordinate_scales(basis_internals)
+    B_internal = np.asarray(B, dtype=float)[list(basis_idx), :] * scales[:, None]
+    G = build_wilson_g_matrix(B_internal, hess.masses)
+    F_internal = reconstruct_wilson_gf_internal_force_matrix(B_internal, hess.masses, hess.cartesian_hessian, G)
+
+    pair_count = min(len(result.orca_frequencies_cm1), result.gf_eigenvectors.shape[1])
+    signed = np.zeros((pair_count, len(basis_idx)), dtype=float)
+    pct = np.zeros_like(signed)
+    for row_idx in range(pair_count):
+        vector = np.asarray(result.gf_eigenvectors[:, row_idx], dtype=float)
+        force_response = F_internal @ vector
+        signed_terms = vector * force_response
+        signed_terms[~np.isfinite(signed_terms)] = 0.0
+        weights = np.abs(signed_terms)
+        total = float(np.sum(weights))
+        signed[row_idx, :] = signed_terms
+        if total > tol and np.isfinite(total):
+            pct[row_idx, :] = 100.0 * weights / total
+    return basis_idx, basis_internals, signed, pct
+
+
+def build_veda_like_ped_audit_dataframe(
+    result: WilsonGFResult,
+    hess: HessData,
+    internals: Sequence[InternalCoordinate],
+    B: np.ndarray,
+    selected_idx: Sequence[int],
+    *,
+    source_label: str = "",
+    top_n: int = 8,
+    tol: float = 1.0e-12,
+) -> pd.DataFrame:
+    if top_n <= 0:
+        raise ValueError("top_n must be positive")
+    basis_idx, basis_internals, signed, pct = _veda_like_signed_terms(
+        result,
+        hess,
+        internals,
+        B,
+        selected_idx,
+        tol=tol,
+    )
+    rows = []
+    warnings = "; ".join(result.warnings)
+    for row_idx in range(pct.shape[0]):
+        order = np.argsort(pct[row_idx, :])[::-1] if pct.shape[1] else np.array([], dtype=int)
+        if not len(order) or not np.any(pct[row_idx, :] > 0.0):
+            rows.append(
+                {
+                    "Source": source_label,
+                    "Filename": result.filename,
+                    "mode": int(result.orca_mode_indices[row_idx]),
+                    "frequency_cm-1": float(result.orca_frequencies_cm1[row_idx]),
+                    "gf_eigenvector_index": int(row_idx),
+                    "veda_like_rank": 0,
+                    "coord_index": "",
+                    "internal_coordinate": "",
+                    "coordinate_kind": "",
+                    "coordinate_family": "",
+                    "coordinate_class": "",
+                    "signed_ped_fraction": 0.0,
+                    "contribution_percent": 0.0,
+                    "normalization_sum_percent": 0.0,
+                    "matrix_orientation": VEDA_LIKE_PED_MATRIX_ORIENTATION,
+                    "basis_size": result.internal_basis_size,
+                    "validation_status": result.validation_status,
+                    "max_relative_error": result.max_relative_error,
+                    "warnings": warnings or "zero_veda_like_ped_distribution",
+                    "method": VEDA_LIKE_PED_METHOD,
+                }
+            )
+            continue
+        normalization = float(np.sum(pct[row_idx, :]))
+        for rank, local_idx in enumerate(order[:top_n], start=1):
+            percent = float(pct[row_idx, local_idx])
+            if percent <= 0.0:
+                continue
+            ic = basis_internals[int(local_idx)]
+            rows.append(
+                {
+                    "Source": source_label,
+                    "Filename": result.filename,
+                    "mode": int(result.orca_mode_indices[row_idx]),
+                    "frequency_cm-1": float(result.orca_frequencies_cm1[row_idx]),
+                    "gf_eigenvector_index": int(row_idx),
+                    "veda_like_rank": rank,
+                    "coord_index": basis_idx[int(local_idx)],
+                    "internal_coordinate": _compact_coord_label(ic.name),
+                    "coordinate_kind": str(ic.kind),
+                    "coordinate_family": _assignment_family_from_internal(ic),
+                    "coordinate_class": _stage3d_coord_class(ic),
+                    "signed_ped_fraction": float(signed[row_idx, local_idx] / np.sum(np.abs(signed[row_idx, :])))
+                    if np.sum(np.abs(signed[row_idx, :])) > tol
+                    else 0.0,
+                    "contribution_percent": percent,
+                    "normalization_sum_percent": normalization,
+                    "matrix_orientation": VEDA_LIKE_PED_MATRIX_ORIENTATION,
+                    "basis_size": result.internal_basis_size,
+                    "validation_status": result.validation_status,
+                    "max_relative_error": result.max_relative_error,
+                    "warnings": warnings,
+                    "method": VEDA_LIKE_PED_METHOD,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def build_veda_like_ped_matrix_dataframe(
+    result: WilsonGFResult,
+    hess: HessData,
+    internals: Sequence[InternalCoordinate],
+    B: np.ndarray,
+    selected_idx: Sequence[int],
+    *,
+    source_label: str = "",
+    tol: float = 1.0e-12,
+) -> pd.DataFrame:
+    basis_idx, basis_internals, signed, pct = _veda_like_signed_terms(
+        result,
+        hess,
+        internals,
+        B,
+        selected_idx,
+        tol=tol,
+    )
+    rows = []
+    warnings = "; ".join(result.warnings)
+    for row_idx in range(pct.shape[0]):
+        denominator = float(np.sum(np.abs(signed[row_idx, :])))
+        for local_idx, ic in enumerate(basis_internals):
+            rows.append(
+                {
+                    "Source": source_label,
+                    "Filename": result.filename,
+                    "mode": int(result.orca_mode_indices[row_idx]),
+                    "frequency_cm-1": float(result.orca_frequencies_cm1[row_idx]),
+                    "gf_eigenvector_index": int(row_idx),
+                    "coord_index": basis_idx[local_idx],
+                    "internal_coordinate": _compact_coord_label(ic.name),
+                    "coordinate_kind": str(ic.kind),
+                    "coordinate_family": _assignment_family_from_internal(ic),
+                    "coordinate_class": _stage3d_coord_class(ic),
+                    "signed_ped_fraction": float(signed[row_idx, local_idx] / denominator) if denominator > tol else 0.0,
+                    "contribution_percent": float(pct[row_idx, local_idx]),
+                    "normalization_sum_percent": float(np.sum(pct[row_idx, :])),
+                    "matrix_orientation": VEDA_LIKE_PED_MATRIX_ORIENTATION,
+                    "basis_size": result.internal_basis_size,
+                    "validation_status": result.validation_status,
+                    "warnings": warnings,
+                    "method": VEDA_LIKE_PED_METHOD,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def build_veda_like_mode_correspondence_dataframe(
+    result: WilsonGFResult,
+    *,
+    source_label: str = "",
+) -> pd.DataFrame:
+    rows = []
+    warnings = "; ".join(result.warnings)
+    for row_idx in range(len(result.orca_frequencies_cm1)):
+        rows.append(
+            {
+                "Source": source_label,
+                "Filename": result.filename,
+                "mode": int(result.orca_mode_indices[row_idx]),
+                "orca_frequency_cm-1": float(result.orca_frequencies_cm1[row_idx]),
+                "gf_eigenvector_index": int(row_idx),
+                "gf_eigenvalue": float(result.gf_eigenvalues[row_idx]),
+                "reconstructed_frequency_cm-1": float(result.reconstructed_frequencies_cm1[row_idx]),
+                "fixed_conversion_relative_error": (
+                    abs(float(result.reconstructed_frequencies_cm1[row_idx]) - float(result.orca_frequencies_cm1[row_idx]))
+                    / max(abs(float(result.orca_frequencies_cm1[row_idx])), 1.0e-12)
+                ),
+                "mapping_method": result.mapping_method,
+                "conversion_method": result.conversion_method,
+                "validation_status": result.validation_status,
+                "max_relative_error": result.max_relative_error,
+                "warnings": warnings,
+                "method": VEDA_LIKE_PED_METHOD,
+            }
+        )
+    if rows:
+        return pd.DataFrame(rows)
+    return pd.DataFrame(
+        [
+            {
+                "Source": source_label,
+                "Filename": result.filename,
+                "mode": "",
+                "orca_frequency_cm-1": "",
+                "gf_eigenvector_index": "",
+                "gf_eigenvalue": "",
+                "reconstructed_frequency_cm-1": "",
+                "fixed_conversion_relative_error": "",
+                "mapping_method": result.mapping_method,
+                "conversion_method": result.conversion_method,
+                "validation_status": result.validation_status,
+                "max_relative_error": result.max_relative_error,
+                "warnings": warnings,
+                "method": VEDA_LIKE_PED_METHOD,
+            }
+        ]
+    )
+
+
+def build_veda_like_basis_diagnostics_dataframe(
+    result: WilsonGFResult,
+    *,
+    source_label: str = "",
+) -> pd.DataFrame:
+    basis = build_wilson_gf_basis_diagnostics_dataframe(result).copy()
+    if basis.empty:
+        return basis
+    basis["Source"] = source_label
+    basis["basis_scope"] = "veda_like_closed_wilson_gf_ped"
+    basis["matrix_orientation"] = VEDA_LIKE_PED_MATRIX_ORIENTATION
+    basis["validation_status"] = result.validation_status
+    basis["method"] = VEDA_LIKE_PED_METHOD
+    basis["method_boundary"] = "not VEDA-equivalent; original VEDA reference outputs not compared"
+    return basis
+
+
+def build_veda_like_metadata(
+    result: WilsonGFResult,
+    *,
+    source_label: str = "",
+) -> dict:
+    return {
+        "Source": source_label,
+        "Filename": result.filename,
+        "method": VEDA_LIKE_PED_METHOD,
+        "method_boundary": "comparable VEDA-like closed Wilson GF/PED audit; does not reproduce original VEDA",
+        "forbidden_claims": ["VEDA-equivalent", "original VEDA reproduced", "strict VEDA PED"],
+        "normal_mode_orientation_rule": "normal_modes[:, mode]",
+        "matrix_orientation": VEDA_LIKE_PED_MATRIX_ORIENTATION,
+        "coordinate_basis": "Wilson GF validation selected nonredundant internal-coordinate basis",
+        "basis_size": result.internal_basis_size,
+        "expected_vibrational_rank": result.expected_vibrational_rank,
+        "selected_indices": list(result.basis_indices),
+        "validation_status": result.validation_status,
+        "warnings": list(result.warnings),
+        "mapping_method": result.mapping_method,
+        "conversion_method": result.conversion_method,
+        "max_relative_error": result.max_relative_error,
+        "units": {
+            "frequency": "cm-1",
+            "geometry": "Angstrom",
+            "contribution_percent": "dimensionless percent normalized per mode",
+        },
+    }

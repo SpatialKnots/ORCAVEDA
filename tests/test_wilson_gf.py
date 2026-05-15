@@ -18,7 +18,11 @@ from internal_coordinates import build_internal_coordinates  # noqa: E402
 from ORCAVEDA_patched_stage3D_v5_0 import analyze_orca_ped_like  # noqa: E402
 from orca_parser import read_orca_hess  # noqa: E402
 from wilson_gf import (  # noqa: E402
+    VEDA_LIKE_PED_METHOD,
     WILSON_GF_VALIDATION_METHOD,
+    build_veda_like_mode_correspondence_dataframe,
+    build_veda_like_ped_audit_dataframe,
+    build_veda_like_ped_matrix_dataframe,
     build_wilson_gf_basis_diagnostics_dataframe,
     build_wilson_gf_validation_dataframe,
     solve_symmetric_gf_eigenproblem,
@@ -131,6 +135,76 @@ def test_h2o_closed_ped_rows_normalize_to_100_percent_per_mode():
     assert np.allclose(sums.to_numpy(dtype=float), np.full(len(sums), 100.0), atol=1.0e-6)
     normalization = ped.groupby("mode")["normalization_sum_percent"].first()
     assert np.allclose(normalization.to_numpy(dtype=float), np.full(len(normalization), 100.0), atol=1.0e-6)
+
+
+def test_h2o_veda_like_outputs_are_separate_and_normalized():
+    hess, internals, B, selected_idx, _, _ = _h2o_pipeline_basis()
+    result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+
+    audit = build_veda_like_ped_audit_dataframe(result, hess, internals, B, selected_idx, top_n=3)
+    matrix = build_veda_like_ped_matrix_dataframe(result, hess, internals, B, selected_idx)
+    correspondence = build_veda_like_mode_correspondence_dataframe(result)
+
+    assert not audit.empty
+    assert not matrix.empty
+    assert not correspondence.empty
+    assert set(audit["method"]) == {VEDA_LIKE_PED_METHOD}
+    assert set(matrix["method"]) == {VEDA_LIKE_PED_METHOD}
+    assert "does not reproduce original VEDA" in VEDA_LIKE_PED_METHOD
+    assert set(matrix["matrix_orientation"]) == {"mode_rows_by_coordinate_columns_long_form"}
+    sums = matrix.groupby("mode")["contribution_percent"].sum()
+    assert np.allclose(sums.to_numpy(dtype=float), np.full(len(sums), 100.0), atol=1.0e-6)
+    assert set(correspondence["validation_status"]) == {"PASS"}
+
+
+@pytest.mark.parametrize(
+    ("hess_name", "expected_rank", "high_frequency_family"),
+    [
+        ("NH3.hess", 6, "N-H stretch"),
+        ("formaldehyde.hess", 6, "C-H stretch"),
+    ],
+)
+def test_small_molecule_veda_like_outputs_pass_and_keep_xh_stretches(
+    hess_name: str,
+    expected_rank: int,
+    high_frequency_family: str,
+):
+    hess, internals, B, selected_idx, _, _ = _pipeline_basis(hess_name)
+    result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+
+    audit = build_veda_like_ped_audit_dataframe(
+        result,
+        hess,
+        result.validation_internals or internals,
+        result.validation_B if result.validation_B is not None else B,
+        result.basis_indices,
+        top_n=8,
+    )
+    matrix = build_veda_like_ped_matrix_dataframe(
+        result,
+        hess,
+        result.validation_internals or internals,
+        result.validation_B if result.validation_B is not None else B,
+        result.basis_indices,
+    )
+    correspondence = build_veda_like_mode_correspondence_dataframe(result)
+
+    assert result.expected_vibrational_rank == expected_rank
+    assert result.validation_status == "PASS"
+    assert result.warnings == ()
+    assert set(correspondence["validation_status"]) == {"PASS"}
+    assert matrix.shape[0] == expected_rank * expected_rank
+    assert np.allclose(
+        matrix.groupby("mode")["contribution_percent"].sum().to_numpy(dtype=float),
+        np.full(matrix["mode"].nunique(), 100.0),
+        atol=1.0e-6,
+    )
+
+    dominant = audit[audit["veda_like_rank"] == 1]
+    high_frequency = dominant[dominant["frequency_cm-1"] > 2800.0]
+    assert not high_frequency.empty
+    assert set(high_frequency["coordinate_family"]) == {high_frequency_family}
+    assert set(high_frequency["validation_status"]) == {"PASS"}
 
 
 def test_ethene_wilson_gf_validation_selects_conditioned_basis():
@@ -282,3 +356,45 @@ def test_pipeline_wilson_gf_validation_is_opt_in_for_h2o():
     assert next(opt_in_outdir.glob("*__wilson_gf_validation.csv")).is_file()
     assert next(opt_in_outdir.glob("*__wilson_gf_ped_audit.csv")).is_file()
     assert next(opt_in_outdir.glob("*__wilson_gf_basis_diagnostics.csv")).is_file()
+
+
+def test_pipeline_veda_like_ped_is_opt_in_for_h2o():
+    default_outdir = ROOT / "outputs" / "pytest_veda_like_default_h2o"
+    opt_in_outdir = ROOT / "outputs" / "pytest_veda_like_opt_in_h2o"
+    for outdir in (default_outdir, opt_in_outdir):
+        if outdir.exists():
+            shutil.rmtree(outdir)
+        outdir.mkdir(parents=True, exist_ok=True)
+
+    hess_path = ROOT / "data" / "hess" / "H2O_freq.hess"
+    default_tables = analyze_orca_ped_like([hess_path], default_outdir)
+
+    assert "veda_like_ped_audit" not in default_tables
+    assert not list(default_outdir.glob("*__veda_like_ped_audit.csv"))
+    assert not list(default_outdir.glob("*__veda_like_metadata.json"))
+
+    opt_in_tables = analyze_orca_ped_like([hess_path], opt_in_outdir, veda_like_ped=True)
+
+    expected = {
+        "veda_like_ped_audit",
+        "veda_like_ped_matrix",
+        "veda_like_basis_diagnostics",
+        "veda_like_mode_correspondence",
+    }
+    assert expected.issubset(opt_in_tables)
+    assert "wilson_gf_validation" not in opt_in_tables
+    assert not opt_in_tables["veda_like_ped_audit"].empty
+    matrix = opt_in_tables["veda_like_ped_matrix"]
+    assert np.allclose(
+        matrix.groupby("mode")["contribution_percent"].sum().to_numpy(dtype=float),
+        np.full(matrix["mode"].nunique(), 100.0),
+        atol=1.0e-6,
+    )
+    assert next(opt_in_outdir.glob("*__veda_like_ped_audit.csv")).is_file()
+    assert next(opt_in_outdir.glob("*__veda_like_ped_matrix.csv")).is_file()
+    assert next(opt_in_outdir.glob("*__veda_like_basis_diagnostics.csv")).is_file()
+    assert next(opt_in_outdir.glob("*__veda_like_mode_correspondence.csv")).is_file()
+    metadata_path = next(opt_in_outdir.glob("*__veda_like_metadata.json"))
+    metadata = metadata_path.read_text(encoding="utf-8")
+    assert "does not reproduce original VEDA" in metadata
+    assert "normal_modes[:, mode]" in metadata

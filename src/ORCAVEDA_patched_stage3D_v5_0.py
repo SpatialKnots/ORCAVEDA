@@ -79,7 +79,13 @@ from ped import (
     build_wilson_ped_audit_dataframe as ped_build_wilson_ped_audit_dataframe,
 )
 from wilson_gf import (
+    VEDA_LIKE_PED_METHOD,
     WILSON_GF_VALIDATION_METHOD,
+    build_veda_like_basis_diagnostics_dataframe as veda_like_build_basis_diagnostics_dataframe,
+    build_veda_like_metadata as veda_like_build_metadata,
+    build_veda_like_mode_correspondence_dataframe as veda_like_build_mode_correspondence_dataframe,
+    build_veda_like_ped_audit_dataframe as veda_like_build_ped_audit_dataframe,
+    build_veda_like_ped_matrix_dataframe as veda_like_build_ped_matrix_dataframe,
     build_wilson_gf_basis_diagnostics_dataframe as wilson_gf_build_basis_diagnostics_dataframe,
     build_wilson_gf_validation_dataframe as wilson_gf_build_validation_dataframe,
     wilson_gf_closed_ped as wilson_gf_closed_ped,
@@ -1276,7 +1282,7 @@ def build_stage3d_assignment_audit(
         4. Report class totals and top coordinates separately.
 
     This is an assignment audit layer. It is not a strict Wilson GF or
-    strict VEDA-equivalent PED implementation.
+    strict VEDA PED implementation.
     """
     rows: List[Dict[str, object]] = []
 
@@ -1873,6 +1879,7 @@ def analyze_general_hess_files(
     *,
     experimental_composed_primitive_substitution_constraint: bool = False,
     wilson_gf_validation: bool = False,
+    veda_like_ped: bool = False,
 ):
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -1890,6 +1897,9 @@ def analyze_general_hess_files(
     composed_ped_frames, composed_ped_v2_frames, composed_wilson_ped_frames = [], [], []
     composed_ped_basis_rows, composed_ped_diagnostic_rows = [], []
     wilson_gf_validation_frames, wilson_gf_ped_frames, wilson_gf_basis_frames = [], [], []
+    veda_like_ped_audit_frames, veda_like_ped_matrix_frames = [], []
+    veda_like_basis_frames, veda_like_correspondence_frames = [], []
+    veda_like_metadata_records = []
     sanity_rows = []
 
     for source_index, hpath in enumerate(hess_paths, start=1):
@@ -2089,6 +2099,129 @@ def analyze_general_hess_files(
                 )
                 closed_ped_df["Source"] = f"[{source_index}]"
                 wilson_gf_ped_frames.append(closed_ped_df)
+
+        if veda_like_ped:
+            if hess.cartesian_hessian is None:
+                veda_like_ped_audit_frames.append(pd.DataFrame([{
+                    "Source": f"[{source_index}]",
+                    "Filename": hess.filename,
+                    "mode": "",
+                    "frequency_cm-1": "",
+                    "gf_eigenvector_index": "",
+                    "veda_like_rank": 0,
+                    "coord_index": "",
+                    "internal_coordinate": "",
+                    "coordinate_kind": "",
+                    "coordinate_family": "",
+                    "coordinate_class": "",
+                    "signed_ped_fraction": 0.0,
+                    "contribution_percent": 0.0,
+                    "normalization_sum_percent": 0.0,
+                    "matrix_orientation": "mode_rows_by_coordinate_columns_long_form",
+                    "basis_size": len(selected_idx),
+                    "validation_status": "FAIL",
+                    "max_relative_error": "",
+                    "warnings": "missing_cartesian_hessian",
+                    "method": VEDA_LIKE_PED_METHOD,
+                }]))
+                veda_like_ped_matrix_frames.append(pd.DataFrame([{
+                    "Source": f"[{source_index}]",
+                    "Filename": hess.filename,
+                    "mode": "",
+                    "frequency_cm-1": "",
+                    "gf_eigenvector_index": "",
+                    "coord_index": "",
+                    "internal_coordinate": "",
+                    "coordinate_kind": "",
+                    "coordinate_family": "",
+                    "coordinate_class": "",
+                    "signed_ped_fraction": 0.0,
+                    "contribution_percent": 0.0,
+                    "normalization_sum_percent": 0.0,
+                    "matrix_orientation": "mode_rows_by_coordinate_columns_long_form",
+                    "basis_size": len(selected_idx),
+                    "validation_status": "FAIL",
+                    "warnings": "missing_cartesian_hessian",
+                    "method": VEDA_LIKE_PED_METHOD,
+                }]))
+                veda_like_basis_frames.append(pd.DataFrame([{
+                    "Source": f"[{source_index}]",
+                    "Filename": hess.filename,
+                    "basis_size": len(selected_idx),
+                    "expected_vibrational_rank": expected_rank,
+                    "selected_indices": ";".join(str(idx) for idx in selected_idx),
+                    "g_rank": "",
+                    "g_condition": "",
+                    "f_rank": "",
+                    "f_condition": "",
+                    "positive_orca_mode_count": int(len(positive_mode_indices)),
+                    "positive_gf_eigenvalue_count": "",
+                    "warnings": "missing_cartesian_hessian",
+                    "basis_scope": "veda_like_closed_wilson_gf_ped",
+                    "matrix_orientation": "mode_rows_by_coordinate_columns_long_form",
+                    "validation_status": "FAIL",
+                    "method": VEDA_LIKE_PED_METHOD,
+                    "method_boundary": "not VEDA-equivalent; original VEDA reference outputs not compared",
+                }]))
+                veda_like_correspondence_frames.append(pd.DataFrame([{
+                    "Source": f"[{source_index}]",
+                    "Filename": hess.filename,
+                    "mode": "",
+                    "orca_frequency_cm-1": "",
+                    "gf_eigenvector_index": "",
+                    "gf_eigenvalue": "",
+                    "reconstructed_frequency_cm-1": "",
+                    "fixed_conversion_relative_error": "",
+                    "mapping_method": "",
+                    "conversion_method": "",
+                    "validation_status": "FAIL",
+                    "max_relative_error": "",
+                    "warnings": "missing_cartesian_hessian",
+                    "method": VEDA_LIKE_PED_METHOD,
+                }]))
+                veda_like_metadata_records.append({
+                    "Source": f"[{source_index}]",
+                    "Filename": hess.filename,
+                    "method": VEDA_LIKE_PED_METHOD,
+                    "method_boundary": "comparable VEDA-like closed Wilson GF/PED audit; does not reproduce original VEDA",
+                    "forbidden_claims": ["VEDA-equivalent", "original VEDA reproduced", "strict VEDA PED"],
+                    "validation_status": "FAIL",
+                    "warnings": ["missing_cartesian_hessian"],
+                })
+            else:
+                veda_like_result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+                veda_audit_df = veda_like_build_ped_audit_dataframe(
+                    veda_like_result,
+                    hess,
+                    veda_like_result.validation_internals or internals,
+                    veda_like_result.validation_B if veda_like_result.validation_B is not None else B,
+                    veda_like_result.basis_indices,
+                    source_label=f"[{source_index}]",
+                    top_n=8,
+                )
+                veda_like_ped_audit_frames.append(veda_audit_df)
+                veda_matrix_df = veda_like_build_ped_matrix_dataframe(
+                    veda_like_result,
+                    hess,
+                    veda_like_result.validation_internals or internals,
+                    veda_like_result.validation_B if veda_like_result.validation_B is not None else B,
+                    veda_like_result.basis_indices,
+                    source_label=f"[{source_index}]",
+                )
+                veda_like_ped_matrix_frames.append(veda_matrix_df)
+                veda_basis_df = veda_like_build_basis_diagnostics_dataframe(
+                    veda_like_result,
+                    source_label=f"[{source_index}]",
+                )
+                veda_like_basis_frames.append(veda_basis_df)
+                veda_correspondence_df = veda_like_build_mode_correspondence_dataframe(
+                    veda_like_result,
+                    source_label=f"[{source_index}]",
+                )
+                veda_like_correspondence_frames.append(veda_correspondence_df)
+                veda_like_metadata_records.append(
+                    veda_like_build_metadata(veda_like_result, source_label=f"[{source_index}]")
+                )
 
         sanity_df = build_sanity_check_monoethanolamine_monomer(
             hess,
@@ -2309,6 +2442,19 @@ def analyze_general_hess_files(
         tables["wilson_gf_basis_diagnostics"] = (
             pd.concat(wilson_gf_basis_frames, ignore_index=True) if wilson_gf_basis_frames else pd.DataFrame()
         )
+    if veda_like_ped:
+        tables["veda_like_ped_audit"] = (
+            pd.concat(veda_like_ped_audit_frames, ignore_index=True) if veda_like_ped_audit_frames else pd.DataFrame()
+        )
+        tables["veda_like_ped_matrix"] = (
+            pd.concat(veda_like_ped_matrix_frames, ignore_index=True) if veda_like_ped_matrix_frames else pd.DataFrame()
+        )
+        tables["veda_like_basis_diagnostics"] = (
+            pd.concat(veda_like_basis_frames, ignore_index=True) if veda_like_basis_frames else pd.DataFrame()
+        )
+        tables["veda_like_mode_correspondence"] = (
+            pd.concat(veda_like_correspondence_frames, ignore_index=True) if veda_like_correspondence_frames else pd.DataFrame()
+        )
     tables["ped_stage3d_agreement"] = reports_build_ped_stage3d_agreement_table(
         tables["assignment_audit"],
         wilson_ped_audit=tables["wilson_ped_audit"],
@@ -2347,6 +2493,23 @@ def analyze_general_hess_files(
     if wilson_gf_validation:
         general_manifest["wilson_gf_validation"] = (
             "Opt-in Wilson GF diagonalization validation prototype CSVs generated; diagnostic only, not VEDA-equivalent PED"
+        )
+    if veda_like_ped:
+        general_manifest["veda_like_ped"] = (
+            "Opt-in comparable VEDA-like closed Wilson GF/PED CSVs generated; diagnostic only, does not reproduce original VEDA"
+        )
+        (outdir / f"{output_prefix}__veda_like_metadata.json").write_text(
+            json.dumps(
+                {
+                    "method": VEDA_LIKE_PED_METHOD,
+                    "method_boundary": "comparable VEDA-like closed Wilson GF/PED audit; does not reproduce original VEDA",
+                    "forbidden_claims": ["VEDA-equivalent", "original VEDA reproduced", "strict VEDA PED"],
+                    "normal_mode_orientation_rule": "normal_modes[:, mode]",
+                    "records": veda_like_metadata_records,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
         )
     (outdir / f"{output_prefix}__general_engine_manifest.json").write_text(
         json.dumps(general_manifest, indent=2),
@@ -2847,6 +3010,7 @@ def general_outputs_for_hess_files(
     *,
     experimental_composed_primitive_substitution_constraint: bool = False,
     wilson_gf_validation: bool = False,
+    veda_like_ped: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """
     Pipeline hook for the main PED workflow.
@@ -2862,6 +3026,7 @@ def general_outputs_for_hess_files(
         out_paths,
         experimental_composed_primitive_substitution_constraint=experimental_composed_primitive_substitution_constraint,
         wilson_gf_validation=wilson_gf_validation,
+        veda_like_ped=veda_like_ped,
     )
 
 
@@ -2872,6 +3037,7 @@ def analyze_orca_ped_like(
     *,
     experimental_composed_primitive_substitution_constraint: bool = False,
     wilson_gf_validation: bool = False,
+    veda_like_ped: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """
     Integrated entry point for the current development version.
@@ -2897,6 +3063,7 @@ def analyze_orca_ped_like(
         out_paths,
         experimental_composed_primitive_substitution_constraint=experimental_composed_primitive_substitution_constraint,
         wilson_gf_validation=wilson_gf_validation,
+        veda_like_ped=veda_like_ped,
     )
 
     # Stage 3C mode tracking is meaningful only when two or more .hess files are supplied.
@@ -2948,6 +3115,10 @@ def analyze_orca_ped_like(
     if wilson_gf_validation:
         manifest["wilson_gf_validation"] = (
             "Opt-in Wilson GF diagonalization validation prototype CSVs generated; diagnostic only, not VEDA-equivalent PED"
+        )
+    if veda_like_ped:
+        manifest["veda_like_ped"] = (
+            "Opt-in comparable VEDA-like closed Wilson GF/PED CSVs generated; diagnostic only, does not reproduce original VEDA"
         )
     (outdir / f"{output_prefix}__integration_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return tables
