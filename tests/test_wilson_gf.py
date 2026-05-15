@@ -25,11 +25,14 @@ from wilson_gf import (  # noqa: E402
     build_veda_like_ped_matrix_dataframe,
     build_wilson_gf_basis_diagnostics_dataframe,
     build_wilson_gf_validation_dataframe,
+    optimize_wilson_gf_basis_for_epm,
     solve_symmetric_gf_eigenproblem,
     symmetric_sqrt_decomp,
+    wilson_gf_ped_localization_metrics,
     wilson_gf_closed_ped,
     wilson_gf_diagonalization,
 )
+from orcaveda_cli import cli_main  # noqa: E402
 
 
 def _pipeline_basis(hess_name: str):
@@ -227,6 +230,56 @@ def test_ethene_wilson_gf_validation_selects_conditioned_basis():
     assert str(basis.iloc[0]["selected_indices"]) == "0;4;5;6;7;9;12;13;14;15;17;18"
     assert not ped.empty
     assert set(ped["validation_status"]) == {"PASS"}
+
+
+def test_h2o_wilson_gf_epm_opt_in_preserves_pass_and_reports_metrics():
+    hess, internals, B, selected_idx, _, _ = _h2o_pipeline_basis()
+
+    default_result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+    epm_result = wilson_gf_diagonalization(hess, internals, B, selected_idx, epm_optimize=True)
+    direct_metrics = wilson_gf_ped_localization_metrics(
+        hess,
+        epm_result.validation_internals or internals,
+        epm_result.validation_B if epm_result.validation_B is not None else B,
+        epm_result.basis_indices,
+    )
+
+    assert default_result.epm_optimized is False
+    assert default_result.epm_swaps == 0
+    assert epm_result.validation_status == "PASS"
+    assert epm_result.basis_indices == default_result.basis_indices
+    assert epm_result.epm_optimized is False
+    assert epm_result.epm_swaps == 0
+    assert epm_result.epm_initial_localization_score == pytest.approx(direct_metrics["localization_score"])
+    assert epm_result.epm_optimized_localization_score == pytest.approx(direct_metrics["localization_score"])
+    assert epm_result.epm_optimized_mean_top_percent > 0.0
+
+
+def test_ethene_wilson_gf_epm_optimizer_improves_or_preserves_localization():
+    hess, internals, B, selected_idx, _, _ = _pipeline_basis("ethene.hess")
+    conditioned = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+
+    optimized_idx, report = optimize_wilson_gf_basis_for_epm(
+        hess,
+        conditioned.validation_internals or internals,
+        conditioned.validation_B if conditioned.validation_B is not None else B,
+        conditioned.basis_indices,
+        target_rank=conditioned.expected_vibrational_rank,
+    )
+    optimized_result = wilson_gf_diagonalization(hess, internals, B, selected_idx, epm_optimize=True)
+    basis = build_wilson_gf_basis_diagnostics_dataframe(optimized_result)
+
+    assert tuple(optimized_idx) == optimized_result.basis_indices
+    assert optimized_result.validation_status == "PASS"
+    assert optimized_result.g_rank == optimized_result.expected_vibrational_rank
+    assert optimized_result.f_rank == optimized_result.expected_vibrational_rank
+    assert optimized_result.epm_optimized is True
+    assert optimized_result.epm_swaps == int(report["swaps"])
+    assert optimized_result.epm_optimized_localization_score >= (
+        optimized_result.epm_initial_localization_score + 1.0e-6
+    )
+    assert bool(basis.iloc[0]["epm_optimized"]) is True
+    assert int(basis.iloc[0]["epm_swaps"]) == optimized_result.epm_swaps
 
 
 def test_ch3cn_wilson_gf_uses_linear_bend_components_for_near_linear_bend():
@@ -453,3 +506,60 @@ def test_pipeline_veda_like_ped_is_opt_in_for_h2o():
     metadata = metadata_path.read_text(encoding="utf-8")
     assert "does not reproduce original VEDA" in metadata
     assert "normal_modes[:, mode]" in metadata
+
+
+def test_pipeline_veda_like_ped_accepts_epm_opt_in_for_h2o():
+    outdir = ROOT / "outputs" / "pytest_veda_like_epm_opt_in_h2o"
+    if outdir.exists():
+        shutil.rmtree(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    hess_path = ROOT / "data" / "hess" / "H2O_freq.hess"
+    tables = analyze_orca_ped_like([hess_path], outdir, veda_like_ped=True, epm_optimize=True)
+
+    basis = tables["veda_like_basis_diagnostics"]
+    assert not basis.empty
+    assert "epm_optimized" in basis.columns
+    assert "epm_optimized_localization_score" in basis.columns
+    assert set(basis["validation_status"]) == {"PASS"}
+    assert float(basis["epm_optimized_localization_score"].iloc[0]) > 0.0
+    manifest = (outdir / "H2O__integration_manifest.json").read_text(encoding="utf-8")
+    assert "epm_optimize" in manifest
+    metadata = (outdir / "H2O__veda_like_metadata.json").read_text(encoding="utf-8")
+    assert "epm_optimized_localization_score" in metadata
+
+
+def test_cli_passes_epm_options_to_runner(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_runner(paths, outdir, **kwargs):
+        captured["paths"] = paths
+        captured["outdir"] = outdir
+        captured["kwargs"] = kwargs
+        return {}
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "orcaveda",
+            str(ROOT / "data" / "hess" / "H2O_freq.hess"),
+            "--outdir",
+            str(tmp_path),
+            "--veda-like-ped",
+            "--epm-optimize",
+            "--epm-max-passes",
+            "3",
+            "--epm-improvement-tol",
+            "0.5",
+        ],
+    )
+
+    cli_main(fake_runner)
+
+    assert captured["paths"] == [str(ROOT / "data" / "hess" / "H2O_freq.hess")]
+    assert captured["outdir"] == str(tmp_path)
+    assert captured["kwargs"]["veda_like_ped"] is True
+    assert captured["kwargs"]["epm_optimize"] is True
+    assert captured["kwargs"]["epm_max_passes"] == 3
+    assert captured["kwargs"]["epm_improvement_tol"] == pytest.approx(0.5)

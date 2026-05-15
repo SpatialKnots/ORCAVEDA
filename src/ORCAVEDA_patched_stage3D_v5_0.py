@@ -1880,6 +1880,9 @@ def analyze_general_hess_files(
     experimental_composed_primitive_substitution_constraint: bool = False,
     wilson_gf_validation: bool = False,
     veda_like_ped: bool = False,
+    epm_optimize: bool = False,
+    epm_max_passes: int = 2,
+    epm_improvement_tol: float = 1.0e-6,
 ):
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -2082,7 +2085,15 @@ def analyze_general_hess_files(
                     "warnings": "missing_cartesian_hessian",
                 }]))
             else:
-                wilson_gf_result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+                wilson_gf_result = wilson_gf_diagonalization(
+                    hess,
+                    internals,
+                    B,
+                    selected_idx,
+                    epm_optimize=epm_optimize,
+                    epm_max_passes=epm_max_passes,
+                    epm_improvement_tol=epm_improvement_tol,
+                )
                 validation_df = wilson_gf_build_validation_dataframe(wilson_gf_result)
                 validation_df["Source"] = f"[{source_index}]"
                 wilson_gf_validation_frames.append(validation_df)
@@ -2189,7 +2200,15 @@ def analyze_general_hess_files(
                     "warnings": ["missing_cartesian_hessian"],
                 })
             else:
-                veda_like_result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+                veda_like_result = wilson_gf_diagonalization(
+                    hess,
+                    internals,
+                    B,
+                    selected_idx,
+                    epm_optimize=epm_optimize,
+                    epm_max_passes=epm_max_passes,
+                    epm_improvement_tol=epm_improvement_tol,
+                )
                 veda_audit_df = veda_like_build_ped_audit_dataframe(
                     veda_like_result,
                     hess,
@@ -2510,6 +2529,11 @@ def analyze_general_hess_files(
                 indent=2,
             ),
             encoding="utf-8",
+        )
+    if epm_optimize:
+        general_manifest["epm_optimize"] = (
+            "Opt-in Wilson GF/PED EPM-like basis optimization enabled for Wilson GF validation and VEDA-like diagnostics; "
+            "Stage 3D assignment_audit labels are unchanged"
         )
     (outdir / f"{output_prefix}__general_engine_manifest.json").write_text(
         json.dumps(general_manifest, indent=2),
@@ -3011,6 +3035,9 @@ def general_outputs_for_hess_files(
     experimental_composed_primitive_substitution_constraint: bool = False,
     wilson_gf_validation: bool = False,
     veda_like_ped: bool = False,
+    epm_optimize: bool = False,
+    epm_max_passes: int = 2,
+    epm_improvement_tol: float = 1.0e-6,
 ) -> Dict[str, pd.DataFrame]:
     """
     Pipeline hook for the main PED workflow.
@@ -3027,6 +3054,9 @@ def general_outputs_for_hess_files(
         experimental_composed_primitive_substitution_constraint=experimental_composed_primitive_substitution_constraint,
         wilson_gf_validation=wilson_gf_validation,
         veda_like_ped=veda_like_ped,
+        epm_optimize=epm_optimize,
+        epm_max_passes=epm_max_passes,
+        epm_improvement_tol=epm_improvement_tol,
     )
 
 
@@ -3038,6 +3068,9 @@ def analyze_orca_ped_like(
     experimental_composed_primitive_substitution_constraint: bool = False,
     wilson_gf_validation: bool = False,
     veda_like_ped: bool = False,
+    epm_optimize: bool = False,
+    epm_max_passes: int = 2,
+    epm_improvement_tol: float = 1.0e-6,
 ) -> Dict[str, pd.DataFrame]:
     """
     Integrated entry point for the current development version.
@@ -3064,6 +3097,9 @@ def analyze_orca_ped_like(
         experimental_composed_primitive_substitution_constraint=experimental_composed_primitive_substitution_constraint,
         wilson_gf_validation=wilson_gf_validation,
         veda_like_ped=veda_like_ped,
+        epm_optimize=epm_optimize,
+        epm_max_passes=epm_max_passes,
+        epm_improvement_tol=epm_improvement_tol,
     )
 
     # Stage 3C mode tracking is meaningful only when two or more .hess files are supplied.
@@ -3119,6 +3155,11 @@ def analyze_orca_ped_like(
     if veda_like_ped:
         manifest["veda_like_ped"] = (
             "Opt-in comparable VEDA-like closed Wilson GF/PED CSVs generated; diagnostic only, does not reproduce original VEDA"
+        )
+    if epm_optimize:
+        manifest["epm_optimize"] = (
+            "Opt-in Wilson GF/PED EPM-like basis optimization enabled for Wilson GF validation and VEDA-like diagnostics; "
+            "Stage 3D assignment_audit labels are unchanged"
         )
     (outdir / f"{output_prefix}__integration_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return tables
