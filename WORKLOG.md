@@ -51,3 +51,24 @@ Work Log:
 Validation:
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q` -> 23 passed.
 - `$env:PYTHONPATH='src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> 2 passed.
+
+---
+Task ID: 4
+Agent: Codex
+Task: Start GAP 2 analytical B-matrix on codex-gap2-analytical-bmatrix
+
+Work Log:
+- Created branch `codex-gap2-analytical-bmatrix` from current `main`.
+- Reviewed `src/b_matrix.py`, `src/internal_coordinates.py`, `src/orcaveda_models.py`, and B-matrix/PED tests.
+- Added additive `analytical_B(...)` hybrid API in `src/b_matrix.py`.
+- Implemented analytical rows for distance-like two-atom coordinates and regular angle/bend three-atom coordinates.
+- Kept torsions, composed coordinates, linear-bend components, and singular angle rows on finite-difference fallback with diagnostics.
+- Added focused tests in `tests/test_b_matrix_analytical.py`.
+- Added `docs/analytical_bmatrix_execplan.md`.
+
+Validation:
+- `.\.venv312\Scripts\python.exe -m py_compile src\b_matrix.py tests\test_b_matrix_analytical.py` -> completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_b_matrix_analytical.py -q` -> 3 passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_wilson_gf.py -q` -> 42 passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> collection failed with `ModuleNotFoundError: No module named 'ORCAVEDA_patched_stage3D_v5_0'` because `PYTHONPATH` was not set.
+- `$env:PYTHONPATH='src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> 2 passed.

@@ -34,6 +34,150 @@ def finite_difference_B(coords_A: np.ndarray, internals: Sequence[InternalCoordi
     return B
 
 
+def analytical_B(
+    coords_A: np.ndarray,
+    internals: Sequence[InternalCoordinate],
+    *,
+    eps: float = EPS_FD_A,
+    singular_tol: float = 1.0e-12,
+) -> tuple[np.ndarray, Dict[str, object]]:
+    """
+    Build a hybrid analytical B matrix with finite-difference fallback.
+
+    The first GAP 2 implementation is deliberately narrow and additive:
+    distance-like two-atom coordinates and regular angle/bend three-atom
+    coordinates are analytical; torsions, composed coordinates, linear-bend
+    components, and singular geometries fall back to the existing finite
+    difference row. This function does not replace `finite_difference_B` in the
+    production pipeline.
+    """
+    coords = np.asarray(coords_A, dtype=float)
+    if coords.ndim != 2 or coords.shape[1] != 3:
+        raise ValueError(f"coords_A must have shape (natoms, 3), got {coords.shape}")
+    if not np.all(np.isfinite(coords)):
+        raise ValueError("coords_A must contain only finite values")
+
+    B = np.zeros((len(internals), coords.size), dtype=float)
+    method_counts: Dict[str, int] = {}
+    fallback_reasons: Dict[str, int] = {}
+    row_methods: List[str] = []
+    for row_idx, internal in enumerate(internals):
+        row, method, reason = _analytical_internal_coordinate_row(coords, internal, singular_tol=singular_tol)
+        if row is None:
+            row = finite_difference_B(coords, [internal], eps=eps)[0]
+            method = "finite_difference_fallback"
+            fallback_reasons[reason] = fallback_reasons.get(reason, 0) + 1
+        B[row_idx, :] = row
+        row_methods.append(method)
+        method_counts[method] = method_counts.get(method, 0) + 1
+    B[~np.isfinite(B)] = 0.0
+    diagnostics: Dict[str, object] = {
+        "row_count": int(len(internals)),
+        "method_counts": method_counts,
+        "fallback_reasons": fallback_reasons,
+        "row_methods": row_methods,
+    }
+    return B, diagnostics
+
+
+def _analytical_internal_coordinate_row(
+    coords_A: np.ndarray,
+    internal: InternalCoordinate,
+    *,
+    singular_tol: float,
+) -> tuple[np.ndarray | None, str, str]:
+    if internal.source == "composed_coordinate":
+        return None, "", "composed_coordinate"
+
+    atoms = tuple(int(idx) for idx in internal.atoms0)
+    if any(idx < 0 or idx >= coords_A.shape[0] for idx in atoms):
+        raise ValueError("internal coordinate atom index is out of range for coords_A")
+
+    kind = str(internal.kind).lower()
+    if len(atoms) == 2 and _is_distance_like_kind(kind):
+        row = _distance_analytical_row(coords_A, atoms[0], atoms[1], singular_tol=singular_tol)
+        if row is None:
+            return None, "", "zero_length_distance"
+        return row, "analytical_distance", ""
+    if len(atoms) == 3 and _is_regular_angle_kind(kind):
+        row = _angle_analytical_row(coords_A, atoms[0], atoms[1], atoms[2], singular_tol=singular_tol)
+        if row is None:
+            return None, "", "singular_angle"
+        return row, "analytical_angle", ""
+    return None, "", "unsupported_coordinate_kind"
+
+
+def _is_distance_like_kind(kind: str) -> bool:
+    if "torsion" in kind or "angle" in kind or "bend" in kind:
+        return False
+    return (
+        "stretch" in kind
+        or kind in {"bond", "distance", "interfragment_distance"}
+        or kind.endswith("_ha")
+        or kind.endswith("_da")
+    )
+
+
+def _is_regular_angle_kind(kind: str) -> bool:
+    if kind == "linear_bend_component":
+        return False
+    return kind == "bend" or "bend" in kind or "angle" in kind
+
+
+def _distance_analytical_row(
+    coords_A: np.ndarray,
+    i: int,
+    j: int,
+    *,
+    singular_tol: float,
+) -> np.ndarray | None:
+    delta = coords_A[i] - coords_A[j]
+    distance = float(np.linalg.norm(delta))
+    if distance <= singular_tol or not np.isfinite(distance):
+        return None
+    direction = delta / distance
+    row = np.zeros(coords_A.size, dtype=float)
+    row.reshape(coords_A.shape)[i, :] = direction
+    row.reshape(coords_A.shape)[j, :] = -direction
+    return row
+
+
+def _angle_analytical_row(
+    coords_A: np.ndarray,
+    i: int,
+    j: int,
+    k: int,
+    *,
+    singular_tol: float,
+) -> np.ndarray | None:
+    u = coords_A[i] - coords_A[j]
+    v = coords_A[k] - coords_A[j]
+    u_norm = float(np.linalg.norm(u))
+    v_norm = float(np.linalg.norm(v))
+    if u_norm <= singular_tol or v_norm <= singular_tol:
+        return None
+    cosine = float(np.dot(u, v) / (u_norm * v_norm))
+    cosine = max(-1.0, min(1.0, cosine))
+    sine = math.sqrt(max(0.0, 1.0 - cosine * cosine))
+    if sine <= singular_tol:
+        return None
+
+    dtheta_du = -(
+        v / (u_norm * v_norm)
+        - cosine * u / (u_norm * u_norm)
+    ) / sine
+    dtheta_dv = -(
+        u / (u_norm * v_norm)
+        - cosine * v / (v_norm * v_norm)
+    ) / sine
+    scale = 180.0 / math.pi
+    row3 = np.zeros_like(coords_A, dtype=float)
+    row3[i, :] = dtheta_du * scale
+    row3[k, :] = dtheta_dv * scale
+    row3[j, :] = -(row3[i, :] + row3[k, :])
+    return row3.reshape(-1)
+
+
 def compose_b_row(B: np.ndarray, components: Sequence[ComposedCoordinateTerm | tuple[int, float]]) -> np.ndarray:
     """
     Build a composed-coordinate B row from already-computed primitive rows.
