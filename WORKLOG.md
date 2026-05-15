@@ -35,3 +35,19 @@ Stage Summary:
 - CLI integration complete (--epm-optimize and related flags)
 - COLLABORATION.md and AGENTS.md updated for cross-agent context
 - Remaining: wire epm_optimize through ORCAVEDA_patched_stage3D_v5_0.py, write EPM tests, generate patches
+
+---
+Task ID: 3
+Agent: Codex
+Task: Complete GAP 1 EPM wiring, tests, and validation on codex-gap1-epm-optimization
+
+Work Log:
+- Verified Super Z documentation commit `a056146` is present on branch `codex-gap1-epm-optimization`.
+- Verified `epm_optimize`, `epm_max_passes`, and `epm_improvement_tol` are wired through `run_orca_ped_like()` / `analyze_orca_ped_like()` into both Wilson GF validation and VEDA-like diagnostics.
+- Verified EPM tests exist for `H2O_freq.hess` and `ethene.hess`.
+- Did not add CH4-specific test because no CH4 `.hess` fixture exists in `data/hess`.
+- Updated `AGENTS.md` to mark the handoff items as completed and keep the old checklist as historical notes.
+
+Validation:
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q` -> 23 passed.
+- `$env:PYTHONPATH='src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> 2 passed.

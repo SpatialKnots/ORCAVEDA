@@ -202,7 +202,17 @@ The GF-PED-aware EPM optimizer is implemented in `src/wilson_gf.py` (lines ~1148
 
 4. **CLI flags** — `--epm-optimize`, `--epm-max-passes`, `--epm-improvement-tol` in `orcaveda_cli.py`.
 
-### What Still Needs to Be Done for GAP 1
+### GAP 1 Status
+
+Current status after Codex validation:
+
+- Completed: EPM core, CLI flags, pipeline wiring through `run_orca_ped_like()`, and focused tests for `H2O_freq.hess` plus `ethene.hess`.
+- Not done: CH4-specific test, because no CH4 `.hess` fixture exists in `data/hess`.
+- Optional future work: emit a dedicated EPM swap-log CSV and benchmark large-molecule runtime.
+
+Historical notes from the Super Z handoff follow; completed items may be listed there for traceability.
+
+### Historical GAP 1 Handoff Notes
 
 - **Wire `epm_optimize` through `run_orca_ped_like()`**: The `ORCAVEDA_patched_stage3D_v5_0.py` calls `wilson_gf_diagonalization()` at lines 2085 and 2192 without passing `epm_optimize`. These call sites need to forward the CLI flag.
 - **Write EPM-specific tests**: Test `wilson_gf_ped_localization_metrics()` and `optimize_wilson_gf_basis_for_epm()` with small molecules (H2O, CH4).
