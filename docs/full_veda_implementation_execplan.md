@@ -27,7 +27,7 @@ This plan does not claim VEDA equivalence. The forbidden wording for source code
 - [ ] Extend composed-coordinate optimization with verifiable EPM-like metrics and conservative promotion rules.
 - [x] Implement initial mode correspondence between ORCA normal modes, GF eigenvectors, and PED matrix rows for the closed Wilson GF/PED backend.
 - [x] Add initial `veda_like_*` output artifacts behind an explicit opt-in interface.
-- [ ] Add a future original-VEDA comparison harness that is inactive until VEDA reference outputs are checked in.
+- [x] Add a future original-VEDA comparison harness that is inactive until VEDA reference outputs are checked in.
 
 ## Surprises & Discoveries
 
@@ -70,6 +70,9 @@ This plan does not claim VEDA equivalence. The forbidden wording for source code
 - Observation: `tools\validate_veda_like_outputs.py` now provides a repeatable gate for `veda_like_*` artifacts by reading basis diagnostics, mode correspondence, PED matrix, and PED audit CSVs. It reports PASS/WARN/FAIL counts, warning-token counts, artifact row counts, and per-mode matrix normalization failures.
   Evidence: `tools\validate_veda_like_outputs.py` and `tests\test_validate_veda_like_outputs.py`.
 
+- Observation: GAP 3 now has a skip-safe original VEDA reference comparison harness. Missing reference data reports `SKIP`, not `PASS`.
+  Evidence: `benchmarks\veda_compare\compare_veda_outputs.py`, `benchmarks\veda_compare\README.md`, and `tests\test_veda_reference_compare.py`.
+
 ## Decision Log
 
 - Decision: Start with a planning-only milestone, not immediate algorithm rewrites.
@@ -86,6 +89,10 @@ This plan does not claim VEDA equivalence. The forbidden wording for source code
 
 - Decision: Reserve `VEDA-equivalent`, `original VEDA reproduced`, and `strict VEDA PED` until a future comparison suite passes against original VEDA reference outputs.
   Rationale: Current evidence supports VEDA-like and VEDA-inspired diagnostics, not equivalence to the original VEDA implementation.
+  Date/Author: 2026-05-15 / Codex
+
+- Decision: The original VEDA comparison harness must return `SKIP` when reference outputs are absent.
+  Rationale: Missing reference files cannot support a validation PASS or any equivalence claim.
   Date/Author: 2026-05-15 / Codex
 
 ## Outcomes & Retrospective

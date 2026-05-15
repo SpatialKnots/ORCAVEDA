@@ -51,3 +51,23 @@ Work Log:
 Validation:
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q` -> 23 passed.
 - `$env:PYTHONPATH='src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> 2 passed.
+
+---
+Task ID: 4
+Agent: Codex
+Task: Start GAP 3 VEDA reference validation harness on codex-gap3-veda-validation
+
+Work Log:
+- Created branch `codex-gap3-veda-validation`.
+- Updated `COLLABORATION.md` GAP status: GAP 1 complete/merged, GAP 3 in progress.
+- Added skip-safe original VEDA reference comparison harness under `benchmarks/veda_compare`.
+- Added focused synthetic tests for missing-reference SKIP, matching PASS, percent-delta FAIL, and dominant-coordinate FAIL.
+- Added `docs/veda_reference_validation_execplan.md` and updated the broader VEDA-like ExecPlan with the GAP 3 harness decision.
+- Documented the reference fixture contract in `benchmarks/veda_compare/README.md`.
+- Added a committed missing-reference SKIP example under `benchmarks/veda_compare/examples/missing_reference_probe`.
+
+Validation:
+- `.\.venv312\Scripts\python.exe -m py_compile benchmarks\veda_compare\compare_veda_outputs.py tests\test_veda_reference_compare.py` -> completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_veda_reference_compare.py tests\test_validate_veda_like_outputs.py -q` -> 9 passed.
+- `.\.venv312\Scripts\python.exe benchmarks\veda_compare\compare_veda_outputs.py --orcaveda outputs\pytest_veda_like_epm_opt_in_h2o --reference data\veda_reference_missing --out outputs\veda_reference_compare_skip_probe` -> `comparison_status=SKIP`, `acceptance_status=SKIP`, `reason=veda_reference_directory_missing`.
+- `.\.venv312\Scripts\python.exe benchmarks\veda_compare\compare_veda_outputs.py --orcaveda outputs\pytest_veda_like_epm_opt_in_h2o --reference data\veda_reference_missing --out benchmarks\veda_compare\examples\missing_reference_probe` -> committed SKIP example generated.
