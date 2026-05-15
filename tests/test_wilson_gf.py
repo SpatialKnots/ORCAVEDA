@@ -246,6 +246,61 @@ def test_ch3cn_wilson_gf_uses_linear_bend_components_for_near_linear_bend():
     assert "linear_bend_coordinate_used" in str(basis.iloc[0]["warnings"])
 
 
+@pytest.mark.parametrize(
+    ("hess_name", "geometry_warning"),
+    [
+        ("ethyne.hess", "linear_bend_coordinate_used"),
+        ("propyne.hess", "near_linear_bend_coordinate"),
+    ],
+)
+def test_linear_edge_cases_keep_fixed_conversion_review_warning(hess_name: str, geometry_warning: str):
+    hess, internals, B, selected_idx, _, _ = _pipeline_basis(hess_name)
+
+    result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+    basis = build_wilson_gf_basis_diagnostics_dataframe(result)
+    correspondence = build_veda_like_mode_correspondence_dataframe(result)
+
+    assert result.validation_status == "WARN"
+    assert geometry_warning in result.warnings
+    assert "fixed_conversion_failed" in result.warnings
+    assert "linear_or_near_linear_fixed_conversion_review" in result.warnings
+    assert "empirical_ratio_only" in result.warnings
+    assert set(correspondence["validation_status"]) == {"WARN"}
+    assert "linear_or_near_linear_fixed_conversion_review" in str(basis.iloc[0]["warnings"])
+
+
+@pytest.mark.parametrize(
+    ("hess_name", "mode"),
+    [
+        ("monoethanolamine_dimer_NH_to_O_DFT.hess", 63),
+        ("monoethanolamine_dimer_OH_to_N_DFT.hess", 60),
+    ],
+)
+def test_hbonded_high_frequency_xh_modes_report_secondary_stretch_warning(hess_name: str, mode: int):
+    hess, internals, B, selected_idx, _, _ = _pipeline_basis(hess_name)
+    result = wilson_gf_diagonalization(hess, internals, B, selected_idx)
+
+    audit = build_veda_like_ped_audit_dataframe(
+        result,
+        hess,
+        result.validation_internals or internals,
+        result.validation_B if result.validation_B is not None else B,
+        result.basis_indices,
+        top_n=8,
+    )
+    mode_rows = audit[audit["mode"] == mode].sort_values("veda_like_rank")
+
+    assert result.validation_status == "PASS"
+    assert not mode_rows.empty
+    assert mode_rows.iloc[0]["coordinate_family"] == "H-bond / intermolecular"
+    assert mode_rows.iloc[0]["frequency_cm-1"] > 2800.0
+    assert mode_rows["coordinate_family"].astype(str).str.contains("N-H stretch", regex=False).any()
+    assert mode_rows["warnings"].astype(str).str.contains(
+        "high_frequency_hbond_dominates_xh_stretch_secondary",
+        regex=False,
+    ).all()
+
+
 def test_aniline_wilson_gf_warns_when_positive_modes_are_below_expected_rank():
     hess, internals, B, selected_idx, _, _ = _pipeline_basis("aniline.hess")
 

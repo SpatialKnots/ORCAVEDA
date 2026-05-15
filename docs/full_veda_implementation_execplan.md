@@ -20,6 +20,7 @@ This plan does not claim VEDA equivalence. The forbidden wording for source code
 - [x] (2026-05-15) Added first opt-in `--veda-like-ped` backend and `veda_like_*` artifacts on top of the closed Wilson GF validation core.
 - [x] (2026-05-15) Extended focused VEDA-like validation beyond H2O with NH3/formaldehyde tests and NH3/formaldehyde/ethene probe outputs.
 - [x] (2026-05-15) Ran mixed-molecule and full local `.hess` VEDA-like sweeps and recorded PASS/WARN diagnostics.
+- [x] (2026-05-15) Hardened diagnostics for linear/near-linear fixed-conversion WARN cases and H-bond-dominated high-frequency X-H modes.
 - [ ] Promote the Wilson GF/PED backend from prototype/diagnostic-only status to a production-ready opt-in backend with explicit numerical gates across the full local `.hess` set.
 - [ ] Define and implement the stable nonredundant or optimized internal-coordinate basis used by the VEDA-like backend.
 - [ ] Extend composed-coordinate optimization with verifiable EPM-like metrics and conservative promotion rules.
@@ -58,6 +59,12 @@ This plan does not claim VEDA equivalence. The forbidden wording for source code
 
 - Observation: Most full-sweep high-frequency dominant rows are X-H stretch families, but two monoethanolamine dimer modes above 2800 cm-1 have a hydrogen-bond coordinate as rank 1 and an N-H stretch as rank 2. This is not evidence of original VEDA equivalence and should remain a diagnostic inspection item before production promotion.
   Evidence: `monoethanolamine_dimer_NH_to_O_DFT.hess` mode 63 and `monoethanolamine_dimer_OH_to_N_DFT.hess` mode 60 in full-sweep `veda_like_ped_audit.csv`.
+
+- Observation: Linear and near-linear fixed-conversion failures now get the explicit warning token `linear_or_near_linear_fixed_conversion_review` in addition to the existing `fixed_conversion_failed` and `empirical_ratio_only` tokens.
+  Evidence: `tests/test_wilson_gf.py`; regenerated `outputs\veda_like_edge_diagnostics_probe` for ethyne and propyne.
+
+- Observation: H-bond-dominated high-frequency modes with secondary X-H stretch contributors now get the explicit mode-level warning token `high_frequency_hbond_dominates_xh_stretch_secondary` in the VEDA-like audit and matrix warning fields.
+  Evidence: `tests/test_wilson_gf.py`; regenerated `outputs\veda_like_edge_diagnostics_probe` for the two monoethanolamine dimer cases.
 
 ## Decision Log
 
@@ -106,6 +113,16 @@ Validation outcome for this milestone:
 - Mixed subset result: all five files have PASS mode correspondence. Aniline reports nonpositive-mode warnings already visible in basis diagnostics.
 - Full-sweep result: 55 files processed; basis diagnostics report 53 PASS and 2 WARN; mode correspondence rows report 1560 PASS and 21 WARN; full PED matrix normalization has zero detected per-mode deviations from 100.0 after rounding to six decimals.
 - Full-sweep limitation: ethyne and propyne remain WARN because the fixed SI conversion failed and only empirical ratio evidence is available. Two monoethanolamine dimer high-frequency modes are dominated by H-bond coordinates with N-H stretch as rank 2, so high-frequency X-H semantics need review before claiming production readiness.
+
+Edge-diagnostic hardening outcome:
+
+- `.\.venv312\Scripts\python.exe -m py_compile src\wilson_gf.py tests\test_wilson_gf.py` completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q` returned `19 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` returned `21 passed`.
+- `.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\ethyne.hess data\hess\propyne.hess data\hess\monoethanolamine_dimer_NH_to_O_DFT.hess data\hess\monoethanolamine_dimer_OH_to_N_DFT.hess --outdir outputs\veda_like_edge_diagnostics_probe --veda-like-ped` completed in CLI mode.
+- The edge probe reports `WARN` for ethyne and propyne with `linear_or_near_linear_fixed_conversion_review`.
+- The edge probe reports `PASS` for both monoethanolamine dimers and adds `high_frequency_hbond_dominates_xh_stretch_secondary` on the two H-bond-dominated high-frequency modes.
+- The edge-probe long-form PED matrix has zero detected per-mode normalization deviations from 100.0 after rounding to six decimals.
 
 ## Context and Orientation
 

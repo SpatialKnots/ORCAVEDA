@@ -369,6 +369,16 @@ def _uses_linear_bend_component(internals: Sequence[InternalCoordinate], basis_i
     return any(internals[int(idx)].kind == "linear_bend_component" for idx in basis_idx)
 
 
+def _join_warning_tokens(*parts: str) -> str:
+    tokens: List[str] = []
+    for part in parts:
+        for token in str(part or "").split(";"):
+            cleaned = token.strip()
+            if cleaned and cleaned not in tokens:
+                tokens.append(cleaned)
+    return "; ".join(tokens)
+
+
 def symmetric_sqrt_decomp(A: np.ndarray, tol: float = 1.0e-12) -> Tuple[np.ndarray, np.ndarray]:
     arr = np.asarray(A, dtype=float)
     if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
@@ -553,6 +563,8 @@ def wilson_gf_diagonalization(
     fixed_conversion_failed = not np.isfinite(max_relative_error) or max_relative_error > frequency_tol_relative
     if fixed_conversion_failed:
         warnings.append("fixed_conversion_failed")
+        if "near_linear_bend_coordinate" in warnings or "linear_bend_coordinate_used" in warnings:
+            warnings.append("linear_or_near_linear_fixed_conversion_review")
     if fixed_conversion_failed and finite_empirical.size:
         warnings.append("empirical_ratio_only")
 
@@ -821,6 +833,43 @@ def _veda_like_signed_terms(
     return basis_idx, basis_internals, signed, pct
 
 
+def _is_xh_stretch_family(family: str) -> bool:
+    text = str(family or "").lower()
+    return ("c-h" in text or "n-h" in text or "o-h" in text) and "stretch" in text
+
+
+def _is_hbond_or_interfragment_family(family: str) -> bool:
+    text = str(family or "").lower()
+    return "h-bond" in text or "hbond" in text or "intermolecular" in text or "interfragment" in text
+
+
+def _veda_like_mode_warning(
+    frequency_cm1: float,
+    row_pct: np.ndarray,
+    basis_internals: Sequence[InternalCoordinate],
+    base_warnings: str,
+    *,
+    high_frequency_cm1: float = 2800.0,
+) -> str:
+    warnings = str(base_warnings or "")
+    if not np.isfinite(float(frequency_cm1)) or float(frequency_cm1) <= high_frequency_cm1 or row_pct.size == 0:
+        return warnings
+
+    order = np.argsort(row_pct)[::-1]
+    if not len(order) or float(row_pct[order[0]]) <= 0.0:
+        return warnings
+    top_family = _assignment_family_from_internal(basis_internals[int(order[0])])
+    if not _is_hbond_or_interfragment_family(top_family):
+        return warnings
+    for local_idx in order[1:]:
+        if float(row_pct[local_idx]) <= 0.0:
+            continue
+        family = _assignment_family_from_internal(basis_internals[int(local_idx)])
+        if _is_xh_stretch_family(family):
+            return _join_warning_tokens(warnings, "high_frequency_hbond_dominates_xh_stretch_secondary")
+    return warnings
+
+
 def build_veda_like_ped_audit_dataframe(
     result: WilsonGFResult,
     hess: HessData,
@@ -845,6 +894,12 @@ def build_veda_like_ped_audit_dataframe(
     rows = []
     warnings = "; ".join(result.warnings)
     for row_idx in range(pct.shape[0]):
+        row_warnings = _veda_like_mode_warning(
+            float(result.orca_frequencies_cm1[row_idx]),
+            pct[row_idx, :],
+            basis_internals,
+            warnings,
+        )
         order = np.argsort(pct[row_idx, :])[::-1] if pct.shape[1] else np.array([], dtype=int)
         if not len(order) or not np.any(pct[row_idx, :] > 0.0):
             rows.append(
@@ -867,7 +922,7 @@ def build_veda_like_ped_audit_dataframe(
                     "basis_size": result.internal_basis_size,
                     "validation_status": result.validation_status,
                     "max_relative_error": result.max_relative_error,
-                    "warnings": warnings or "zero_veda_like_ped_distribution",
+                    "warnings": row_warnings or "zero_veda_like_ped_distribution",
                     "method": VEDA_LIKE_PED_METHOD,
                 }
             )
@@ -900,7 +955,7 @@ def build_veda_like_ped_audit_dataframe(
                     "basis_size": result.internal_basis_size,
                     "validation_status": result.validation_status,
                     "max_relative_error": result.max_relative_error,
-                    "warnings": warnings,
+                    "warnings": row_warnings,
                     "method": VEDA_LIKE_PED_METHOD,
                 }
             )
@@ -928,6 +983,12 @@ def build_veda_like_ped_matrix_dataframe(
     rows = []
     warnings = "; ".join(result.warnings)
     for row_idx in range(pct.shape[0]):
+        row_warnings = _veda_like_mode_warning(
+            float(result.orca_frequencies_cm1[row_idx]),
+            pct[row_idx, :],
+            basis_internals,
+            warnings,
+        )
         denominator = float(np.sum(np.abs(signed[row_idx, :])))
         for local_idx, ic in enumerate(basis_internals):
             rows.append(
@@ -948,7 +1009,7 @@ def build_veda_like_ped_matrix_dataframe(
                     "matrix_orientation": VEDA_LIKE_PED_MATRIX_ORIENTATION,
                     "basis_size": result.internal_basis_size,
                     "validation_status": result.validation_status,
-                    "warnings": warnings,
+                    "warnings": row_warnings,
                     "method": VEDA_LIKE_PED_METHOD,
                 }
             )
