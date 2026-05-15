@@ -96,6 +96,46 @@ def test_validate_veda_like_outputs_reports_warn_tokens_without_normalization_fa
     assert summary["normalization_failure_count"] == 0
     assert summary["warning_token_counts"]["fixed_conversion_failed"] == 4
     assert summary["warning_token_counts"]["linear_or_near_linear_fixed_conversion_review"] == 4
+    assert summary["all_warning_token_counts"]["empirical_ratio_only"] == 4
+    assert summary["acceptance_status"] == "WARN"
+
+
+def test_validate_veda_like_outputs_accepts_allowed_warning_tokens(tmp_path: Path):
+    _write_minimal_veda_like_set(
+        tmp_path,
+        status="WARN",
+        warning="fixed_conversion_failed; linear_or_near_linear_fixed_conversion_review; empirical_ratio_only",
+    )
+
+    summary = validate_veda_like_outputs(
+        tmp_path,
+        allowed_warning_tokens={
+            "fixed_conversion_failed",
+            "linear_or_near_linear_fixed_conversion_review",
+            "empirical_ratio_only",
+        },
+    )
+
+    assert summary["validation_status"] == "WARN"
+    assert summary["acceptance_status"] == "PASS"
+    assert summary["unexpected_warning_token_counts"] == {}
+
+
+def test_validate_veda_like_outputs_fails_acceptance_for_unexpected_warning_tokens(tmp_path: Path):
+    _write_minimal_veda_like_set(
+        tmp_path,
+        status="WARN",
+        warning="fixed_conversion_failed; empirical_ratio_only",
+    )
+
+    summary = validate_veda_like_outputs(
+        tmp_path,
+        allowed_warning_tokens={"fixed_conversion_failed"},
+    )
+
+    assert summary["validation_status"] == "WARN"
+    assert summary["acceptance_status"] == "FAIL"
+    assert summary["unexpected_warning_token_counts"] == {"empirical_ratio_only": 4}
 
 
 def test_validate_veda_like_outputs_reports_fail_for_bad_normalization(tmp_path: Path):
@@ -113,3 +153,4 @@ def test_validate_veda_like_outputs_reports_fail_for_bad_normalization(tmp_path:
     assert summary["normalization_failures"][0]["mode"] == "6"
     assert summary["normalization_failures"][0]["contribution_percent_sum"] == 95.0
     assert summary["warning_token_counts"]["high_frequency_hbond_dominates_xh_stretch_secondary"] == 4
+    assert summary["acceptance_status"] == "FAIL"

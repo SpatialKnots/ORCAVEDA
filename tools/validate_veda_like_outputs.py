@@ -37,16 +37,21 @@ def _status_counts(frame: pd.DataFrame, column: str = "validation_status") -> di
 
 
 def _count_warning_tokens(*frames: pd.DataFrame) -> dict[str, int]:
+    all_counts = _collect_warning_tokens(*frames)
+    return {token: int(all_counts[token]) for token in WARNING_TOKENS if all_counts.get(token)}
+
+
+def _collect_warning_tokens(*frames: pd.DataFrame) -> dict[str, int]:
     counts = Counter()
     for frame in frames:
         if "warnings" not in frame.columns:
             continue
         for value in frame["warnings"].fillna(""):
-            text = str(value)
-            for token in WARNING_TOKENS:
-                if token in text:
-                    counts[token] += 1
-    return {token: int(counts[token]) for token in WARNING_TOKENS if counts[token]}
+            for token in str(value).split(";"):
+                cleaned = token.strip()
+                if cleaned:
+                    counts[cleaned] += 1
+    return dict(sorted((token, int(count)) for token, count in counts.items()))
 
 
 def _normalization_failures(matrix: pd.DataFrame, tolerance: float) -> list[dict[str, Any]]:
@@ -72,7 +77,12 @@ def _normalization_failures(matrix: pd.DataFrame, tolerance: float) -> list[dict
     return failures
 
 
-def validate_veda_like_outputs(directory: str | Path, *, tolerance: float = 1.0e-6) -> dict[str, Any]:
+def validate_veda_like_outputs(
+    directory: str | Path,
+    *,
+    tolerance: float = 1.0e-6,
+    allowed_warning_tokens: set[str] | None = None,
+) -> dict[str, Any]:
     root = Path(directory)
     if not root.exists():
         raise FileNotFoundError(f"output directory does not exist: {root}")
@@ -86,6 +96,14 @@ def validate_veda_like_outputs(directory: str | Path, *, tolerance: float = 1.0e
 
     normalization = _normalization_failures(matrix, tolerance)
     files = sorted(str(value) for value in basis.get("Filename", pd.Series(dtype=str)).dropna().unique())
+    all_warning_tokens = _collect_warning_tokens(basis, correspondence, matrix, audit)
+    unexpected_warning_tokens: dict[str, int] = {}
+    if allowed_warning_tokens is not None:
+        unexpected_warning_tokens = {
+            token: count
+            for token, count in all_warning_tokens.items()
+            if token not in allowed_warning_tokens
+        }
     summary = {
         "directory": str(root),
         "file_count": len(files),
@@ -97,6 +115,9 @@ def validate_veda_like_outputs(directory: str | Path, *, tolerance: float = 1.0e
         "normalization_failure_count": len(normalization),
         "normalization_failures": normalization,
         "warning_token_counts": _count_warning_tokens(basis, correspondence, matrix, audit),
+        "all_warning_token_counts": all_warning_tokens,
+        "allowed_warning_tokens": sorted(allowed_warning_tokens) if allowed_warning_tokens is not None else None,
+        "unexpected_warning_token_counts": unexpected_warning_tokens,
         "artifact_rows": {
             "basis_diagnostics": int(len(basis)),
             "mode_correspondence": int(len(correspondence)),
@@ -111,6 +132,12 @@ def validate_veda_like_outputs(directory: str | Path, *, tolerance: float = 1.0e
         summary["validation_status"] = "WARN"
     else:
         summary["validation_status"] = "PASS"
+    if summary["validation_status"] == "FAIL" or unexpected_warning_tokens:
+        summary["acceptance_status"] = "FAIL"
+    elif summary["validation_status"] == "WARN":
+        summary["acceptance_status"] = "WARN" if allowed_warning_tokens is None else "PASS"
+    else:
+        summary["acceptance_status"] = "PASS"
     return summary
 
 
@@ -118,17 +145,32 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Validate ORCAVEDA opt-in veda_like_* output artifacts.")
     parser.add_argument("directory", help="Directory containing *__veda_like_*.csv artifacts.")
     parser.add_argument("--tolerance", type=float, default=1.0e-6, help="Per-mode PED percent sum tolerance.")
+    parser.add_argument(
+        "--allowed-warning-token",
+        action="append",
+        default=None,
+        help=(
+            "Warning token allowed by the acceptance gate. Repeat this option for multiple tokens. "
+            "When present, any other warning token makes acceptance_status FAIL."
+        ),
+    )
+    parser.add_argument("--fail-on-warn", action="store_true", help="Return nonzero for WARN or FAIL validation_status.")
     parser.add_argument("--json-out", help="Optional path for summary JSON.")
     parser.add_argument("--csv-out", help="Optional path for per-mode normalization failures CSV.")
     args = parser.parse_args()
 
-    summary = validate_veda_like_outputs(args.directory, tolerance=args.tolerance)
+    allowed = set(args.allowed_warning_token) if args.allowed_warning_token is not None else None
+    summary = validate_veda_like_outputs(args.directory, tolerance=args.tolerance, allowed_warning_tokens=allowed)
     text = json.dumps(summary, indent=2, sort_keys=True)
     print(text)
     if args.json_out:
         Path(args.json_out).write_text(text + "\n", encoding="utf-8")
     if args.csv_out:
         pd.DataFrame(summary["normalization_failures"]).to_csv(args.csv_out, index=False)
+    if args.fail_on_warn and summary["validation_status"] == "WARN":
+        return 1
+    if summary["acceptance_status"] == "FAIL":
+        return 1
     return 0 if summary["validation_status"] != "FAIL" else 1
 
 

@@ -245,6 +245,25 @@ ORCAVEDA v5.0 uses a geometric and weighted independent-coordinate assignment au
 
 It should not be described as a strict VEDA PED implementation or a full Wilson GF PED method unless those methods are separately implemented and validated.
 
+## VEDA-Like Output Validation
+
+The opt-in `--veda-like-ped` path emits diagnostic `veda_like_*` artifacts. These outputs are comparable VEDA-like diagnostics; they do not reproduce original VEDA.
+
+After generating a VEDA-like output directory, validate the artifacts with:
+
+    .\.venv312\Scripts\python.exe tools\validate_veda_like_outputs.py outputs\veda_like_full_sweep_validated_live
+
+The validator reports two statuses:
+
+- `validation_status`: scientific/data status from the artifacts. `WARN` means review is required, not that the run failed.
+- `acceptance_status`: gate status after optional warning-token allowlisting.
+
+For a known full-sweep review set, pass allowed warning tokens explicitly:
+
+    .\.venv312\Scripts\python.exe tools\validate_veda_like_outputs.py outputs\veda_like_full_sweep_validated_live --allowed-warning-token empirical_ratio_only --allowed-warning-token fixed_conversion_failed --allowed-warning-token high_frequency_hbond_dominates_xh_stretch_secondary --allowed-warning-token linear_bend_coordinate_used --allowed-warning-token linear_or_near_linear_fixed_conversion_review --allowed-warning-token near_linear_bend_coordinate --allowed-warning-token nonpositive_gf_eigenvalues_within_expected_vibrational_space --allowed-warning-token nonpositive_orca_modes_within_expected_vibrational_space --allowed-warning-token positive_gf_eigenvalue_count_below_expected_vibrational_rank --allowed-warning-token positive_orca_mode_count_below_expected_vibrational_rank
+
+The allowlist is intentionally explicit. New warning tokens should be investigated before they are allowed.
+
 The safe boundary is:
 
 $$

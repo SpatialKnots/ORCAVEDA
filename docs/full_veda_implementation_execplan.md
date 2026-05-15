@@ -131,11 +131,12 @@ Edge-diagnostic hardening outcome:
 Validator outcome:
 
 - `.\.venv312\Scripts\python.exe -m py_compile tools\validate_veda_like_outputs.py tests\test_validate_veda_like_outputs.py` completed successfully.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_validate_veda_like_outputs.py -q` returned `3 passed`.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_validate_veda_like_outputs.py tests\test_wilson_gf.py -q` returned `22 passed`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_validate_veda_like_outputs.py -q` returned `5 passed` after adding warning-token allowlist gate coverage.
 - A fresh full local `.hess` sweep completed under `outputs\veda_like_full_sweep_validated_live`.
 - `.\.venv312\Scripts\python.exe tools\validate_veda_like_outputs.py outputs\veda_like_full_sweep_validated_live --json-out outputs\veda_like_full_sweep_validated_live\veda_like_validation_summary.json --csv-out outputs\veda_like_full_sweep_validated_live\veda_like_normalization_failures.csv` returned a `WARN` summary, not `FAIL`.
 - Validator summary for the fresh full sweep: 55 files, basis diagnostics 53 PASS and 2 WARN, mode correspondence 1560 PASS and 21 WARN, PED audit 12431 PASS and 156 WARN, 0 normalization failures, warning-token counts `fixed_conversion_failed=440`, `linear_or_near_linear_fixed_conversion_review=440`, and `high_frequency_hbond_dominates_xh_stretch_secondary=136`.
+- `tools\validate_veda_like_outputs.py` now reports both `validation_status` and `acceptance_status`. Without an allowlist, the fresh full sweep reports `validation_status=WARN` and `acceptance_status=WARN`.
+- With an explicit allowlist for the current full-sweep warning tokens, the fresh full sweep reports `validation_status=WARN` and `acceptance_status=PASS`. The allowed tokens were `empirical_ratio_only`, `fixed_conversion_failed`, `high_frequency_hbond_dominates_xh_stretch_secondary`, `linear_bend_coordinate_used`, `linear_or_near_linear_fixed_conversion_review`, `near_linear_bend_coordinate`, `nonpositive_gf_eigenvalues_within_expected_vibrational_space`, `nonpositive_orca_modes_within_expected_vibrational_space`, `positive_gf_eigenvalue_count_below_expected_vibrational_rank`, and `positive_orca_mode_count_below_expected_vibrational_rank`.
 
 ## Context and Orientation
 
