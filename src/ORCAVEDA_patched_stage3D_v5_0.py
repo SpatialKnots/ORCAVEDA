@@ -1897,7 +1897,8 @@ def _pipeline_b_matrix(
         diagnostics = dict(diagnostics)
         diagnostics["method"] = B_MATRIX_METHOD_HYBRID_ANALYTICAL
         diagnostics["method_boundary"] = (
-            "opt-in hybrid analytical_B; distance and regular angle rows analytical, unsupported rows finite-difference fallback"
+            "opt-in hybrid analytical_B; distance, regular angle, and regular torsion rows analytical, "
+            "unsupported or singular rows finite-difference fallback"
         )
         return B, diagnostics
     raise ValueError(
@@ -2576,7 +2577,8 @@ def analyze_general_hess_files(
     if b_matrix_method == B_MATRIX_METHOD_HYBRID_ANALYTICAL:
         general_manifest["b_matrix_diagnostics"] = (
             "Opt-in hybrid analytical_B was used for primitive B-matrix construction; "
-            "distance and regular angle rows are analytical, unsupported rows use finite-difference fallback"
+            "distance, regular angle, and regular torsion rows are analytical; "
+            "unsupported or singular rows use finite-difference fallback"
         )
     if wilson_gf_validation:
         general_manifest["wilson_gf_validation"] = (

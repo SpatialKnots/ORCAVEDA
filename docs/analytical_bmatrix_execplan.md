@@ -6,7 +6,7 @@ This plan follows `PLANS.md` at the repository root.
 
 ## Purpose / Big Picture
 
-GAP 2 adds analytical B-matrix derivatives where the mathematics is simple and verifiable, while preserving the existing finite-difference pipeline. The first user-visible result is a tested hybrid API that can build analytical rows for distance-like stretches and regular angle/bend coordinates, then fall back to finite differences for unsupported rows.
+GAP 2 adds analytical B-matrix derivatives where the mathematics is simple and verifiable, while preserving the existing finite-difference default pipeline. The user-visible result is a tested hybrid API that can build analytical rows for distance-like stretches, regular angle/bend coordinates, and regular torsions, then fall back to finite differences for unsupported or singular geometries. The main pipeline can use the hybrid matrix only through explicit opt-in.
 
 ## Progress
 
@@ -171,7 +171,7 @@ The current acceptance policy allows selected-basis index differences only when 
 
 ## Plan of Work
 
-First, add analytical formulas for distance and regular angle rows. Second, keep unsupported and near-linear rows on finite-difference fallback. Third, test analytical rows against the finite-difference baseline on non-singular geometries. Fourth, use the benchmark harness to compare row deltas and rank behavior across real `.hess` fixtures. Fifth, leave production pipeline wiring unchanged until the remaining deltas and selection-index changes are reviewed.
+First, add analytical formulas for distance and regular angle rows. Second, keep unsupported and near-linear rows on finite-difference fallback. Third, test analytical rows against the finite-difference baseline on non-singular geometries. Fourth, use the benchmark harness to compare row deltas and rank behavior across real `.hess` fixtures. Fifth, encode acceptance for rank-preserving selected-basis alternatives. Sixth, add explicit opt-in production wiring while preserving the finite-difference default. Seventh, add guarded analytical torsion rows for regular torsions.
 
 ## Concrete Steps
 
@@ -194,7 +194,7 @@ Run the opt-in pipeline check:
 
 ## Validation and Acceptance
 
-Accepted for this milestone when analytical distance and regular angle rows match `finite_difference_B` within tight numerical tolerance on focused tests, unsupported and near-linear rows fall back with explicit diagnostics, the comparison harness reports row deltas/rank/condition/selection diagnostics, and no default Stage 3D or Wilson GF code path changes.
+Accepted for this milestone when analytical distance, regular angle, and regular torsion rows match `finite_difference_B` within tight numerical tolerance on focused tests, unsupported and near-linear rows fall back with explicit diagnostics, the comparison harness reports row deltas/rank/condition/selection diagnostics, and no default Stage 3D or Wilson GF code path changes.
 
 Full-sweep GAP 2 acceptance requires:
 

@@ -17,7 +17,7 @@ Outputs:
 - `bmatrix_method_comparison_rows.csv`
 - `bmatrix_method_comparison_selected_basis_differences.csv`
 
-The summary reports per-file row deltas, hybrid row method counts, fallback reasons, redundant B rank/condition, independently selected basis rank/condition for each method, and whether selected basis indices changed at the same rank. Near-linear and high-angle rows are expected to fall back through `singular_or_near_linear_angle`.
+The summary reports per-file row deltas, hybrid row method counts, fallback reasons, redundant B rank/condition, independently selected basis rank/condition for each method, and whether selected basis indices changed at the same rank. Near-linear and high-angle rows are expected to fall back through `singular_or_near_linear_angle`; near-linear torsions are expected to fall back through `singular_or_near_linear_torsion`.
 
 The row CSV includes atom indices plus angle geometry for three-atom coordinates. The selected-basis-differences CSV records the finite-difference and hybrid rows chosen at each differing selected-basis position, replacement rank/condition/min-singular diagnostics, and whether replacing each swapped row preserves the original selected rank.
 

@@ -262,6 +262,34 @@ Remaining:
 - Default production behavior must remain finite-difference unless explicitly changed later.
 
 ---
+Task ID: 14
+Agent: Codex
+Task: Prepare GAP 2 merge-readiness review package
+
+Work Log:
+- Reviewed current GAP 2 docs and source metadata for stale analytical B-matrix wording.
+- Updated `docs/analytical_bmatrix_execplan.md`, `benchmarks/bmatrix_compare/README.md`, and opt-in manifest text to include regular torsion analytical rows and near-linear torsion fallback.
+- Left older `WORKLOG.md` entries intact as chronological evidence; their earlier "torsion unimplemented" notes are superseded by Task 13.
+- Confirmed default production behavior remains `finite_difference`; hybrid analytical B remains opt-in via `b_matrix_method="hybrid_analytical"` / `--b-matrix-method hybrid_analytical`.
+
+Review Summary:
+- Current hybrid analytical B supports distance-like rows, regular angle/bend rows, and regular torsion rows.
+- Singular or near-linear angles and torsions fall back to finite differences with explicit diagnostics.
+- Full-sweep selected-basis exact index identity is not required; 10 selected-basis differences remain visible and rank-preserving.
+- No default Stage 3D, Wilson GF, or VEDA-like output path was switched to hybrid analytical B.
+
+Validation:
+- `.\.venv312\Scripts\python.exe -m py_compile src\b_matrix.py src\ORCAVEDA_patched_stage3D_v5_0.py src\orcaveda_cli.py tests\test_b_matrix_analytical.py tests\test_b_matrix_method_compare.py tests\test_wilson_gf.py` -> completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_b_matrix_analytical.py tests\test_b_matrix_method_compare.py -q` -> 11 passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_wilson_gf.py -q` -> 43 passed.
+- `$env:PYTHONPATH='src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> 2 passed.
+- `.\.venv312\Scripts\python.exe benchmarks\bmatrix_compare\compare_bmatrix_methods.py --full-sweep --out outputs\bmatrix_compare_full` -> `file_count=55`, `rows_above_tolerance_count=0`, `files_with_redundant_rank_change=0`, `files_with_selected_rank_change=0`, `files_with_selected_basis_index_change=5`, `selected_basis_difference_count=10`, `selected_basis_replacement_rank_loss_count=0`.
+
+Remaining:
+- GAP 2 is ready for review/merge as an opt-in analytical B-matrix milestone.
+- Future work, separate from this merge package: composed-coordinate analytical rows, linear-bend components, or broader default-switch policy.
+
+---
 Task ID: 10
 Agent: Codex
 Task: Commit GAP 2 analytical B-matrix validation state
