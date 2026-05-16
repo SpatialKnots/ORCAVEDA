@@ -58,6 +58,15 @@ def cli_main(
         default=1.0e-6,
         help="Minimum Wilson GF/PED localization-score improvement required for an EPM swap.",
     )
+    parser.add_argument(
+        "--b-matrix-method",
+        choices=("finite_difference", "hybrid_analytical"),
+        default="finite_difference",
+        help=(
+            "B-matrix construction method. Default finite_difference preserves existing outputs; "
+            "hybrid_analytical is opt-in and uses analytical distance/regular angle rows with finite-difference fallback."
+        ),
+    )
 
     args, _unknown = parser.parse_known_args()
     if args.list_chem_backends:
@@ -98,6 +107,7 @@ def cli_main(
         epm_optimize=args.epm_optimize,
         epm_max_passes=args.epm_max_passes,
         epm_improvement_tol=args.epm_improvement_tol,
+        b_matrix_method=args.b_matrix_method,
     )
 
 
