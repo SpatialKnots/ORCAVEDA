@@ -219,6 +219,28 @@ Remaining:
 - Torsion analytical rows remain unimplemented and use finite-difference fallback.
 
 ---
+Task ID: 12
+Agent: Codex
+Task: Add opt-in hybrid analytical B-matrix production wiring
+
+Work Log:
+- Added explicit `b_matrix_method` plumbing to the main ORCAVEDA pipeline and CLI.
+- Default remains `finite_difference`; opt-in `hybrid_analytical` uses `analytical_B(...)` for primitive B construction.
+- Added opt-in `b_matrix_diagnostics` output rows and manifest text.
+- Added tests for the CLI argument and H2O opt-in pipeline diagnostics.
+
+Validation:
+- `.\.venv312\Scripts\python.exe -m py_compile src\ORCAVEDA_patched_stage3D_v5_0.py src\orcaveda_cli.py tests\test_wilson_gf.py` -> completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_b_matrix_analytical.py tests\test_b_matrix_method_compare.py -q` -> 9 passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q` -> 24 passed.
+- `$env:PYTHONPATH='src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> 2 passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py -q` -> 19 passed.
+
+Remaining:
+- Torsion analytical rows remain unimplemented and use finite-difference fallback.
+- Default production behavior must remain finite-difference unless explicitly changed later.
+
+---
 Task ID: 10
 Agent: Codex
 Task: Commit GAP 2 analytical B-matrix validation state

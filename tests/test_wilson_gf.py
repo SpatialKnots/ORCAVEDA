@@ -529,6 +529,26 @@ def test_pipeline_veda_like_ped_accepts_epm_opt_in_for_h2o():
     assert "epm_optimized_localization_score" in metadata
 
 
+def test_pipeline_accepts_hybrid_analytical_b_matrix_opt_in_for_h2o():
+    outdir = ROOT / "outputs" / "pytest_hybrid_analytical_b_matrix_opt_in_h2o"
+    if outdir.exists():
+        shutil.rmtree(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    hess_path = ROOT / "data" / "hess" / "H2O_freq.hess"
+    tables = analyze_orca_ped_like([hess_path], outdir, b_matrix_method="hybrid_analytical")
+
+    diagnostics = tables["b_matrix_diagnostics"]
+    assert not diagnostics.empty
+    assert diagnostics["b_matrix_method"].iloc[0] == "hybrid_analytical"
+    assert diagnostics["finite_difference_fallback_count"].iloc[0] == 0
+    assert int(diagnostics["selected_rank"].iloc[0]) == 3
+    summary = tables["general_summary"]
+    assert set(summary["b_matrix_method"]) == {"hybrid_analytical"}
+    manifest = (outdir / "H2O__general_engine_manifest.json").read_text(encoding="utf-8")
+    assert "hybrid analytical_B" in manifest
+
+
 def test_cli_passes_epm_options_to_runner(monkeypatch, tmp_path):
     captured = {}
 
@@ -552,6 +572,8 @@ def test_cli_passes_epm_options_to_runner(monkeypatch, tmp_path):
             "3",
             "--epm-improvement-tol",
             "0.5",
+            "--b-matrix-method",
+            "hybrid_analytical",
         ],
     )
 
@@ -563,3 +585,4 @@ def test_cli_passes_epm_options_to_runner(monkeypatch, tmp_path):
     assert captured["kwargs"]["epm_optimize"] is True
     assert captured["kwargs"]["epm_max_passes"] == 3
     assert captured["kwargs"]["epm_improvement_tol"] == pytest.approx(0.5)
+    assert captured["kwargs"]["b_matrix_method"] == "hybrid_analytical"

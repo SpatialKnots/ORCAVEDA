@@ -23,6 +23,7 @@ GAP 2 adds analytical B-matrix derivatives where the mathematics is simple and v
 - [x] (2026-05-16) Re-ran full sweep: row deltas above tolerance are now resolved.
 - [x] (2026-05-16) Added selected-basis replacement rank/condition/min-singular diagnostics and verified all 8 selected-basis swaps preserve rank.
 - [x] (2026-05-16) Encoded the GAP 2 acceptance policy as a full-sweep regression test: selected-basis index differences are allowed only when row deltas, redundant rank, selected rank, and replacement rank preservation pass.
+- [x] (2026-05-16) Added opt-in production wiring through `b_matrix_method="hybrid_analytical"` / `--b-matrix-method hybrid_analytical`; default remains `finite_difference`.
 
 ## Surprises & Discoveries
 
@@ -80,6 +81,10 @@ GAP 2 adds analytical B-matrix derivatives where the mathematics is simple and v
   Rationale: Exact selected-index identity is too strict for the current hybrid diagnostic API because the remaining differences are rank-preserving aromatic primitive-angle alternatives. Acceptance now requires `rows_above_tolerance_count=0`, unchanged redundant rank, unchanged selected rank, and `selected_basis_replacement_rank_loss_count=0`. The selected-basis differences remain reported and are not hidden.
   Date/Author: 2026-05-16 / Codex
 
+- Decision: Wire hybrid analytical B into the main pipeline only as an explicit opt-in.
+  Rationale: The full-sweep acceptance policy supports guarded use, but changing default Stage 3D/Wilson GF outputs would be a separate scientific-output decision. The new parameter keeps default `finite_difference_B` behavior unchanged and records opt-in diagnostics when enabled.
+  Date/Author: 2026-05-16 / Codex
+
 ## Outcomes & Retrospective
 
 Validation outcome:
@@ -131,6 +136,12 @@ Acceptance-policy outcome:
 
 - Added `test_bmatrix_method_compare_full_sweep_acceptance_policy_allows_rank_preserving_selection_swaps` to encode the current full-sweep policy without switching production behavior.
 
+Opt-in production-wiring outcome:
+
+- Added `b_matrix_method` to `analyze_general_hess_files(...)`, `general_outputs_for_hess_files(...)`, `analyze_orca_ped_like(...)`, and CLI `--b-matrix-method`.
+- `b_matrix_method="finite_difference"` remains the default.
+- `b_matrix_method="hybrid_analytical"` uses `analytical_B(...)` for primitive B construction and emits `b_matrix_diagnostics`.
+
 ## Context and Orientation
 
 The current B matrix is built by `finite_difference_B(coords_A, internals)` in `src/b_matrix.py`. It evaluates each internal coordinate function at plus/minus Cartesian perturbations. Angles are returned in degrees, torsions in radians, and torsion finite differences wrap through `[-pi, pi]`.
@@ -139,7 +150,7 @@ The new `analytical_B(coords_A, internals)` returns a B matrix plus diagnostics.
 
 The comparison harness now writes row-level atom indices, angle degrees, angle sine, and a selected-basis-differences CSV. The selected-basis CSV includes replacement rank, condition, and minimum-singular diagnostics for reviewing whether differing selected rows are rank-preserving alternatives.
 
-The current acceptance policy allows selected-basis index differences only when all selected-basis replacements preserve rank and row/rank invariants pass. It does not make `analytical_B` the production B matrix.
+The current acceptance policy allows selected-basis index differences only when all selected-basis replacements preserve rank and row/rank invariants pass. The main pipeline can use `analytical_B` only when explicitly requested with `b_matrix_method="hybrid_analytical"` or `--b-matrix-method hybrid_analytical`; the default remains `finite_difference_B`.
 
 ## Plan of Work
 
@@ -160,6 +171,10 @@ Run the B-matrix method comparison harness:
     .\.venv312\Scripts\python.exe benchmarks\bmatrix_compare\compare_bmatrix_methods.py --out outputs\bmatrix_compare_minimal
     .\.venv312\Scripts\python.exe benchmarks\bmatrix_compare\compare_bmatrix_methods.py --full-sweep --out outputs\bmatrix_compare_full
 
+Run the opt-in pipeline check:
+
+    .\.venv312\Scripts\python.exe -m pytest tests\test_wilson_gf.py -q
+
 ## Validation and Acceptance
 
 Accepted for this milestone when analytical distance and regular angle rows match `finite_difference_B` within tight numerical tolerance on focused tests, unsupported and near-linear rows fall back with explicit diagnostics, the comparison harness reports row deltas/rank/condition/selection diagnostics, and no default Stage 3D or Wilson GF code path changes.
@@ -171,6 +186,7 @@ Full-sweep GAP 2 acceptance requires:
 - No selected-basis rank changes.
 - `selected_basis_replacement_rank_loss_count=0`.
 - Exact selected-basis index identity is not required, but all differences must remain visible in `bmatrix_method_comparison_selected_basis_differences.csv`.
+- Default pipeline behavior must remain `finite_difference_B`; hybrid analytical B must require explicit opt-in and must emit diagnostics.
 
 ## Idempotence and Recovery
 
@@ -207,3 +223,9 @@ New API:
 Existing default API remains unchanged:
 
 - `finite_difference_B(coords_A, internals, eps=EPS_FD_A) -> np.ndarray`
+
+Pipeline opt-in:
+
+- `analyze_orca_ped_like(..., b_matrix_method="finite_difference")` remains the default.
+- `analyze_orca_ped_like(..., b_matrix_method="hybrid_analytical")` uses the hybrid analytical B matrix and emits `b_matrix_diagnostics`.
+- CLI: `--b-matrix-method finite_difference|hybrid_analytical`.

@@ -50,6 +50,7 @@ from chemistry import (
     split_fragments as chemistry_split_fragments,
 )
 from b_matrix import (
+    analytical_B as bmatrix_analytical_B,
     build_composed_candidate_b_matrix as bmatrix_build_composed_candidate_b_matrix,
     finite_difference_B as bmatrix_finite_difference_B,
     optimize_independent_coordinates_for_ped as bmatrix_optimize_independent_coordinates_for_ped,
@@ -446,6 +447,7 @@ dihedral_rad = internal_dihedral_rad
 torsion_fn = internal_torsion_fn
 build_internal_coordinates = internal_build_internal_coordinates
 finite_difference_B = bmatrix_finite_difference_B
+analytical_B = bmatrix_analytical_B
 svd_rank_condition = bmatrix_svd_rank_condition
 select_independent_coordinates = bmatrix_select_independent_coordinates
 optimize_independent_coordinates_for_ped = bmatrix_optimize_independent_coordinates_for_ped
@@ -457,6 +459,10 @@ output_prefix_for_hess_paths = reports_output_prefix_for_hess_paths
 normalize_sheet_name = reports_normalize_sheet_name
 write_xlsx_report = reports_write_xlsx_report
 mode_tracking_outputs_for_hess_files = tracking_mode_tracking_outputs_for_hess_files
+
+B_MATRIX_METHOD_FINITE_DIFFERENCE = "finite_difference"
+B_MATRIX_METHOD_HYBRID_ANALYTICAL = "hybrid_analytical"
+SUPPORTED_B_MATRIX_METHODS = (B_MATRIX_METHOD_FINITE_DIFFERENCE, B_MATRIX_METHOD_HYBRID_ANALYTICAL)
 
 
 def distance_fn(i: int, j: int) -> Callable[[np.ndarray], float]:
@@ -1872,6 +1878,33 @@ def _apply_experimental_primitive_substitution_constraint(
     return selected, report
 
 
+def _pipeline_b_matrix(
+    coords_A: np.ndarray,
+    internals: Sequence[InternalCoordinate],
+    *,
+    method: str,
+) -> tuple[np.ndarray, Dict[str, object]]:
+    if method == B_MATRIX_METHOD_FINITE_DIFFERENCE:
+        return finite_difference_B(coords_A, internals), {
+            "method": B_MATRIX_METHOD_FINITE_DIFFERENCE,
+            "method_boundary": "production default finite_difference_B",
+            "method_counts": {"finite_difference": len(internals)},
+            "fallback_reasons": {},
+            "row_methods": ["finite_difference"] * len(internals),
+        }
+    if method == B_MATRIX_METHOD_HYBRID_ANALYTICAL:
+        B, diagnostics = analytical_B(coords_A, internals)
+        diagnostics = dict(diagnostics)
+        diagnostics["method"] = B_MATRIX_METHOD_HYBRID_ANALYTICAL
+        diagnostics["method_boundary"] = (
+            "opt-in hybrid analytical_B; distance and regular angle rows analytical, unsupported rows finite-difference fallback"
+        )
+        return B, diagnostics
+    raise ValueError(
+        f"Unsupported b_matrix_method {method!r}; expected one of {', '.join(SUPPORTED_B_MATRIX_METHODS)}"
+    )
+
+
 def analyze_general_hess_files(
     hess_paths: Sequence[str | Path],
     outdir: str | Path,
@@ -1883,7 +1916,13 @@ def analyze_general_hess_files(
     epm_optimize: bool = False,
     epm_max_passes: int = 2,
     epm_improvement_tol: float = 1.0e-6,
+    b_matrix_method: str = B_MATRIX_METHOD_FINITE_DIFFERENCE,
 ):
+    b_matrix_method = str(b_matrix_method).strip() or B_MATRIX_METHOD_FINITE_DIFFERENCE
+    if b_matrix_method not in SUPPORTED_B_MATRIX_METHODS:
+        raise ValueError(
+            f"Unsupported b_matrix_method {b_matrix_method!r}; expected one of {', '.join(SUPPORTED_B_MATRIX_METHODS)}"
+        )
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     output_prefix = output_prefix_for_hess_paths(hess_paths)
@@ -1904,6 +1943,7 @@ def analyze_general_hess_files(
     veda_like_basis_frames, veda_like_correspondence_frames = [], []
     veda_like_metadata_records = []
     sanity_rows = []
+    b_matrix_diagnostic_rows = []
 
     for source_index, hpath in enumerate(hess_paths, start=1):
         hpath = Path(hpath)
@@ -1923,9 +1963,29 @@ def analyze_general_hess_files(
         groups = list(chemical_annotation.functional_groups)
 
         internals = build_internal_coordinates(hess.atoms, hess.coords_A, bonds, fragments, hbonds, groups)
-        B = finite_difference_B(hess.coords_A, internals)
+        B, b_matrix_diagnostics = _pipeline_b_matrix(hess.coords_A, internals, method=b_matrix_method)
         rank_red, cond_red, _ = svd_rank_condition(B)
         selected_idx, rank_ind, cond_ind, _ = select_independent_coordinates(B, internals, expected_rank)
+        if b_matrix_method == B_MATRIX_METHOD_HYBRID_ANALYTICAL:
+            method_counts = b_matrix_diagnostics.get("method_counts", {})
+            fallback_reasons = b_matrix_diagnostics.get("fallback_reasons", {})
+            b_matrix_diagnostic_rows.append({
+                "Source": f"[{source_index}]",
+                "Filename": hess.filename,
+                "b_matrix_method": b_matrix_method,
+                "method_boundary": b_matrix_diagnostics.get("method_boundary", ""),
+                "row_count": len(internals),
+                "method_counts": json.dumps(method_counts, sort_keys=True),
+                "fallback_reasons": json.dumps(fallback_reasons, sort_keys=True),
+                "finite_difference_fallback_count": int(method_counts.get("finite_difference_fallback", 0))
+                if isinstance(method_counts, dict)
+                else "",
+                "redundant_rank": rank_red,
+                "redundant_condition": cond_red,
+                "selected_rank": rank_ind,
+                "selected_condition": cond_ind,
+                "expected_rank": expected_rank,
+            })
         positive_mode_indices = [idx for idx, freq in enumerate(hess.frequencies_cm1) if float(freq) > 0.0]
         ped_selected_idx, ped_basis_report = optimize_independent_coordinates_for_ped(
             B,
@@ -2299,6 +2359,7 @@ def analyze_general_hess_files(
             "functional_group_count": len(groups),
             "interfragment_hbond_count": len(hbonds),
             "internal_coordinates_redundant": len(internals),
+            "b_matrix_method": b_matrix_method,
             "expected_rank_3N_minus_6": expected_rank,
             "rank_B_redundant": rank_red,
             "condition_B_redundant": cond_red,
@@ -2474,6 +2535,8 @@ def analyze_general_hess_files(
         tables["veda_like_mode_correspondence"] = (
             pd.concat(veda_like_correspondence_frames, ignore_index=True) if veda_like_correspondence_frames else pd.DataFrame()
         )
+    if b_matrix_method == B_MATRIX_METHOD_HYBRID_ANALYTICAL:
+        tables["b_matrix_diagnostics"] = pd.DataFrame(b_matrix_diagnostic_rows)
     tables["ped_stage3d_agreement"] = reports_build_ped_stage3d_agreement_table(
         tables["assignment_audit"],
         wilson_ped_audit=tables["wilson_ped_audit"],
@@ -2507,8 +2570,14 @@ def analyze_general_hess_files(
             "ped_stage3d_agreement": "PED-first diagnostic policy table comparing Stage 3D assignment and strongest available PED interpretation; does not rewrite assignment_audit labels",
             "ped_final_assignment": "PED-driven final assignment table; uses PED when policy confirms/adds context and Stage 3D fallback when PED is unavailable, diffuse, or contradictory",
             "composed_ped_policy_diagnostics": "Conservative composed-coordinate PED diagnostic policy table; does not rewrite assignment_audit, ped_stage3d_agreement, or ped_final_assignment labels",
+            "b_matrix_method": b_matrix_method,
             "normal_mode_orientation_rule": "normal_modes[:, mode].reshape(natoms, 3)",
     }
+    if b_matrix_method == B_MATRIX_METHOD_HYBRID_ANALYTICAL:
+        general_manifest["b_matrix_diagnostics"] = (
+            "Opt-in hybrid analytical_B was used for primitive B-matrix construction; "
+            "distance and regular angle rows are analytical, unsupported rows use finite-difference fallback"
+        )
     if wilson_gf_validation:
         general_manifest["wilson_gf_validation"] = (
             "Opt-in Wilson GF diagonalization validation prototype CSVs generated; diagnostic only, not VEDA-equivalent PED"
@@ -3015,6 +3084,7 @@ dihedral_rad = internal_dihedral_rad
 torsion_fn = internal_torsion_fn
 build_internal_coordinates = internal_build_internal_coordinates
 finite_difference_B = bmatrix_finite_difference_B
+analytical_B = bmatrix_analytical_B
 svd_rank_condition = bmatrix_svd_rank_condition
 select_independent_coordinates = bmatrix_select_independent_coordinates
 optimize_independent_coordinates_for_ped = bmatrix_optimize_independent_coordinates_for_ped
@@ -3038,6 +3108,7 @@ def general_outputs_for_hess_files(
     epm_optimize: bool = False,
     epm_max_passes: int = 2,
     epm_improvement_tol: float = 1.0e-6,
+    b_matrix_method: str = B_MATRIX_METHOD_FINITE_DIFFERENCE,
 ) -> Dict[str, pd.DataFrame]:
     """
     Pipeline hook for the main PED workflow.
@@ -3057,6 +3128,7 @@ def general_outputs_for_hess_files(
         epm_optimize=epm_optimize,
         epm_max_passes=epm_max_passes,
         epm_improvement_tol=epm_improvement_tol,
+        b_matrix_method=b_matrix_method,
     )
 
 
@@ -3071,6 +3143,7 @@ def analyze_orca_ped_like(
     epm_optimize: bool = False,
     epm_max_passes: int = 2,
     epm_improvement_tol: float = 1.0e-6,
+    b_matrix_method: str = B_MATRIX_METHOD_FINITE_DIFFERENCE,
 ) -> Dict[str, pd.DataFrame]:
     """
     Integrated entry point for the current development version.
@@ -3100,6 +3173,7 @@ def analyze_orca_ped_like(
         epm_optimize=epm_optimize,
         epm_max_passes=epm_max_passes,
         epm_improvement_tol=epm_improvement_tol,
+        b_matrix_method=b_matrix_method,
     )
 
     # Stage 3C mode tracking is meaningful only when two or more .hess files are supplied.
