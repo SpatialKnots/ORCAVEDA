@@ -85,5 +85,5 @@ def test_bmatrix_method_compare_full_sweep_acceptance_policy_allows_rank_preserv
     assert all(bool(row["replacement_rank_preserved"]) for row in selection_differences)
 
     differing_files = {str(row["Filename"]) for row in selection_differences}
-    assert differing_files == {"aniline.hess", "benzene.hess", "benzonitrile.hess", "pyridine.hess"}
-    assert len(selection_differences) == 8
+    assert differing_files == {"aniline.hess", "anisole.hess", "benzene.hess", "benzonitrile.hess", "pyridine.hess"}
+    assert len(selection_differences) == 10

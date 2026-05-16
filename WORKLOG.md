@@ -241,6 +241,27 @@ Remaining:
 - Default production behavior must remain finite-difference unless explicitly changed later.
 
 ---
+Task ID: 13
+Agent: Codex
+Task: Add guarded analytical torsion B-matrix rows
+
+Work Log:
+- Added analytical torsion rows for regular four-atom torsion coordinates using chain-rule differentiation of the existing projected-plane `atan2` torsion definition.
+- Added `singular_or_near_linear_torsion` fallback for torsions with small projected torsion-plane sine.
+- Initial full sweep without the near-linear torsion guard failed acceptance with `rows_above_tolerance_count=8`; problematic rows were near-linear nitrile/alkyne-axis torsions in `benzonitrile.hess`, `CH3CN_freq.hess`, and `propyne.hess`.
+- After adding the guard, full-sweep row/rank acceptance was restored; selected-basis alternatives increased to 10 and remained rank-preserving.
+
+Validation:
+- `.\.venv312\Scripts\python.exe -m py_compile src\b_matrix.py tests\test_b_matrix_analytical.py tests\test_b_matrix_method_compare.py` -> completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_b_matrix_analytical.py tests\test_b_matrix_method_compare.py -q` -> 11 passed.
+- `.\.venv312\Scripts\python.exe benchmarks\bmatrix_compare\compare_bmatrix_methods.py --full-sweep --out outputs\bmatrix_compare_full` -> `file_count=55`, `rows_above_tolerance_count=0`, `files_with_redundant_rank_change=0`, `files_with_selected_rank_change=0`, `selected_basis_difference_count=10`, `selected_basis_replacement_rank_loss_count=0`.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_ped.py tests\test_wilson_gf.py -q` -> 43 passed.
+- `$env:PYTHONPATH='src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> 2 passed.
+
+Remaining:
+- Default production behavior must remain finite-difference unless explicitly changed later.
+
+---
 Task ID: 10
 Agent: Codex
 Task: Commit GAP 2 analytical B-matrix validation state

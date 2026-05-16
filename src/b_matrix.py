@@ -41,16 +41,18 @@ def analytical_B(
     eps: float = EPS_FD_A,
     singular_tol: float = 1.0e-12,
     angle_sin_tol: float = 2.0e-1,
+    torsion_sin_tol: float = 2.0e-1,
 ) -> tuple[np.ndarray, Dict[str, object]]:
     """
     Build a hybrid analytical B matrix with finite-difference fallback.
 
-    The first GAP 2 implementation is deliberately narrow and additive:
-    distance-like two-atom coordinates and regular angle/bend three-atom
-    coordinates are analytical; torsions, composed coordinates, linear-bend
-    components, and singular, near-linear, or high-angle geometries fall back
-    to the existing finite difference row. This function does not replace
-    `finite_difference_B` in the production pipeline.
+    The GAP 2 implementation is deliberately conservative and additive:
+    distance-like two-atom coordinates, regular angle/bend three-atom
+    coordinates, and regular torsions are analytical; composed coordinates,
+    linear-bend components, and singular, near-linear, or high-angle geometries
+    fall back to the existing finite difference row. This function does not
+    replace `finite_difference_B` in the production pipeline unless an explicit
+    opt-in caller selects it.
     """
     coords = np.asarray(coords_A, dtype=float)
     if coords.ndim != 2 or coords.shape[1] != 3:
@@ -68,6 +70,7 @@ def analytical_B(
             internal,
             singular_tol=singular_tol,
             angle_sin_tol=angle_sin_tol,
+            torsion_sin_tol=torsion_sin_tol,
         )
         if row is None:
             row = finite_difference_B(coords, [internal], eps=eps)[0]
@@ -92,6 +95,7 @@ def _analytical_internal_coordinate_row(
     *,
     singular_tol: float,
     angle_sin_tol: float,
+    torsion_sin_tol: float,
 ) -> tuple[np.ndarray | None, str, str]:
     if internal.source == "composed_coordinate":
         return None, "", "composed_coordinate"
@@ -118,6 +122,19 @@ def _analytical_internal_coordinate_row(
         if row is None:
             return None, "", "singular_or_near_linear_angle"
         return row, "analytical_angle", ""
+    if len(atoms) == 4 and "torsion" in kind:
+        row = _torsion_analytical_row(
+            coords_A,
+            atoms[0],
+            atoms[1],
+            atoms[2],
+            atoms[3],
+            singular_tol=singular_tol,
+            torsion_sin_tol=torsion_sin_tol,
+        )
+        if row is None:
+            return None, "", "singular_or_near_linear_torsion"
+        return row, "analytical_torsion", ""
     return None, "", "unsupported_coordinate_kind"
 
 
@@ -191,6 +208,110 @@ def _angle_analytical_row(
     row3[k, :] = dtheta_dv * scale
     row3[j, :] = -(row3[i, :] + row3[k, :])
     return row3.reshape(-1)
+
+
+def _dual_atom_vector(coords_A: np.ndarray, atom_idx: int) -> tuple[np.ndarray, np.ndarray]:
+    jac = np.zeros((3, coords_A.size), dtype=float)
+    base = 3 * int(atom_idx)
+    jac[0, base] = 1.0
+    jac[1, base + 1] = 1.0
+    jac[2, base + 2] = 1.0
+    return coords_A[int(atom_idx)].astype(float), jac
+
+
+def _dual_dot(
+    a: tuple[np.ndarray, np.ndarray],
+    b: tuple[np.ndarray, np.ndarray],
+) -> tuple[float, np.ndarray]:
+    a_val, a_jac = a
+    b_val, b_jac = b
+    return float(np.dot(a_val, b_val)), a_val @ b_jac + b_val @ a_jac
+
+
+def _dual_cross(
+    a: tuple[np.ndarray, np.ndarray],
+    b: tuple[np.ndarray, np.ndarray],
+) -> tuple[np.ndarray, np.ndarray]:
+    a_val, a_jac = a
+    b_val, b_jac = b
+    return np.cross(a_val, b_val), np.cross(a_jac.T, b_val).T + np.cross(a_val, b_jac.T).T
+
+
+def _dual_scale(
+    scalar: tuple[float, np.ndarray],
+    vector: tuple[np.ndarray, np.ndarray],
+) -> tuple[np.ndarray, np.ndarray]:
+    scalar_val, scalar_jac = scalar
+    vector_val, vector_jac = vector
+    return scalar_val * vector_val, scalar_val * vector_jac + np.outer(vector_val, scalar_jac)
+
+
+def _dual_norm(vector: tuple[np.ndarray, np.ndarray], *, singular_tol: float) -> tuple[float, np.ndarray] | None:
+    vector_val, vector_jac = vector
+    norm = float(np.linalg.norm(vector_val))
+    if norm <= singular_tol or not np.isfinite(norm):
+        return None
+    return norm, vector_val @ vector_jac / norm
+
+
+def _dual_normalize(
+    vector: tuple[np.ndarray, np.ndarray],
+    *,
+    singular_tol: float,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    norm = _dual_norm(vector, singular_tol=singular_tol)
+    if norm is None:
+        return None
+    norm_val, norm_jac = norm
+    vector_val, vector_jac = vector
+    return vector_val / norm_val, (vector_jac * norm_val - np.outer(vector_val, norm_jac)) / (norm_val * norm_val)
+
+
+def _torsion_analytical_row(
+    coords_A: np.ndarray,
+    i: int,
+    j: int,
+    k: int,
+    l: int,
+    *,
+    singular_tol: float,
+    torsion_sin_tol: float,
+) -> np.ndarray | None:
+    p0 = _dual_atom_vector(coords_A, i)
+    p1 = _dual_atom_vector(coords_A, j)
+    p2 = _dual_atom_vector(coords_A, k)
+    p3 = _dual_atom_vector(coords_A, l)
+
+    b0 = (p0[0] - p1[0], p0[1] - p1[1])
+    b1_raw = (p2[0] - p1[0], p2[1] - p1[1])
+    b2 = (p3[0] - p2[0], p3[1] - p2[1])
+    b1 = _dual_normalize(b1_raw, singular_tol=singular_tol)
+    if b1 is None:
+        return None
+
+    b0_dot_b1 = _dual_dot(b0, b1)
+    b2_dot_b1 = _dual_dot(b2, b1)
+    v = (b0[0] - b0_dot_b1[0] * b1[0], b0[1] - _dual_scale(b0_dot_b1, b1)[1])
+    w = (b2[0] - b2_dot_b1[0] * b1[0], b2[1] - _dual_scale(b2_dot_b1, b1)[1])
+    b0_norm = _dual_norm(b0, singular_tol=singular_tol)
+    b2_norm = _dual_norm(b2, singular_tol=singular_tol)
+    v_norm = _dual_norm(v, singular_tol=singular_tol)
+    w_norm = _dual_norm(w, singular_tol=singular_tol)
+    if b0_norm is None or b2_norm is None or v_norm is None or w_norm is None:
+        return None
+    if v_norm[0] / b0_norm[0] <= torsion_sin_tol or w_norm[0] / b2_norm[0] <= torsion_sin_tol:
+        return None
+
+    x_val, x_jac = _dual_dot(v, w)
+    b1_cross_v = _dual_cross(b1, v)
+    y_val, y_jac = _dual_dot(b1_cross_v, w)
+    denom = x_val * x_val + y_val * y_val
+    if denom <= singular_tol or not np.isfinite(denom):
+        return None
+    row = (x_val * y_jac - y_val * x_jac) / denom
+    if not np.all(np.isfinite(row)):
+        return None
+    return row
 
 
 def compose_b_row(B: np.ndarray, components: Sequence[ComposedCoordinateTerm | tuple[int, float]]) -> np.ndarray:

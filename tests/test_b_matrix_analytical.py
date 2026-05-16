@@ -39,7 +39,7 @@ def test_analytical_b_matrix_matches_finite_difference_for_distance_and_angle_ro
     assert np.allclose(analytical, finite, atol=1.0e-6, rtol=1.0e-6)
 
 
-def test_analytical_b_matrix_falls_back_for_torsion_and_composed_rows():
+def test_analytical_b_matrix_matches_finite_difference_for_torsion_and_keeps_composed_fallback():
     coords = np.array(
         [
             [0.0, 0.0, 0.0],
@@ -70,13 +70,55 @@ def test_analytical_b_matrix_falls_back_for_torsion_and_composed_rows():
 
     assert diagnostics["method_counts"] == {
         "analytical_distance": 2,
-        "finite_difference_fallback": 2,
+        "analytical_torsion": 1,
+        "finite_difference_fallback": 1,
     }
     assert diagnostics["fallback_reasons"] == {
         "composed_coordinate": 1,
-        "unsupported_coordinate_kind": 1,
     }
     assert np.allclose(analytical, finite, atol=1.0e-6, rtol=1.0e-6)
+
+
+def test_analytical_b_matrix_falls_back_for_singular_torsion():
+    coords = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [3.0, 0.0, 0.0],
+        ],
+        dtype=float,
+    )
+    internals = [
+        InternalCoordinate("tor(A1-A2-A3-A4)", "torsion", (0, 1, 2, 3), 55, torsion_fn(0, 1, 2, 3)),
+    ]
+
+    analytical, diagnostics = analytical_B(coords, internals)
+    finite = finite_difference_B(coords, internals)
+
+    assert diagnostics["method_counts"] == {"finite_difference_fallback": 1}
+    assert diagnostics["fallback_reasons"] == {"singular_or_near_linear_torsion": 1}
+    assert np.allclose(analytical, finite, atol=1.0e-6, rtol=1.0e-6)
+
+
+def test_analytical_b_matrix_falls_back_for_near_linear_torsion_baseline_parity():
+    hess = read_orca_hess(ROOT / "data" / "hess" / "CH3CN_freq.hess")
+    internals = [
+        InternalCoordinate(
+            "tor(H4-C1-C2-N3)",
+            "torsion",
+            (3, 0, 1, 2),
+            55,
+            torsion_fn(3, 0, 1, 2),
+        )
+    ]
+
+    analytical, diagnostics = analytical_B(hess.coords_A, internals)
+    finite = finite_difference_B(hess.coords_A, internals)
+
+    assert diagnostics["method_counts"] == {"finite_difference_fallback": 1}
+    assert diagnostics["fallback_reasons"] == {"singular_or_near_linear_torsion": 1}
+    assert np.allclose(analytical, finite, atol=0.0, rtol=0.0)
 
 
 def test_analytical_b_matrix_falls_back_for_linear_angle_singularity():
