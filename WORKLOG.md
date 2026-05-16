@@ -308,6 +308,26 @@ Remaining:
 - Future work: composed-coordinate analytical rows, linear-bend components, or broader default-switch policy.
 
 ---
+Task ID: 16
+Agent: Codex
+Task: Merge GAP 2 analytical B-matrix branch to main
+
+Work Log:
+- User explicitly authorized Codex to perform the merge.
+- Checked `codex-gap2-analytical-bmatrix` was clean and contained 8 commits ahead of `main`.
+- Switched to `main`, pulled from origin, and merged `codex-gap2-analytical-bmatrix` with a non-fast-forward merge commit.
+- Pushed `main` to origin.
+
+Validation:
+- `git pull` on `main` -> already up to date before merge.
+- `git merge --no-ff codex-gap2-analytical-bmatrix -m "Merge GAP 2 analytical B-matrix"` -> completed without conflicts.
+- `git push` -> pushed `main` from `9b25516` to `19d533c`.
+
+Remaining:
+- Commit and push this WORKLOG merge note.
+- Next project step: start GAP 3 VEDA reference validation or a separate GAP 2 follow-up branch for composed/linear-bend analytical rows.
+
+---
 Task ID: 10
 Agent: Codex
 Task: Commit GAP 2 analytical B-matrix validation state
