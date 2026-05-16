@@ -199,6 +199,26 @@ Remaining:
 - Torsion analytical rows remain unimplemented and use finite-difference fallback.
 
 ---
+Task ID: 11
+Agent: Codex
+Task: Encode GAP 2 selected-basis acceptance policy
+
+Work Log:
+- Pushed commit `5d844dd` to `origin/codex-gap2-analytical-bmatrix`.
+- Added a full-sweep acceptance-policy regression test for the hybrid analytical B comparison harness.
+- Documented that exact selected-basis index identity is not required when row deltas, redundant rank, selected rank, and replacement rank preservation pass.
+- Did not switch Stage 3D, Wilson GF, or production B-matrix wiring.
+
+Validation:
+- `.\.venv312\Scripts\python.exe -m py_compile tests\test_b_matrix_method_compare.py` -> completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_b_matrix_method_compare.py -q` -> 4 passed.
+- `.\.venv312\Scripts\python.exe benchmarks\bmatrix_compare\compare_bmatrix_methods.py --full-sweep --out outputs\bmatrix_compare_full` -> `file_count=55`, `rows_above_tolerance_count=0`, `files_with_redundant_rank_change=0`, `files_with_selected_rank_change=0`, `selected_basis_difference_count=8`, `selected_basis_replacement_rank_loss_count=0`.
+
+Remaining:
+- Production integration still needs a separate explicit opt-in/default decision.
+- Torsion analytical rows remain unimplemented and use finite-difference fallback.
+
+---
 Task ID: 10
 Agent: Codex
 Task: Commit GAP 2 analytical B-matrix validation state

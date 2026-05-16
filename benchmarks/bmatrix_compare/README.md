@@ -21,4 +21,6 @@ The summary reports per-file row deltas, hybrid row method counts, fallback reas
 
 The row CSV includes atom indices plus angle geometry for three-atom coordinates. The selected-basis-differences CSV records the finite-difference and hybrid rows chosen at each differing selected-basis position, replacement rank/condition/min-singular diagnostics, and whether replacing each swapped row preserves the original selected rank.
 
+Current GAP 2 acceptance policy treats selected-basis index differences as allowed only when row-level deltas are within tolerance, redundant rank is unchanged, selected rank is unchanged, and every selected-basis replacement preserves rank. The current full sweep has 8 rank-preserving selected-basis differences in aromatic fixtures; these are diagnostic alternatives, not a production switch.
+
 A `PASS` claim requires an actual command transcript; missing or unrun comparisons are not evidence.

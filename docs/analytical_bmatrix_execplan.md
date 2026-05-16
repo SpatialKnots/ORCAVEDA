@@ -22,6 +22,7 @@ GAP 2 adds analytical B-matrix derivatives where the mathematics is simple and v
 - [x] (2026-05-16) Ran epsilon sensitivity on the four high-angle above-tolerance rows, then broadened angle fallback to `sin(theta) <= 2.0e-1`.
 - [x] (2026-05-16) Re-ran full sweep: row deltas above tolerance are now resolved.
 - [x] (2026-05-16) Added selected-basis replacement rank/condition/min-singular diagnostics and verified all 8 selected-basis swaps preserve rank.
+- [x] (2026-05-16) Encoded the GAP 2 acceptance policy as a full-sweep regression test: selected-basis index differences are allowed only when row deltas, redundant rank, selected rank, and replacement rank preservation pass.
 
 ## Surprises & Discoveries
 
@@ -75,6 +76,10 @@ GAP 2 adds analytical B-matrix derivatives where the mathematics is simple and v
   Rationale: Replacement trace shows no selected-rank loss and healthy minimum singular values for all 8 differing positions. The exact selected basis indices still differ in 4 aromatic fixtures, so production integration should either accept index differences explicitly or compare rank/row-delta invariants instead of exact selected-index identity.
   Date/Author: 2026-05-16 / Codex
 
+- Decision: Full-sweep GAP 2 acceptance does not require exact selected-basis index identity.
+  Rationale: Exact selected-index identity is too strict for the current hybrid diagnostic API because the remaining differences are rank-preserving aromatic primitive-angle alternatives. Acceptance now requires `rows_above_tolerance_count=0`, unchanged redundant rank, unchanged selected rank, and `selected_basis_replacement_rank_loss_count=0`. The selected-basis differences remain reported and are not hidden.
+  Date/Author: 2026-05-16 / Codex
+
 ## Outcomes & Retrospective
 
 Validation outcome:
@@ -122,6 +127,10 @@ Selected-basis trace outcome:
 - `.\.venv312\Scripts\python.exe benchmarks\bmatrix_compare\compare_bmatrix_methods.py --out outputs\bmatrix_compare_minimal` returned `selected_basis_replacement_rank_loss_count=0`.
 - `.\.venv312\Scripts\python.exe benchmarks\bmatrix_compare\compare_bmatrix_methods.py --full-sweep --out outputs\bmatrix_compare_full` returned `selected_basis_difference_count=8` and `selected_basis_replacement_rank_loss_count=0`.
 
+Acceptance-policy outcome:
+
+- Added `test_bmatrix_method_compare_full_sweep_acceptance_policy_allows_rank_preserving_selection_swaps` to encode the current full-sweep policy without switching production behavior.
+
 ## Context and Orientation
 
 The current B matrix is built by `finite_difference_B(coords_A, internals)` in `src/b_matrix.py`. It evaluates each internal coordinate function at plus/minus Cartesian perturbations. Angles are returned in degrees, torsions in radians, and torsion finite differences wrap through `[-pi, pi]`.
@@ -129,6 +138,8 @@ The current B matrix is built by `finite_difference_B(coords_A, internals)` in `
 The new `analytical_B(coords_A, internals)` returns a B matrix plus diagnostics. It reports per-row methods and fallback reasons. Near-linear and high-angle rows fall back to finite differences through `angle_sin_tol=2.0e-1`.
 
 The comparison harness now writes row-level atom indices, angle degrees, angle sine, and a selected-basis-differences CSV. The selected-basis CSV includes replacement rank, condition, and minimum-singular diagnostics for reviewing whether differing selected rows are rank-preserving alternatives.
+
+The current acceptance policy allows selected-basis index differences only when all selected-basis replacements preserve rank and row/rank invariants pass. It does not make `analytical_B` the production B matrix.
 
 ## Plan of Work
 
@@ -152,6 +163,14 @@ Run the B-matrix method comparison harness:
 ## Validation and Acceptance
 
 Accepted for this milestone when analytical distance and regular angle rows match `finite_difference_B` within tight numerical tolerance on focused tests, unsupported and near-linear rows fall back with explicit diagnostics, the comparison harness reports row deltas/rank/condition/selection diagnostics, and no default Stage 3D or Wilson GF code path changes.
+
+Full-sweep GAP 2 acceptance requires:
+
+- `rows_above_tolerance_count=0`.
+- No redundant B rank changes.
+- No selected-basis rank changes.
+- `selected_basis_replacement_rank_loss_count=0`.
+- Exact selected-basis index identity is not required, but all differences must remain visible in `bmatrix_method_comparison_selected_basis_differences.csv`.
 
 ## Idempotence and Recovery
 

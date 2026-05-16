@@ -13,7 +13,7 @@ COMPARE = ROOT / "benchmarks" / "bmatrix_compare"
 if str(COMPARE) not in sys.path:
     sys.path.insert(0, str(COMPARE))
 
-from compare_bmatrix_methods import compare_hess_file, main  # noqa: E402
+from compare_bmatrix_methods import compare_hess_file, compare_hess_files, main  # noqa: E402
 
 
 def test_bmatrix_method_compare_h2o_reports_no_delta_or_rank_change():
@@ -72,3 +72,18 @@ def test_bmatrix_method_compare_reports_selection_replacement_metrics():
     assert first["hybrid_basis_rank_with_finite_row"] == summary["hybrid_selected_rank"]
     assert first["finite_basis_min_singular_with_hybrid_row"] > 0.0
     assert first["hybrid_basis_min_singular_with_finite_row"] > 0.0
+
+
+def test_bmatrix_method_compare_full_sweep_acceptance_policy_allows_rank_preserving_selection_swaps():
+    hess_paths = sorted((ROOT / "data" / "hess").glob("*.hess"))
+    summaries, _rows, selection_differences = compare_hess_files(hess_paths)
+
+    assert len(summaries) == 55
+    assert sum(int(row["rows_above_tolerance"]) for row in summaries) == 0
+    assert all(int(row["redundant_finite_rank"]) == int(row["redundant_hybrid_rank"]) for row in summaries)
+    assert all(int(row["finite_selected_rank"]) == int(row["hybrid_selected_rank"]) for row in summaries)
+    assert all(bool(row["replacement_rank_preserved"]) for row in selection_differences)
+
+    differing_files = {str(row["Filename"]) for row in selection_differences}
+    assert differing_files == {"aniline.hess", "benzene.hess", "benzonitrile.hess", "pyridine.hess"}
+    assert len(selection_differences) == 8
