@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
 
 from b_matrix import analytical_B, finite_difference_B  # noqa: E402
 from internal_coordinates import angle_fn, distance_fn, make_composed_internal_coordinate, torsion_fn  # noqa: E402
+from orca_parser import read_orca_hess  # noqa: E402
 from orcaveda_models import InternalCoordinate  # noqa: E402
 
 
@@ -118,3 +119,23 @@ def test_analytical_b_matrix_falls_back_for_near_linear_angle():
     assert diagnostics["method_counts"] == {"finite_difference_fallback": 1}
     assert diagnostics["fallback_reasons"] == {"singular_or_near_linear_angle": 1}
     assert np.allclose(analytical, finite, atol=1.0e-6, rtol=1.0e-6)
+
+
+def test_analytical_b_matrix_falls_back_for_high_angle_baseline_parity():
+    hess = read_orca_hess(ROOT / "data" / "hess" / "phenyl_isocyanate.hess")
+    internals = [
+        InternalCoordinate(
+            "ang(N2-C13-O14)",
+            "bend",
+            (1, 12, 13),
+            30,
+            angle_fn(1, 12, 13),
+        )
+    ]
+
+    analytical, diagnostics = analytical_B(hess.coords_A, internals)
+    finite = finite_difference_B(hess.coords_A, internals)
+
+    assert diagnostics["method_counts"] == {"finite_difference_fallback": 1}
+    assert diagnostics["fallback_reasons"] == {"singular_or_near_linear_angle": 1}
+    assert np.allclose(analytical, finite, atol=0.0, rtol=0.0)

@@ -40,7 +40,7 @@ def analytical_B(
     *,
     eps: float = EPS_FD_A,
     singular_tol: float = 1.0e-12,
-    angle_sin_tol: float = 1.0e-3,
+    angle_sin_tol: float = 2.0e-1,
 ) -> tuple[np.ndarray, Dict[str, object]]:
     """
     Build a hybrid analytical B matrix with finite-difference fallback.
@@ -48,8 +48,8 @@ def analytical_B(
     The first GAP 2 implementation is deliberately narrow and additive:
     distance-like two-atom coordinates and regular angle/bend three-atom
     coordinates are analytical; torsions, composed coordinates, linear-bend
-    components, and singular or near-linear angle geometries fall back to the
-    existing finite difference row. This function does not replace
+    components, and singular, near-linear, or high-angle geometries fall back
+    to the existing finite difference row. This function does not replace
     `finite_difference_B` in the production pipeline.
     """
     coords = np.asarray(coords_A, dtype=float)

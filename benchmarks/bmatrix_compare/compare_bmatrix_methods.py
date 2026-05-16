@@ -48,12 +48,164 @@ def _build_internals_for_hess(hess_path: Path):
     return hess, annotation, internals
 
 
+def _angle_geometry(coords_A: np.ndarray, atoms0: Sequence[int]) -> tuple[float | None, float | None]:
+    if len(atoms0) != 3:
+        return None, None
+    i, j, k = (int(idx) for idx in atoms0)
+    u = coords_A[i] - coords_A[j]
+    v = coords_A[k] - coords_A[j]
+    u_norm = float(np.linalg.norm(u))
+    v_norm = float(np.linalg.norm(v))
+    if u_norm <= 0.0 or v_norm <= 0.0:
+        return None, None
+    cosine = float(np.dot(u, v) / (u_norm * v_norm))
+    cosine = max(-1.0, min(1.0, cosine))
+    sine = float(np.sqrt(max(0.0, 1.0 - cosine * cosine)))
+    angle_deg = float(np.degrees(np.arccos(cosine)))
+    return angle_deg, sine
+
+
+def _row_descriptor(
+    *,
+    hess_path: Path,
+    coords_A: np.ndarray,
+    internals: Sequence[object],
+    row_methods: Sequence[str],
+    row_max_delta: np.ndarray,
+    idx: int | None,
+    prefix: str,
+) -> dict[str, object]:
+    if idx is None:
+        return {
+            f"{prefix}_row_index": "",
+            f"{prefix}_internal_coordinate": "",
+            f"{prefix}_kind": "",
+            f"{prefix}_source": "",
+            f"{prefix}_atoms0": "",
+            f"{prefix}_method": "",
+            f"{prefix}_max_abs_delta": "",
+            f"{prefix}_angle_degrees": "",
+            f"{prefix}_angle_sine": "",
+        }
+    internal = internals[int(idx)]
+    atoms0 = tuple(int(atom_idx) for atom_idx in internal.atoms0)
+    angle_degrees, angle_sine = _angle_geometry(coords_A, atoms0)
+    return {
+        f"{prefix}_row_index": int(idx),
+        f"{prefix}_internal_coordinate": internal.name,
+        f"{prefix}_kind": internal.kind,
+        f"{prefix}_source": internal.source,
+        f"{prefix}_atoms0": json.dumps(list(atoms0), separators=(",", ":")),
+        f"{prefix}_method": row_methods[int(idx)],
+        f"{prefix}_max_abs_delta": float(row_max_delta[int(idx)]),
+        f"{prefix}_angle_degrees": "" if angle_degrees is None else float(angle_degrees),
+        f"{prefix}_angle_sine": "" if angle_sine is None else float(angle_sine),
+    }
+
+
+def _replacement_basis_metrics(
+    B: np.ndarray,
+    selected: Sequence[int],
+    *,
+    position: int,
+    replacement_idx: int | None,
+    rank_tolerance: float,
+) -> tuple[int | str, float | str, float | str]:
+    if replacement_idx is None or position < 0 or position >= len(selected):
+        return "", "", ""
+    trial = [int(idx) for idx in selected]
+    trial[int(position)] = int(replacement_idx)
+    rank, condition, singular_values = svd_rank_condition(B[trial, :], tol_abs=rank_tolerance)
+    min_singular = float(singular_values[-1]) if singular_values.size else float("inf")
+    return int(rank), float(condition), min_singular
+
+
+def _selected_basis_differences(
+    *,
+    hess_path: Path,
+    coords_A: np.ndarray,
+    internals: Sequence[object],
+    finite_B: np.ndarray,
+    hybrid_B: np.ndarray,
+    row_methods: Sequence[str],
+    row_max_delta: np.ndarray,
+    finite_selected: Sequence[int],
+    hybrid_selected: Sequence[int],
+    finite_selected_rank: int,
+    hybrid_selected_rank: int,
+    rank_tolerance: float,
+) -> list[dict[str, object]]:
+    max_len = max(len(finite_selected), len(hybrid_selected))
+    rows: list[dict[str, object]] = []
+    for position in range(max_len):
+        finite_idx = int(finite_selected[position]) if position < len(finite_selected) else None
+        hybrid_idx = int(hybrid_selected[position]) if position < len(hybrid_selected) else None
+        if finite_idx == hybrid_idx:
+            continue
+        finite_basis_rank_with_hybrid_row, finite_basis_condition_with_hybrid_row, finite_basis_min_singular_with_hybrid_row = (
+            _replacement_basis_metrics(
+                finite_B,
+                finite_selected,
+                position=position,
+                replacement_idx=hybrid_idx,
+                rank_tolerance=rank_tolerance,
+            )
+        )
+        hybrid_basis_rank_with_finite_row, hybrid_basis_condition_with_finite_row, hybrid_basis_min_singular_with_finite_row = (
+            _replacement_basis_metrics(
+                hybrid_B,
+                hybrid_selected,
+                position=position,
+                replacement_idx=finite_idx,
+                rank_tolerance=rank_tolerance,
+            )
+        )
+        row: dict[str, object] = {
+            "Filename": hess_path.name,
+            "basis_position": int(position),
+            "replacement_rank_preserved": bool(
+                finite_basis_rank_with_hybrid_row == int(finite_selected_rank)
+                and hybrid_basis_rank_with_finite_row == int(hybrid_selected_rank)
+            ),
+            "finite_basis_rank_with_hybrid_row": finite_basis_rank_with_hybrid_row,
+            "finite_basis_condition_with_hybrid_row": finite_basis_condition_with_hybrid_row,
+            "finite_basis_min_singular_with_hybrid_row": finite_basis_min_singular_with_hybrid_row,
+            "hybrid_basis_rank_with_finite_row": hybrid_basis_rank_with_finite_row,
+            "hybrid_basis_condition_with_finite_row": hybrid_basis_condition_with_finite_row,
+            "hybrid_basis_min_singular_with_finite_row": hybrid_basis_min_singular_with_finite_row,
+        }
+        row.update(
+            _row_descriptor(
+                hess_path=hess_path,
+                coords_A=coords_A,
+                internals=internals,
+                row_methods=row_methods,
+                row_max_delta=row_max_delta,
+                idx=finite_idx,
+                prefix="finite",
+            )
+        )
+        row.update(
+            _row_descriptor(
+                hess_path=hess_path,
+                coords_A=coords_A,
+                internals=internals,
+                row_methods=row_methods,
+                row_max_delta=row_max_delta,
+                idx=hybrid_idx,
+                prefix="hybrid",
+            )
+        )
+        rows.append(row)
+    return rows
+
+
 def compare_hess_file(
     hess_path: Path,
     *,
     row_tolerance: float = 1.0e-5,
     rank_tolerance: float = 1.0e-6,
-) -> tuple[dict[str, object], list[dict[str, object]]]:
+) -> tuple[dict[str, object], list[dict[str, object]], list[dict[str, object]]]:
     hess, annotation, internals = _build_internals_for_hess(hess_path)
     finite = finite_difference_B(hess.coords_A, internals)
     hybrid, diagnostics = analytical_B(hess.coords_A, internals)
@@ -86,6 +238,8 @@ def compare_hess_file(
     mismatch_indices = [int(idx) for idx, value in enumerate(row_max_delta) if float(value) > row_tolerance]
     rows: list[dict[str, object]] = []
     for idx, internal in enumerate(internals):
+        atoms0 = tuple(int(atom_idx) for atom_idx in internal.atoms0)
+        angle_degrees, angle_sine = _angle_geometry(hess.coords_A, atoms0)
         rows.append(
             {
                 "Filename": hess_path.name,
@@ -93,9 +247,12 @@ def compare_hess_file(
                 "internal_coordinate": internal.name,
                 "kind": internal.kind,
                 "source": internal.source,
+                "atoms0": json.dumps(list(atoms0), separators=(",", ":")),
                 "method": row_methods[idx],
                 "max_abs_delta": float(row_max_delta[idx]),
                 "above_tolerance": bool(float(row_max_delta[idx]) > row_tolerance),
+                "angle_degrees": "" if angle_degrees is None else float(angle_degrees),
+                "angle_sine": "" if angle_sine is None else float(angle_sine),
             }
         )
 
@@ -124,7 +281,22 @@ def compare_hess_file(
         "formula": annotation.formula,
         "system_type": annotation.system_type,
     }
-    return summary, rows
+    selection_differences = _selected_basis_differences(
+        hess_path=hess_path,
+        coords_A=hess.coords_A,
+        internals=internals,
+        finite_B=finite,
+        hybrid_B=hybrid,
+        row_methods=row_methods,
+        row_max_delta=row_max_delta,
+        finite_selected=finite_selected,
+        hybrid_selected=hybrid_selected,
+        finite_selected_rank=finite_selected_rank,
+        hybrid_selected_rank=hybrid_selected_rank,
+        rank_tolerance=rank_tolerance,
+    )
+    summary["selected_basis_difference_count"] = int(len(selection_differences))
+    return summary, rows, selection_differences
 
 
 def compare_hess_files(
@@ -132,18 +304,20 @@ def compare_hess_files(
     *,
     row_tolerance: float = 1.0e-5,
     rank_tolerance: float = 1.0e-6,
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
     summaries: list[dict[str, object]] = []
     rows: list[dict[str, object]] = []
+    selection_differences: list[dict[str, object]] = []
     for hess_path in hess_paths:
-        summary, row_details = compare_hess_file(
+        summary, row_details, selected_details = compare_hess_file(
             hess_path,
             row_tolerance=row_tolerance,
             rank_tolerance=rank_tolerance,
         )
         summaries.append(summary)
         rows.extend(row_details)
-    return summaries, rows
+        selection_differences.extend(selected_details)
+    return summaries, rows, selection_differences
 
 
 def _json_ready(value):
@@ -206,7 +380,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     hess_paths = _resolve_hess_paths(args)
-    summaries, rows = compare_hess_files(
+    summaries, rows, selection_differences = compare_hess_files(
         hess_paths,
         row_tolerance=float(args.row_tolerance),
         rank_tolerance=float(args.rank_tolerance),
@@ -232,6 +406,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "files_with_selected_basis_index_change": int(
             sum(1 for row in summaries if not bool(row["selected_basis_same_indices"]))
         ),
+        "rows_above_tolerance_count": int(sum(int(row["rows_above_tolerance"]) for row in summaries)),
+        "selected_basis_difference_count": int(len(selection_differences)),
+        "selected_basis_replacement_rank_loss_count": int(
+            sum(1 for row in selection_differences if not bool(row.get("replacement_rank_preserved")))
+        ),
         "summaries": summaries,
     }
     (outdir / "bmatrix_method_comparison_summary.json").write_text(
@@ -240,6 +419,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     _write_csv(outdir / "bmatrix_method_comparison_summary.csv", summaries)
     _write_csv(outdir / "bmatrix_method_comparison_rows.csv", rows)
+    _write_csv(outdir / "bmatrix_method_comparison_selected_basis_differences.csv", selection_differences)
 
     print(json.dumps(_json_ready(payload), indent=2))
     return 0
