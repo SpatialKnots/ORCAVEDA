@@ -27,7 +27,7 @@ This plan does not claim VEDA equivalence. The forbidden wording for source code
 - [ ] Extend composed-coordinate optimization with verifiable EPM-like metrics and conservative promotion rules.
 - [x] Implement initial mode correspondence between ORCA normal modes, GF eigenvectors, and PED matrix rows for the closed Wilson GF/PED backend.
 - [x] Add initial `veda_like_*` output artifacts behind an explicit opt-in interface.
-- [ ] Add a future original-VEDA comparison harness that is inactive until VEDA reference outputs are checked in.
+- [x] Add a future original-VEDA comparison harness that is inactive until VEDA reference outputs are checked in.
 
 ## Surprises & Discoveries
 
@@ -69,6 +69,9 @@ This plan does not claim VEDA equivalence. The forbidden wording for source code
 
 - Observation: `tools\validate_veda_like_outputs.py` now provides a repeatable gate for `veda_like_*` artifacts by reading basis diagnostics, mode correspondence, PED matrix, and PED audit CSVs. It reports PASS/WARN/FAIL counts, warning-token counts, artifact row counts, and per-mode matrix normalization failures.
   Evidence: `tools\validate_veda_like_outputs.py` and `tests\test_validate_veda_like_outputs.py`.
+
+- Observation: `benchmarks\veda_compare\compare_veda_outputs.py` now provides a skip-safe original VEDA reference comparison harness. Missing original VEDA reference outputs produce `comparison_status=SKIP` and `acceptance_status=SKIP`, not `PASS`.
+  Evidence: `benchmarks\veda_compare\compare_veda_outputs.py`, `tests\test_veda_reference_compare.py`, and `docs\veda_reference_validation_execplan.md`.
 
 ## Decision Log
 
@@ -137,6 +140,15 @@ Validator outcome:
 - Validator summary for the fresh full sweep: 55 files, basis diagnostics 53 PASS and 2 WARN, mode correspondence 1560 PASS and 21 WARN, PED audit 12431 PASS and 156 WARN, 0 normalization failures, warning-token counts `fixed_conversion_failed=440`, `linear_or_near_linear_fixed_conversion_review=440`, and `high_frequency_hbond_dominates_xh_stretch_secondary=136`.
 - `tools\validate_veda_like_outputs.py` now reports both `validation_status` and `acceptance_status`. Without an allowlist, the fresh full sweep reports `validation_status=WARN` and `acceptance_status=WARN`.
 - With an explicit allowlist for the current full-sweep warning tokens, the fresh full sweep reports `validation_status=WARN` and `acceptance_status=PASS`. The allowed tokens were `empirical_ratio_only`, `fixed_conversion_failed`, `high_frequency_hbond_dominates_xh_stretch_secondary`, `linear_bend_coordinate_used`, `linear_or_near_linear_fixed_conversion_review`, `near_linear_bend_coordinate`, `nonpositive_gf_eigenvalues_within_expected_vibrational_space`, `nonpositive_orca_modes_within_expected_vibrational_space`, `positive_gf_eigenvalue_count_below_expected_vibrational_rank`, and `positive_orca_mode_count_below_expected_vibrational_rank`.
+
+Original VEDA reference comparison harness outcome:
+
+- `benchmarks\veda_compare\compare_veda_outputs.py` compares ORCAVEDA opt-in `veda_like_*` artifacts against checked-in original VEDA reference CSV rows when those references exist.
+- Missing reference directories or missing `veda_reference_ped_matrix.csv` files are reported as `SKIP`, not validation success.
+- The first reference schema is documented in `benchmarks\veda_compare\README.md` and `docs\veda_reference_validation_execplan.md`.
+- `.\.venv312\Scripts\python.exe -m py_compile benchmarks\veda_compare\compare_veda_outputs.py tests\test_veda_reference_compare.py` completed successfully on 2026-05-18.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_veda_reference_compare.py tests\test_validate_veda_like_outputs.py -q` returned `9 passed` on 2026-05-18.
+- `.\.venv312\Scripts\python.exe benchmarks\veda_compare\compare_veda_outputs.py --orcaveda outputs\pytest_veda_like_epm_opt_in_h2o --reference data\veda_reference_missing --out outputs\veda_reference_compare_skip_probe` returned `comparison_status=SKIP`, `acceptance_status=SKIP`, and `reason=veda_reference_directory_missing` on 2026-05-18.
 
 ## Context and Orientation
 
