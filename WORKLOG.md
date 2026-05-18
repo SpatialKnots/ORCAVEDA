@@ -199,6 +199,27 @@ Remaining:
 - Torsion analytical rows remain unimplemented and use finite-difference fallback.
 
 ---
+Task ID: 18
+Agent: Codex
+Task: Reapply GAP 3 VEDA reference validation harness on current main
+
+Work Log:
+- Created branch `codex/gap3-veda-validation-current` from current `main`.
+- Confirmed old `codex-gap3-veda-validation` was stale relative to `main` and would remove GAP 2 analytical B-matrix files if merged directly.
+- Reapplied only GAP 3 artifacts from the old branch: `benchmarks/veda_compare/`, `docs/veda_reference_validation_execplan.md`, and `tests/test_veda_reference_compare.py`.
+- Updated `docs/full_veda_implementation_execplan.md` and `docs/veda_reference_validation_execplan.md` with current 2026-05-18 validation evidence.
+- Did not modify Stage 3D, Wilson GF, analytical B-matrix, output schemas, thresholds, or scientific assignment logic.
+
+Validation:
+- `.\.venv312\Scripts\python.exe -m py_compile benchmarks\veda_compare\compare_veda_outputs.py tests\test_veda_reference_compare.py` -> completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_veda_reference_compare.py tests\test_validate_veda_like_outputs.py -q` -> 9 passed.
+- `.\.venv312\Scripts\python.exe benchmarks\veda_compare\compare_veda_outputs.py --orcaveda outputs\pytest_veda_like_epm_opt_in_h2o --reference data\veda_reference_missing --out outputs\veda_reference_compare_skip_probe` -> `comparison_status=SKIP`, `acceptance_status=SKIP`, `reason=veda_reference_directory_missing`.
+
+Remaining:
+- Original VEDA reference outputs are still absent; no VEDA reproduction claim is supported.
+- Review, commit, and optionally push `codex/gap3-veda-validation-current`.
+
+---
 Task ID: 11
 Agent: Codex
 Task: Encode GAP 2 selected-basis acceptance policy
@@ -326,6 +347,23 @@ Validation:
 Remaining:
 - Commit and push this WORKLOG merge note.
 - Next project step: start GAP 3 VEDA reference validation or a separate GAP 2 follow-up branch for composed/linear-bend analytical rows.
+
+---
+Task ID: 17
+Agent: Codex
+Task: Session initialization and Caveman full mode activation
+
+Work Log:
+- Read `COLLABORATION.md`, `AGENTS.md`, `WORKLOG.md`, and `orcaveda-core` skill instructions at session start.
+- User requested `$caveman full`; activated compressed response style for subsequent work.
+- No scientific/code behavior changes requested.
+
+Validation:
+- `git status --short` before the WORKLOG append -> clean.
+- No tests run; no code changes requested.
+
+Remaining:
+- Await next user task.
 
 ---
 Task ID: 10
