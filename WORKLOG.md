@@ -220,6 +220,34 @@ Remaining:
 - Review, commit, and optionally push `codex/gap3-veda-validation-current`.
 
 ---
+Task ID: 19
+Agent: Codex
+Task: Merge GAP 3 and start VEDA reference fixture ingest
+
+Work Log:
+- Merged `codex/gap3-veda-validation-current` into `main` with merge commit `b5bb0d0`.
+- Pushed `main` to origin.
+- Created branch `codex/veda-reference-fixture-ingest` from updated `main`.
+- Added conservative reference ingest tool `benchmarks/veda_compare/convert_veda_reference.py`.
+- Added `tests/test_veda_reference_ingest.py`.
+- Added `docs/veda_reference_fixture_ingest_execplan.md`.
+- Updated `benchmarks/veda_compare/README.md` with ingest commands.
+- The ingest tool accepts already-normalized reference CSVs or explicit column mappings only. It does not infer unknown native VEDA export formats and does not fabricate rows.
+- Did not modify Stage 3D, Wilson GF, analytical B-matrix, output schemas, thresholds, or scientific assignment logic.
+
+Validation:
+- `git pull` on `main` -> already up to date before merge.
+- `git merge --no-ff codex/gap3-veda-validation-current -m "Merge GAP 3 VEDA reference validation harness"` -> completed without conflicts.
+- `git push` -> pushed `main` from `f8d8285` to `b5bb0d0`.
+- `.\.venv312\Scripts\python.exe -m py_compile benchmarks\veda_compare\convert_veda_reference.py tests\test_veda_reference_ingest.py` -> completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_veda_reference_ingest.py tests\test_veda_reference_compare.py -q` -> 8 passed.
+- `.\.venv312\Scripts\python.exe benchmarks\veda_compare\convert_veda_reference.py --raw-reference data\veda_reference_missing --out outputs\veda_reference_ingest_skip_probe` -> `conversion_status=SKIP`, `acceptance_status=SKIP`, `reason=raw_reference_directory_missing`.
+
+Remaining:
+- Original VEDA reference outputs are still absent.
+- Commit and push `codex/veda-reference-fixture-ingest` if accepted.
+
+---
 Task ID: 11
 Agent: Codex
 Task: Encode GAP 2 selected-basis acceptance policy

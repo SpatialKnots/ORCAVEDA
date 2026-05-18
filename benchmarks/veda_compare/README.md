@@ -69,3 +69,22 @@ From the repository root:
 
 If the reference directory or required reference matrix is absent, the command
 writes a `SKIP` summary. It does not fabricate reference rows or report `PASS`.
+
+## Reference Ingest
+
+Use `convert_veda_reference.py` to normalize checked-in VEDA reference CSV rows
+before comparison. This tool accepts either an already-normalized
+`veda_reference_ped_matrix.csv` file or an explicit CSV column mapping. It does
+not parse unknown native VEDA formats by inference.
+
+Normalized pass-through:
+
+    .\.venv312\Scripts\python.exe benchmarks\veda_compare\convert_veda_reference.py --raw-reference <raw-reference-dir> --out benchmarks\veda_compare\references\<set-name>
+
+Explicit CSV mapping:
+
+    .\.venv312\Scripts\python.exe benchmarks\veda_compare\convert_veda_reference.py --raw-reference <raw-reference-dir> --matrix-csv <raw-reference-dir>\matrix.csv --filename-column file --mode-column mode_no --coordinate-column veda_coord --percent-column ped_percent --out benchmarks\veda_compare\references\<set-name>
+
+If no convertible reference matrix exists, the converter writes
+`veda_reference_ingest_summary.json` with `conversion_status=SKIP`. If required
+columns or numeric values are invalid, it writes `conversion_status=FAIL`.
