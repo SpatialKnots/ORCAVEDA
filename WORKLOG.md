@@ -281,6 +281,24 @@ Remaining:
 - If `incoming` VEDA examples are accepted as reference material, create a separate GAP 3 branch from `main` for native VEDA `.vdf/.ved` ingest; do not mix it into the P0/P2 audit-fix branch.
 
 ---
+Task ID: 24
+Agent: Codex
+Task: Update README for current ORCAVEDA capabilities
+
+Work Log:
+- Updated `README.md` with a current-status snapshot, quick-start commands, diagnostic layer boundaries, VEDA reference comparison workflow, NIST/scaling behavior, and local web import server notes.
+- Documented that hybrid analytical B matrices, EPM-like optimization, Wilson GF validation, and VEDA-like outputs are opt-in diagnostic layers.
+- Documented that native VEDA `.ved` / `.vdf` ingest is not implemented yet.
+- Did not change code behavior, output schemas, thresholds, or scientific logic.
+
+Validation:
+- `rg` checks verified new README sections are present.
+- No tests run; documentation-only change.
+
+Remaining:
+- Review/commit README update if accepted.
+
+---
 Task ID: 18
 Agent: Codex
 Task: Reapply GAP 3 VEDA reference validation harness on current main

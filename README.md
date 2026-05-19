@@ -32,6 +32,52 @@ The main question is:
 
 ORCAVEDA is an evidence layer. It helps inspect calculated vibrations, but it does not replace chemical judgment, experimental spectra, or a separately validated full PED workflow.
 
+## Current Status
+
+Current development status:
+
+- Stage 3D remains the default assignment audit and uses finite-difference B matrices unless explicitly changed.
+- PED, force-aware PED, Wilson GF-style PED, Wilson GF validation, and comparable VEDA-like outputs are diagnostic evidence layers, not automatic proof of original VEDA reproduction.
+- Hybrid analytical B matrices are available as an opt-in method with finite-difference fallback for unsupported or near-singular rows.
+- EPM-like Wilson GF/PED basis optimization is opt-in and affects only Wilson GF validation / VEDA-like diagnostics, not the default Stage 3D assignment labels.
+- NIST IR comparison and scale-factor diagnostics are available when suitable reference spectra are present.
+- Original VEDA reference comparison is supported through normalized reference CSVs; native `.ved` / `.vdf` ingest is not implemented yet.
+- Recent audit hardening fixed composed-PED X-H triage, RDKit neighbor guards, NIST User-Agent wording, `.hess` decode diagnostics, web upload timeout handling, scale-factor weighted-model reporting, and zero-vector mode tracking.
+
+## Quick Start
+
+Run the default Stage 3D workflow on one or more ORCA `.hess` files:
+
+```powershell
+.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\h2o_default
+```
+
+List chemistry backends:
+
+```powershell
+.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py --list-chem-backends
+```
+
+Run with the RDKit backend when RDKit is installed:
+
+```powershell
+.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\acetophenone.hess --chem-backend rdkit --outdir outputs\acetophenone_rdkit
+```
+
+Enable opt-in diagnostic layers:
+
+```powershell
+.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\h2o_veda_like --wilson-gf-validation --veda-like-ped
+```
+
+Use the opt-in hybrid analytical B matrix:
+
+```powershell
+.\.venv312\Scripts\python.exe src\ORCAVEDA_patched_stage3D_v5_0.py data\hess\H2O_freq.hess --outdir outputs\h2o_hybrid_b --b-matrix-method hybrid_analytical
+```
+
+The default `--b-matrix-method finite_difference` is preserved for reproducibility.
+
 ## Pipeline Overview
 
 The image summarizes the workflow:
@@ -245,6 +291,18 @@ ORCAVEDA v5.0 uses a geometric and weighted independent-coordinate assignment au
 
 It should not be described as a strict VEDA PED implementation or a full Wilson GF PED method unless those methods are separately implemented and validated.
 
+Current diagnostic layers use these boundaries:
+
+- `assignment_audit`: default Stage 3D geometric / weighted independent-coordinate assignment audit.
+- `ped_audit`: normalized projection-style PED diagnostic.
+- `ped_v2_force_audit`: force-aware diagnostic layer.
+- `wilson_ped_audit`: Wilson GF-style PED audit.
+- `wilson_gf_validation`: opt-in Wilson GF diagonalization validation prototype.
+- `veda_like_*`: opt-in comparable VEDA-like closed Wilson GF/PED diagnostics.
+- `composed_ped_*`: composed-coordinate diagnostic evidence and policy triage.
+
+None of these outputs should be reported as original VEDA reproduction unless checked original VEDA reference rows are compared and the comparison passes.
+
 ## VEDA-Like Output Validation
 
 The opt-in `--veda-like-ped` path emits diagnostic `veda_like_*` artifacts. These outputs are comparable VEDA-like diagnostics; they do not reproduce original VEDA.
@@ -263,6 +321,54 @@ For a known full-sweep review set, pass allowed warning tokens explicitly:
     .\.venv312\Scripts\python.exe tools\validate_veda_like_outputs.py outputs\veda_like_full_sweep_validated_live --allowed-warning-token empirical_ratio_only --allowed-warning-token fixed_conversion_failed --allowed-warning-token high_frequency_hbond_dominates_xh_stretch_secondary --allowed-warning-token linear_bend_coordinate_used --allowed-warning-token linear_or_near_linear_fixed_conversion_review --allowed-warning-token near_linear_bend_coordinate --allowed-warning-token nonpositive_gf_eigenvalues_within_expected_vibrational_space --allowed-warning-token nonpositive_orca_modes_within_expected_vibrational_space --allowed-warning-token positive_gf_eigenvalue_count_below_expected_vibrational_rank --allowed-warning-token positive_orca_mode_count_below_expected_vibrational_rank
 
 The allowlist is intentionally explicit. New warning tokens should be investigated before they are allowed.
+
+## VEDA Reference Comparison
+
+The comparison harness lives in `benchmarks/veda_compare/`. It compares ORCAVEDA `veda_like_*` CSV artifacts with checked-in original VEDA reference rows when normalized references exist.
+
+Normalize an already prepared reference CSV directory:
+
+```powershell
+.\.venv312\Scripts\python.exe benchmarks\veda_compare\convert_veda_reference.py --raw-reference <raw-reference-dir> --out benchmarks\veda_compare\references\<set-name>
+```
+
+Compare ORCAVEDA outputs with normalized references:
+
+```powershell
+.\.venv312\Scripts\python.exe benchmarks\veda_compare\compare_veda_outputs.py --orcaveda outputs\veda_like_full_sweep_live --reference benchmarks\veda_compare\references\<set-name> --out outputs\veda_reference_compare_live
+```
+
+Status meanings:
+
+- `PASS`: reference rows exist and implemented comparisons are within tolerance.
+- `FAIL`: reference rows exist, but a required artifact, row, dominant contributor, or tolerance check failed.
+- `SKIP`: original VEDA reference rows are absent; this is not validation success.
+
+The current converter accepts normalized CSVs or explicit CSV column mappings. Native VEDA `.ved` / `.vdf` parsing is future work.
+
+## NIST IR and Scaling
+
+The NIST IR workflow is a reference-comparison layer. It must distinguish suitable IR curve references from unsuitable records and should not be used as automatic assignment proof.
+
+Scale-factor model comparison reports `global_weighted_ls` only when explicit weights are available. Without weights, the unweighted global LS model is reported instead of duplicating an identical weighted model.
+
+NIST requests use an ORCAVEDA project User-Agent rather than a browser-spoofed string. Live NIST retrieval can still depend on external service behavior.
+
+## Web Import Server
+
+The local web import server provides browser-based `.hess` upload and interactive viewer access:
+
+```powershell
+.\.venv312\Scripts\python.exe src\web_app.py
+```
+
+Default bind address:
+
+```text
+http://127.0.0.1:8765/
+```
+
+The server is intended for local research workflows. It enforces an upload size limit and now sets a request-body socket timeout, but it is not hardened as an internet-facing service.
 
 The safe boundary is:
 
