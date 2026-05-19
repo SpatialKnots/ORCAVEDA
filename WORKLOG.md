@@ -261,6 +261,26 @@ Remaining:
 - Untracked `incoming/` remains untouched.
 
 ---
+Task ID: 23
+Agent: Codex
+Task: Post-fix next-step inspection
+
+Work Log:
+- Verified branch `codex/audit-p0-p2-fixes` is pushed to `origin/codex/audit-p0-p2-fixes`.
+- Checked for GitHub CLI; `gh` was not available locally, so no pull request was created from the terminal.
+- Inspected untracked `incoming/` contents.
+- Found `incoming\veda_examples\examp_1\examp_1` contains native VEDA example files: `.ved`, `.vdf`, `.dd2`, `.FMT`, `.fmv`, `.mpo`.
+- Confirmed current `benchmarks\veda_compare\convert_veda_reference.py` only accepts normalized reference CSVs or explicit CSV mappings; it does not parse native `.ved`/`.vdf` VEDA exports.
+- Did not stage or modify `incoming/`.
+
+Validation:
+- No tests run; inspection-only task.
+
+Remaining:
+- Open/review PR for `codex/audit-p0-p2-fixes` manually or with GitHub tooling.
+- If `incoming` VEDA examples are accepted as reference material, create a separate GAP 3 branch from `main` for native VEDA `.vdf/.ved` ingest; do not mix it into the P0/P2 audit-fix branch.
+
+---
 Task ID: 18
 Agent: Codex
 Task: Reapply GAP 3 VEDA reference validation harness on current main
