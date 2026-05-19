@@ -299,6 +299,24 @@ Remaining:
 - Review/commit README update if accepted.
 
 ---
+Task ID: 25
+Agent: Codex
+Task: Convert README from usage snippets to conceptual project overview
+
+Work Log:
+- Removed command/code examples from `README.md`.
+- Reworked the README update into conceptual sections: project idea, why the project exists, advantages, and current limitations.
+- Preserved scientific boundaries around Stage 3D, PED-like diagnostics, Wilson GF-style diagnostics, VEDA-like outputs, NIST matching, and native VEDA ingest status.
+- Did not change code behavior, output schemas, thresholds, or scientific logic.
+
+Validation:
+- `rg` checks confirmed fenced code blocks and command examples were removed from `README.md`.
+- No tests run; documentation-only change.
+
+Remaining:
+- Review/commit README conceptual rewrite if accepted.
+
+---
 Task ID: 18
 Agent: Codex
 Task: Reapply GAP 3 VEDA reference validation harness on current main
