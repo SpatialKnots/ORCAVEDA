@@ -174,8 +174,9 @@ class RDKitChemistryBackend:
                     aromatic_neighbors = [nbr for nbr in c_neighbors if int(nbr.GetIdx()) in aromatic_carbon_indices]
                     if aromatic_neighbors:
                         aromatic_c = int(aromatic_neighbors[0].GetIdx())
-                        alkyl_c = next(int(nbr.GetIdx()) for nbr in c_neighbors if int(nbr.GetIdx()) != aromatic_c)
-                        self._add_group(groups, "aryl_ketone", (c_idx, o_idx, aromatic_c, alkyl_c), "RDKit aryl ketone context", "high", "Ketone carbonyl conjugated to aromatic carbon")
+                        alkyl_c = next((int(nbr.GetIdx()) for nbr in c_neighbors if int(nbr.GetIdx()) != aromatic_c), None)
+                        if alkyl_c is not None:
+                            self._add_group(groups, "aryl_ketone", (c_idx, o_idx, aromatic_c, alkyl_c), "RDKit aryl ketone context", "high", "Ketone carbonyl conjugated to aromatic carbon")
                 elif h_neighbors and c_neighbors:
                     self._add_group(groups, "aldehyde", (c_idx, o_idx, int(h_neighbors[0].GetIdx()), int(c_neighbors[0].GetIdx())), "RDKit aldehyde context", "high", "C=O carbon bonded to H and C")
                 elif o_neighbors:
@@ -323,16 +324,18 @@ class RDKitChemistryBackend:
                     if not is_carboxylic_oh:
                         self._add_group(groups, "alcohol", (idx, h_idx, c_idx), "RDKit alcohol context", "high", "O bonded to H and C")
                     if any(int(cnbr.GetIdx()) in aromatic_carbon_indices for cnbr in carbon_neighbors):
-                        aromatic_c = next(int(cnbr.GetIdx()) for cnbr in carbon_neighbors if int(cnbr.GetIdx()) in aromatic_carbon_indices)
-                        self._add_group(groups, "phenol", (idx, h_idx, aromatic_c), "RDKit phenol SMARTS context", "high", "O-H bonded to aromatic carbon")
+                        aromatic_c = next((int(cnbr.GetIdx()) for cnbr in carbon_neighbors if int(cnbr.GetIdx()) in aromatic_carbon_indices), None)
+                        if aromatic_c is not None:
+                            self._add_group(groups, "phenol", (idx, h_idx, aromatic_c), "RDKit phenol SMARTS context", "high", "O-H bonded to aromatic carbon")
                 if len(carbon_neighbors) >= 2:
                     self._add_group(groups, "ether", (idx, int(carbon_neighbors[0].GetIdx()), int(carbon_neighbors[1].GetIdx())), "RDKit ether context", "high", "O bonded to two carbons")
                     if any(idx in ring and all(int(cnbr.GetIdx()) in ring for cnbr in carbon_neighbors[:2]) and len(ring) == 3 for ring in ring_info.AtomRings()):
                         self._add_group(groups, "epoxide", (idx, int(carbon_neighbors[0].GetIdx()), int(carbon_neighbors[1].GetIdx())), "RDKit epoxide context", "high", "Three-membered cyclic ether")
                 if len(carbon_neighbors) >= 2 and any(int(cnbr.GetIdx()) in aromatic_carbon_indices for cnbr in carbon_neighbors):
-                    aromatic_c = next(int(cnbr.GetIdx()) for cnbr in carbon_neighbors if int(cnbr.GetIdx()) in aromatic_carbon_indices)
-                    other_c = next(int(cnbr.GetIdx()) for cnbr in carbon_neighbors if int(cnbr.GetIdx()) != aromatic_c)
-                    self._add_group(groups, "aryl_ether", (aromatic_c, idx, other_c), "RDKit aryl ether context", "high", "O bonded to aromatic carbon and carbon substituent")
+                    aromatic_c = next((int(cnbr.GetIdx()) for cnbr in carbon_neighbors if int(cnbr.GetIdx()) in aromatic_carbon_indices), None)
+                    other_c = next((int(cnbr.GetIdx()) for cnbr in carbon_neighbors if aromatic_c is not None and int(cnbr.GetIdx()) != aromatic_c), None)
+                    if aromatic_c is not None and other_c is not None:
+                        self._add_group(groups, "aryl_ether", (aromatic_c, idx, other_c), "RDKit aryl ether context", "high", "O bonded to aromatic carbon and carbon substituent")
                 if sulfur_neighbors and any(group.group == "sulfoxide_S=O" and idx in group.atoms0 for group in groups):
                     carbon_substituents = [int(nbr.GetIdx()) for nbr in sulfur_neighbors[0].GetNeighbors() if nbr.GetSymbol() == "C"][:2]
                     if len(carbon_substituents) == 2:

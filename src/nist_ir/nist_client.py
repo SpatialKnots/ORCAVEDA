@@ -15,11 +15,7 @@ DEFAULT_MAX_RETRIES = 5
 DEFAULT_RETRY_AFTER_SECONDS = 1
 TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
 DEFAULT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": "ORCAVEDA/Stage3D-v5.0 (research IR reference lookup; github.com/SpatialKnots/ORCAVEDA)",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 

@@ -24,3 +24,13 @@ def test_read_orca_hess_reports_missing_required_sections():
 
     with pytest.raises(ValueError, match=r"Missing required \.hess sections"):
         read_orca_hess(broken_hess)
+
+
+def test_read_orca_hess_reports_decode_failures():
+    outdir = ROOT / "outputs" / "pytest_orca_parser_failures"
+    outdir.mkdir(parents=True, exist_ok=True)
+    broken_hess = outdir / "bad_encoding.hess"
+    broken_hess.write_bytes(b"$atoms\n1\nH 1.0 0.0 0.0 0.0\n\xff")
+
+    with pytest.raises(ValueError, match=r"Failed to decode \.hess file bad_encoding\.hess as UTF-8"):
+        read_orca_hess(broken_hess)

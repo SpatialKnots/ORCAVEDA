@@ -14,9 +14,11 @@ from nist_ir import nist_client  # noqa: E402
 from nist_ir.nist_client import DEFAULT_HEADERS  # noqa: E402
 
 
-def test_default_nist_headers_include_browser_like_user_agent():
+def test_default_nist_headers_use_honest_project_user_agent():
     assert "User-Agent" in DEFAULT_HEADERS
-    assert "Mozilla/5.0" in DEFAULT_HEADERS["User-Agent"]
+    assert DEFAULT_HEADERS["User-Agent"].startswith("ORCAVEDA/")
+    assert "Mozilla/5.0" not in DEFAULT_HEADERS["User-Agent"]
+    assert "Chrome/" not in DEFAULT_HEADERS["User-Agent"]
     assert "Accept" in DEFAULT_HEADERS
     assert "text/html" in DEFAULT_HEADERS["Accept"]
 

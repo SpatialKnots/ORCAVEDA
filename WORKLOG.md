@@ -216,6 +216,51 @@ Remaining:
 - Await next user task.
 
 ---
+Task ID: 21
+Agent: Codex
+Task: Review Super Z ORCAVEDA audit report PDF
+
+Work Log:
+- Read `C:\Users\unive\Downloads\ORCAVEDA_Audit_Report.pdf` using local PDF text extraction.
+- Verified key audit claims against current source with `rg` and focused line reads.
+- Confirmed actionable issues around composed-PED X-H regex, RDKit backend `next()` calls without defaults, monolith shadowing, package/import fragility, NIST User-Agent, web request body handling, parser `errors="ignore"`, and scale-factor comparison behavior.
+- Did not change scientific/code behavior.
+
+Validation:
+- No tests run; analysis-only task.
+
+Remaining:
+- If accepted, implement immediate low-risk fixes in a focused branch/commit: regex, RDKit `StopIteration` guards, scale-factor model distinction, and tests.
+
+---
+Task ID: 22
+Agent: Codex
+Task: Implement audit P0/P2 concrete bugfixes
+
+Work Log:
+- Created branch `codex/audit-p0-p2-fixes`.
+- Fixed composed-PED X-H triage regex to use explicit C/O/N/S-H matching.
+- Added RDKit backend guards around neighbor-context `next()` lookups.
+- Changed `compare_scaling_models()` to omit `global_weighted_ls` when no explicit weights are provided.
+- Replaced NIST WebBook browser-like User-Agent with an ORCAVEDA project identifier.
+- Made `nist_ir.identifiers` importable without top-level RDKit imports; identifier calls now raise a clear missing-RDKit error.
+- Added web upload request socket timeout configuration and handler exposure.
+- Changed ORCA `.hess` parser decode from silent `errors="ignore"` to fail-fast UTF-8 decode with filename context.
+- Made modular `mode_tracking.normalize_tracking_vector()` return a same-shaped zero vector for zero-norm input.
+- Added focused regression tests for the changed behavior.
+
+Validation:
+- `.\.venv312\Scripts\python.exe -m py_compile src\reports.py src\chemistry_rdkit_backend.py src\scale_factor_engine.py src\nist_ir\nist_client.py src\nist_ir\identifiers.py src\web_app.py src\orca_parser.py src\mode_tracking.py tests\test_mode_tracking.py` -> completed successfully.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_interactive_spectrum_viewer.py tests\test_chemistry_backend.py tests\test_scale_factor_engine.py -q` -> 25 passed, 1 skipped.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_nist_ir_client.py tests\test_nist_ir_identifiers.py tests\test_nist_ir_compare.py tests\test_web_app.py tests\test_orca_parser_failures.py -q` -> 23 passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_mode_tracking.py -q` -> 2 passed.
+- `$env:PYTHONPATH='src'; .\.venv312\Scripts\python.exe -m pytest tests\test_stage3d_outputs.py tests\test_regression_baseline_outputs.py -q` -> 2 passed.
+
+Remaining:
+- P1 architecture work remains deferred: monolith shadowing, package conversion, and functional-group unification.
+- Untracked `incoming/` remains untouched.
+
+---
 Task ID: 18
 Agent: Codex
 Task: Reapply GAP 3 VEDA reference validation harness on current main

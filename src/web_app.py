@@ -299,12 +299,15 @@ def create_web_import_handler(
     pipeline_runner: PipelineRunner | None = None,
     nist_ir_runner: NistIrRunner | None = None,
     max_upload_bytes: int = 100 * 1024 * 1024,
+    request_timeout_seconds: float = 30.0,
 ):
     resolved_import_root = Path(import_root) if import_root is not None else default_web_import_root()
     resolved_staging_root = Path(staging_root) if staging_root is not None else Path("outputs") / "web_upload_staging"
+    resolved_request_timeout_seconds = float(request_timeout_seconds)
 
     class ORCAVEDAWebImportHandler(BaseHTTPRequestHandler):
         server_version = "ORCAVEDAWebImport/0.1"
+        request_timeout_seconds = resolved_request_timeout_seconds
 
         def log_message(self, format, *args):
             return
@@ -335,6 +338,7 @@ def create_web_import_handler(
             self._send_json(404, {"error": "Not found."})
 
         def do_POST(self) -> None:
+            self.connection.settimeout(self.request_timeout_seconds)
             parsed = urlparse(self.path)
             if parsed.path != "/api/hess/import":
                 self._send_json(404, {"error": "Not found."})

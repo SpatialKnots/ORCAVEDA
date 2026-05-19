@@ -89,7 +89,11 @@ def parse_block_matrix(lines: List[str]) -> np.ndarray:
 
 def read_orca_hess(path: str | Path) -> HessData:
     path = Path(path)
-    sections = split_orca_hess_sections(path.read_text(errors="ignore"))
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"Failed to decode .hess file {path.name} as UTF-8: {exc}") from exc
+    sections = split_orca_hess_sections(text)
     required = ["$atoms", "$vibrational_frequencies", "$normal_modes", "$ir_spectrum"]
     missing = [section for section in required if section not in sections]
     if missing:

@@ -86,6 +86,18 @@ def test_rdkit_detects_extended_golden_semantic_groups():
     assert not any(group.startswith("nitrile") for group in phenyl_isocyanate)
 
 
+def test_rdkit_neighbor_context_guards_do_not_raise_for_aromatic_contexts():
+    Chem = pytest.importorskip("rdkit.Chem")
+    AllChem = pytest.importorskip("rdkit.Chem.AllChem")
+    backend = RDKitChemistryBackend()
+
+    for smiles in ["Oc1ccccc1", "O(c1ccccc1)c1ccccc1", "O=C(c1ccccc1)c1ccccc1"]:
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        AllChem.EmbedMolecule(mol, randomSeed=1)
+        groups = backend._functional_groups_from_mol(mol, [atom.GetSymbol() for atom in mol.GetAtoms()])
+        assert groups
+
+
 def test_rdkit_merge_filters_legacy_isocyanate_nitrile_overlap():
     pytest.importorskip("rdkit")
     backend = RDKitChemistryBackend()

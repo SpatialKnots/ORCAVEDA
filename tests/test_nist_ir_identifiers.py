@@ -3,12 +3,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from nist_ir import identifiers  # noqa: E402
 from nist_ir.identifiers import hess_to_identifiers, smiles_to_identifiers  # noqa: E402
 from orca_parser import read_orca_hess  # noqa: E402
 
@@ -18,6 +21,16 @@ def test_smiles_to_identifiers_acetophenone():
     assert ids["canonical_smiles"] == "CC(=O)c1ccccc1"
     assert ids["inchi"].startswith("InChI=1S/C8H8O")
     assert ids["inchikey"] == "KWOLFJPFCHCOCG-UHFFFAOYSA-N"
+
+
+def test_identifier_calls_report_missing_rdkit(monkeypatch):
+    def missing_rdkit():
+        raise RuntimeError("RDKit is required for NIST identifier generation.")
+
+    monkeypatch.setattr(identifiers, "_rdkit_modules", missing_rdkit)
+
+    with pytest.raises(RuntimeError, match="RDKit is required"):
+        identifiers.smiles_to_identifiers("CCO")
 
 
 def test_hess_to_identifiers_acetophenone():

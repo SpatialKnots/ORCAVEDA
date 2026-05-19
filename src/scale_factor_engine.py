@@ -259,9 +259,10 @@ def compare_scaling_models(
     pred = apply_scale(omega_arr, k)
     models["global_ls"] = {"params": {"k": k}, "metrics": metrics(pred, nu_arr).__dict__}
 
-    k_weighted = fit_constant_scale(omega_arr, nu_arr, weights=w)
-    pred_weighted = apply_scale(omega_arr, k_weighted)
-    models["global_weighted_ls"] = {"params": {"k": k_weighted}, "metrics": metrics(pred_weighted, nu_arr).__dict__}
+    if weights is not None:
+        k_weighted = fit_constant_scale(omega_arr, nu_arr, weights=w)
+        pred_weighted = apply_scale(omega_arr, k_weighted)
+        models["global_weighted_ls"] = {"params": {"k": k_weighted}, "metrics": metrics(pred_weighted, nu_arr).__dict__}
 
     k_huber = fit_constant_scale_robust(omega_arr, nu_arr, weights=w, loss="huber")
     pred_huber = apply_scale(omega_arr, k_huber)

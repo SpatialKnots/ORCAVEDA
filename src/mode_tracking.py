@@ -29,7 +29,7 @@ def normalize_tracking_vector(vec: np.ndarray, masses: Optional[np.ndarray] = No
         arr = arr * w
     norm = float(np.linalg.norm(arr.ravel()))
     if norm <= 0.0:
-        return arr
+        return np.zeros_like(arr)
     return arr / norm
 
 

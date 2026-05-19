@@ -94,3 +94,13 @@ def test_bootstrap_and_compare_models_return_expected_keys():
     models = compare_scaling_models(omega, nu, weights=weights)
     assert {"global_ls", "global_weighted_ls", "global_huber", "piecewise_region", "power_law"} <= set(models)
     assert models["global_ls"]["metrics"]["mae"] >= 0.0
+
+
+def test_compare_models_omits_weighted_model_without_explicit_weights():
+    omega = np.array([958.8, 1173.4, 1513.2, 1756.0])
+    nu = np.array([953.0, 1078.0, 1460.0, 1597.0])
+
+    models = compare_scaling_models(omega, nu)
+
+    assert "global_ls" in models
+    assert "global_weighted_ls" not in models

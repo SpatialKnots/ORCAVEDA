@@ -59,6 +59,12 @@ def test_parse_multipart_upload_reads_nist_option():
     assert upload.fields["include_nist_ir"] == ("1",)
 
 
+def test_web_import_handler_exposes_request_timeout():
+    handler = create_web_import_handler(request_timeout_seconds=7.5)
+
+    assert handler.request_timeout_seconds == 7.5
+
+
 def test_web_import_page_embeds_interactive_viewer_after_upload():
     handler = create_web_import_handler()
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)

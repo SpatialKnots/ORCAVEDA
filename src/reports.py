@@ -530,7 +530,7 @@ def triage_composed_ped_diagnostic_hint(
     else:
         top_is_composed = bool(composed_ped_top_is_composed_coordinate)
     composed_has_explicit_xh = bool(
-        re.search(r"\b[cons][- ]?h\b", composed_text)
+        re.search(r"\b(?:c|o|n|s)[- ]?h\b", composed_text, flags=re.IGNORECASE)
         or "hydroxyl" in composed_text
         or "phenolic" in composed_text
         or "thiol" in composed_text

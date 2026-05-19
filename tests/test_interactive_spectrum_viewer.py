@@ -260,6 +260,18 @@ def test_composed_ped_hint_triage_separates_noise_from_review_targets():
     assert category == "high_frequency_motion_family_review"
     assert recommendation == "inspect_xh_stretch_vs_bend_or_torsion_coordinate_generation"
 
+    for composed_assignment in ["C-H stretch", "O-H stretch", "N-H stretch", "S-H stretch"]:
+        category, recommendation = triage_composed_ped_diagnostic_hint(
+            "diagnostic_hint_composed_differs_from_baseline",
+            "motion_family_mismatch",
+            53.9,
+            3073.0,
+            "C-C-C bend",
+            composed_assignment,
+        )
+        assert category == "high_frequency_xh_stretch_recovery"
+        assert recommendation == "keep_composed_xh_stretch_as_diagnostic_evidence"
+
     category, recommendation = triage_composed_ped_diagnostic_hint(
         "diagnostic_hint_composed_differs_from_baseline",
         "motion_family_mismatch",

@@ -3,13 +3,21 @@ from __future__ import annotations
 from typing import Dict
 
 import numpy as np
-from rdkit import Chem
-from rdkit.Chem import inchi
-from rdkit.Chem import rdDetermineBonds
-from rdkit.Geometry import Point3D
+
+
+def _rdkit_modules():
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import inchi
+        from rdkit.Chem import rdDetermineBonds
+        from rdkit.Geometry import Point3D
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("RDKit is required for NIST identifier generation.") from exc
+    return Chem, inchi, rdDetermineBonds, Point3D
 
 
 def structure_to_mol(atoms, coords_A, charge: int = 0):
+    Chem, _inchi, rdDetermineBonds, Point3D = _rdkit_modules()
     atoms = [str(atom) for atom in atoms]
     coords = np.asarray(coords_A, dtype=float)
     if coords.shape != (len(atoms), 3):
@@ -31,6 +39,7 @@ def structure_to_mol(atoms, coords_A, charge: int = 0):
 
 
 def structure_to_identifiers(atoms, coords_A, charge: int = 0) -> Dict[str, str]:
+    Chem, inchi, _rdDetermineBonds, _Point3D = _rdkit_modules()
     mol = structure_to_mol(atoms, coords_A, charge=charge)
     collapsed = Chem.RemoveHs(Chem.Mol(mol), sanitize=True)
     target = collapsed
@@ -58,6 +67,7 @@ def structure_to_identifiers(atoms, coords_A, charge: int = 0) -> Dict[str, str]
 
 
 def smiles_to_identifiers(smiles: str) -> Dict[str, str]:
+    Chem, inchi, _rdDetermineBonds, _Point3D = _rdkit_modules()
     raw = str(smiles or "").strip()
     if not raw:
         raise ValueError("SMILES is empty")
