@@ -199,6 +199,23 @@ Remaining:
 - Torsion analytical rows remain unimplemented and use finite-difference fallback.
 
 ---
+Task ID: 20
+Agent: Codex
+Task: Session initialization and Caveman full mode activation
+
+Work Log:
+- Read `COLLABORATION.md`, `AGENTS.md`, `WORKLOG.md`, and `orcaveda-core` skill instructions at session start.
+- User requested `$caveman full`; activated compressed response style for subsequent work.
+- No scientific/code behavior changes requested.
+
+Validation:
+- `git status --short` before the WORKLOG append -> `?? incoming/`.
+- No tests run; no code changes requested.
+
+Remaining:
+- Await next user task.
+
+---
 Task ID: 18
 Agent: Codex
 Task: Reapply GAP 3 VEDA reference validation harness on current main
